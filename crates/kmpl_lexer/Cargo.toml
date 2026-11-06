@@ -1,0 +1,9 @@
+[package]
+name = "kmpl_lexer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kmpl_ast.workspace = true
+logos.workspace = true
