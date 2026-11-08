@@ -8,3 +8,9 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+kmpl_ast.workspace = true
+kmpl_builtins.workspace = true
+
+[dev-dependencies]
+kmpl_lexer.workspace = true
+kmpl_parse.workspace = true

@@ -23,8 +23,8 @@ fn main() {
         }
     };
 
-    match kmpl_parse::parse(tokens) {
-        Ok(program) => println!("{program:#?}"),
+    let program = match kmpl_parse::parse(tokens) {
+        Ok(program) => program,
         Err(err) => {
             eprintln!(
                 "{path}: {} at {}..{}",
@@ -32,5 +32,17 @@ fn main() {
             );
             std::process::exit(1);
         }
+    };
+
+    if let Err(errors) = kmpl_check::check(&program) {
+        for err in &errors {
+            eprintln!(
+                "{path}: {} at {}..{}",
+                err.message, err.span.start, err.span.end
+            );
+        }
+        std::process::exit(1);
     }
+
+    println!("{program:#?}");
 }
