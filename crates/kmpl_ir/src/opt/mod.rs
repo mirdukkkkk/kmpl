@@ -6,6 +6,23 @@
 //! - calls and built-ins keep their order;
 //! - `real` arithmetic is never rearranged: floats are not associative.
 
-use crate::Module;
+mod fold;
 
-pub fn optimize(_module: &mut Module) {}
+use crate::{Function, Module};
+
+/// Rounds of the passes that enable each other, at most.
+const MAX_ROUNDS: usize = 16;
+
+pub fn optimize(module: &mut Module) {
+    for function in &mut module.functions {
+        optimize_function(function);
+    }
+}
+
+fn optimize_function(f: &mut Function) {
+    for _ in 0..MAX_ROUNDS {
+        if !fold::fold(f) {
+            break;
+        }
+    }
+}

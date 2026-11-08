@@ -261,7 +261,102 @@ impl Op {
     }
 }
 
+impl Op {
+    /// Calls `f` with a mutable reference to every register this operation
+    /// reads, so a pass can replace them.
+    pub fn for_each_use_mut(&mut self, mut f: impl FnMut(&mut Reg)) {
+        fn steps(path: &mut [Step], f: &mut impl FnMut(&mut Reg)) {
+            for step in path {
+                if let Step::Index(reg, _) = step {
+                    f(reg);
+                }
+            }
+        }
+
+        match self {
+            Op::Const(_) | Op::GetGlobal(_) => {}
+            Op::Unary { a, .. } | Op::ArrayLen(a) | Op::CheckStep(a) | Op::SetGlobal(_, a) => f(a),
+            Op::Binary { a, b, .. } | Op::AddOverflows { a, b } => {
+                f(a);
+                f(b);
+            }
+            Op::Call { args, .. }
+            | Op::Builtin { args, .. }
+            | Op::MakeArray(args)
+            | Op::MakeTuple(args)
+            | Op::MakeStruct { values: args, .. } => args.iter_mut().for_each(f),
+            Op::ArrayFill { value, len } => {
+                f(value);
+                f(len);
+            }
+            Op::Index { base, index } => {
+                f(base);
+                f(index);
+            }
+            Op::Slice {
+                base, start, end, ..
+            } => {
+                f(base);
+                for bound in [start, end].into_iter().flatten() {
+                    f(bound);
+                }
+            }
+            Op::TupleGet { tuple: base, .. }
+            | Op::FieldGet { base, .. }
+            | Op::Swizzle { base, .. } => f(base),
+            Op::PathGet { base, path } => {
+                f(base);
+                steps(path, &mut f);
+            }
+            Op::PathSet {
+                base, path, value, ..
+            } => {
+                f(base);
+                steps(path, &mut f);
+                f(value);
+            }
+            Op::RangeContinues {
+                value, end, step, ..
+            } => {
+                f(value);
+                f(end);
+                f(step);
+            }
+        }
+    }
+}
+
 impl Terminator {
+    /// The jump targets, to read or change them.
+    pub fn targets_mut(&mut self) -> Vec<&mut Target> {
+        match self {
+            Terminator::Jump(target) => vec![target],
+            Terminator::Branch {
+                then, otherwise, ..
+            } => vec![then, otherwise],
+            Terminator::Return(_) | Terminator::Unreachable => Vec::new(),
+        }
+    }
+
+    /// Calls `f` with a mutable reference to every register this terminator
+    /// reads.
+    pub fn for_each_use_mut(&mut self, mut f: impl FnMut(&mut Reg)) {
+        match self {
+            Terminator::Jump(target) => target.args.iter_mut().for_each(f),
+            Terminator::Branch {
+                cond,
+                then,
+                otherwise,
+            } => {
+                f(cond);
+                then.args.iter_mut().for_each(&mut f);
+                otherwise.args.iter_mut().for_each(f);
+            }
+            Terminator::Return(value) => value.iter_mut().for_each(f),
+            Terminator::Unreachable => {}
+        }
+    }
+
     /// Calls `f` with every register this terminator reads.
     pub fn for_each_use(&self, mut f: impl FnMut(Reg)) {
         match self {

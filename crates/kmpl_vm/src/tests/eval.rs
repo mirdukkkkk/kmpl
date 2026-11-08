@@ -1194,3 +1194,46 @@ fn deep_recursion_is_not_limited_by_the_rust_stack() {
                fn main() { print(down(9000)); }";
     assert_eq!(run(src).unwrap(), "9000\n");
 }
+
+#[test]
+fn optimizations_keep_errors_where_they_were() {
+    let error = |body: &str| run(&format!("fn main() {{ {body} }}")).unwrap_err();
+    // Unused results still fail, after what was printed before them.
+    assert_eq!(
+        error("print(1); let x = 1 / 0; print(2);"),
+        ("division by zero".to_owned(), "1\n".to_owned())
+    );
+    assert_eq!(
+        error("let x = 9223372036854775807 + 1;").0,
+        "integer overflow"
+    );
+    assert_eq!(
+        error("let a = [1]; let x = a[5];").0,
+        "index 5 is out of bounds for an array of length 1"
+    );
+    assert_eq!(
+        error("let a = [1] + [1, 2];").0,
+        "arrays have different lengths: 1 and 2"
+    );
+    assert_eq!(
+        error("for i in 0..3 step 0 { }").0,
+        "loop step cannot be zero"
+    );
+}
+
+#[test]
+fn an_error_in_a_loop_that_never_runs_does_not_happen() {
+    assert_eq!(output("for i in 0..0 { let x = 1 / 0; } print(1);"), "1\n");
+    assert_eq!(
+        output("let a = [1]; if false { print(a[9]); } print(2);"),
+        "2\n"
+    );
+}
+
+#[test]
+fn floats_keep_their_exact_value() {
+    assert_eq!(output("print(0.1 + 0.2);"), "0.30000000000000004\n");
+    assert_eq!(output("print(1e308 * 10 * 0.1);"), "inf\n");
+    assert_eq!(output("print(0.0 / 0.0 == 0.0 / 0.0);"), "false\n");
+    assert_eq!(output("print(-0.0);"), "-0.0\n");
+}

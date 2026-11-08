@@ -12,9 +12,26 @@ fn lowered(src: &str) -> Module {
     module
 }
 
+fn optimized(src: &str) -> Module {
+    let mut program = kmpl_parse::parse(kmpl_lexer::lex(src).unwrap()).unwrap();
+    let types = kmpl_check::check(&mut program).unwrap();
+    let mut module = lower(&program, &types);
+    kmpl_ir::optimize(&mut module);
+    module
+}
+
+/// The text of the function called `name`, after optimizing.
+fn optimized_text(src: &str, name: &str) -> String {
+    function_text(&optimized(src), name)
+}
+
 /// The text of the function called `name`.
 fn text_of(src: &str, name: &str) -> String {
-    let text = lowered(src).to_string();
+    function_text(&lowered(src), name)
+}
+
+fn function_text(module: &Module, name: &str) -> String {
+    let text = module.to_string();
     let start = text
         .find(&format!("fn {name}("))
         .unwrap_or_else(|| panic!("no `{name}` in\n{text}"));
@@ -199,7 +216,11 @@ fn every_example_is_well_formed() {
         if src.contains("\nimport ") || src.starts_with("import ") {
             continue;
         }
-        for f in &lowered(&src).functions {
+        for f in lowered(&src)
+            .functions
+            .iter()
+            .chain(&optimized(&src).functions)
+        {
             verify(f);
         }
         checked += 1;
@@ -236,7 +257,50 @@ fn every_kind_of_statement_is_well_formed() {
         }
         fn main() { }
     "#;
-    for f in &lowered(src).functions {
+    for f in lowered(src)
+        .functions
+        .iter()
+        .chain(&optimized(src).functions)
+    {
         verify(f);
     }
+}
+
+#[test]
+fn constants_are_folded() {
+    let src = "fn f(x: real) -> real { return 2.0 * 3.0 + x; } fn main() { }";
+    let text = optimized_text(src, "f");
+    assert!(text.contains("const 6.0"), "{text}");
+    assert!(!text.contains("mul"), "{text}");
+
+    let src = "fn f() -> bool { return 2 + 3 == 5 && !false; } fn main() { }";
+    let text = optimized_text(src, "f");
+    assert!(!text.contains("add"), "{text}");
+}
+
+#[test]
+fn folding_keeps_runtime_errors() {
+    let overflow = "fn f() -> int { return 9223372036854775807 + 1; } fn main() { }";
+    assert!(optimized_text(overflow, "f").contains("add"));
+    let zero = "fn f() -> int { return 1 / 0; } fn main() { }";
+    assert!(optimized_text(zero, "f").contains("div"));
+    let neg = "fn f() -> int { return -(-9223372036854775807 - 1); } fn main() { }";
+    assert!(optimized_text(neg, "f").contains("neg"));
+}
+
+#[test]
+fn floats_are_not_rearranged() {
+    let src = "fn f(x: real) -> real { return x + 1.0 + 2.0; } fn main() { }";
+    let text = optimized_text(src, "f");
+    assert_eq!(text.matches("add").count(), 2, "{text}");
+}
+
+#[test]
+fn a_range_with_a_known_step_is_a_comparison() {
+    let src = "fn f(n: int) { for i in 0..n { print(i); } } fn main() { }";
+    let text = optimized_text(src, "f");
+    assert!(text.contains("lt"), "{text}");
+    assert!(!text.contains("in_range"), "{text}");
+    let src = "fn f(n: int) { for i in n..=0 step -2 { print(i); } } fn main() { }";
+    assert!(optimized_text(src, "f").contains("ge"));
 }
