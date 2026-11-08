@@ -14,6 +14,7 @@ mod tests;
 pub use value::Value;
 
 use std::io::Write;
+use std::sync::Arc;
 
 use kmpl_ast::Type;
 
@@ -43,6 +44,11 @@ pub enum ParamType {
     Any,
     /// An array of any element type. Used by `len`.
     AnyArray,
+    /// The element type `E`: any type, arrays included. All `E` positions
+    /// in one call are the same type. Used by `push`.
+    Elem,
+    /// An array of `E`.
+    ArrayOfElem,
 }
 
 /// What a built-in returns.
@@ -55,6 +61,8 @@ pub enum RetType {
     /// Like `T`, but `complex` gives `real`: `abs` of `int` is `int`,
     /// of `real` is `real`, of `complex` is its modulus, a `real`.
     Magnitude,
+    /// An array of `E`, see `ParamType::Elem`.
+    ArrayOfElem,
 }
 
 const REAL: ParamType = ParamType::Exact(Type::Real);
@@ -353,9 +361,29 @@ pub static BUILTINS: &[Builtin] = &[
         generic: &[],
         params: &[ParamType::AnyArray],
         ret: RetType::Exact(Type::Int),
-        func: |a, _| match &a[0] {
-            Value::Array(items) => ok(Value::Int(items.len() as i64)),
-            other => panic!("expected an array, got {other:?}"),
+        func: |a, _| ok(Value::Int(a[0].as_array().len() as i64)),
+    },
+    // Arrays are values, so these return a new array and leave the
+    // argument alone: `a = push(a, x);`.
+    Builtin {
+        name: "push",
+        generic: &[],
+        params: &[ParamType::ArrayOfElem, ParamType::Elem],
+        ret: RetType::ArrayOfElem,
+        func: |a, _| {
+            let mut items = a[0].as_array().to_vec();
+            items.push(a[1].clone());
+            ok(Value::Array(Arc::new(items)))
+        },
+    },
+    Builtin {
+        name: "concat",
+        generic: &[],
+        params: &[ParamType::ArrayOfElem, ParamType::ArrayOfElem],
+        ret: RetType::ArrayOfElem,
+        func: |a, _| {
+            let items = [a[0].as_array(), a[1].as_array()].concat();
+            ok(Value::Array(Arc::new(items)))
         },
     },
     // ----- output -----

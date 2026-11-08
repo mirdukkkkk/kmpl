@@ -191,6 +191,14 @@ impl Unifier {
         }
     }
 
+    /// The element variable, if `var` is known to be an array.
+    pub fn element(&self, var: TyVar) -> Option<TyVar> {
+        match self.slots[self.root(var)] {
+            Slot::Array(elem) => Some(elem),
+            _ => None,
+        }
+    }
+
     /// Makes `a` and `b` the same type. On failure nothing changes.
     pub fn unify(&mut self, a: TyVar, b: TyVar) -> Result<(), Mismatch> {
         let (ra, rb) = (self.root(a), self.root(b));

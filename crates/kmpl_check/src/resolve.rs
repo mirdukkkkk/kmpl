@@ -7,7 +7,9 @@
 //! - `fn` and `const` share one global namespace and may not reuse
 //!   a built-in's name.
 //! - Functions can be called before their definition.
-//! - A constant can only use constants defined above it (no cycles).
+//! - A constant can only use constants defined above it (no cycles) and
+//!   call built-in functions: a user function could read a constant that
+//!   is not computed yet.
 //! - A type name that is not built in must be a generic parameter of the
 //!   enclosing function (`fn f<T>(x: T)`); generic names are unique.
 //! - Parameters and `let` live in scopes. An inner block may shadow
@@ -182,7 +184,7 @@ impl<'a> Resolver<'a> {
                 }
                 self.declare_local(name);
             }
-            StmtKind::Assign { name, value } => {
+            StmtKind::Assign { name, value, .. } => {
                 self.expr(value);
                 self.assign_target(name);
             }
@@ -190,6 +192,7 @@ impl<'a> Resolver<'a> {
                 name,
                 indices,
                 value,
+                ..
             } => {
                 self.expr(value);
                 for index in indices {
@@ -218,11 +221,16 @@ impl<'a> Resolver<'a> {
                 var,
                 start,
                 end,
+                step,
                 body,
+                ..
             } => {
                 // The bounds come first, so `for i in 0..i` uses an outer `i`.
                 self.expr(start);
                 self.expr(end);
+                if let Some(step) = step {
+                    self.expr(step);
+                }
                 self.for_body(var, body);
             }
             StmtKind::ForEach { var, array, body } => {
@@ -311,6 +319,14 @@ impl<'a> Resolver<'a> {
                 self.expr(base);
                 self.expr(index);
             }
+            ExprKind::Slice {
+                base, start, end, ..
+            } => {
+                self.expr(base);
+                for bound in [start, end].into_iter().flatten() {
+                    self.expr(bound);
+                }
+            }
         }
     }
 
@@ -338,6 +354,16 @@ impl<'a> Resolver<'a> {
 
     fn call_target(&mut self, name: &Ident, given: usize) {
         let n = name.name.as_str();
+
+        if self.current_const.is_some()
+            && matches!(self.globals.get(n), Some(Global::Function { .. }))
+        {
+            self.error(
+                format!("a constant can only call built-in functions, `{n}` is not one"),
+                name,
+            );
+            return;
+        }
 
         let message = if let Some(expected) = self.param_count(n) {
             if expected == given {

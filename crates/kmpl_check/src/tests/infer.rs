@@ -370,18 +370,6 @@ fn nested_arrays() {
 fn operators_on_arrays() {
     assert_ok("fn f(a: [real], b: [real]) { let same: bool = a == b; }");
     assert_error(
-        "fn f(a: [real]) { let b = a + a; }",
-        "cannot apply `+` to `[real]`",
-    );
-    assert_error(
-        "fn f(a: [real]) { let b = -a; }",
-        "cannot apply `-` to `[real]`",
-    );
-    assert_error(
-        "fn f(a: [real], b: real) { let c = a * b; }",
-        "cannot apply `*` to `[real]` and `real`",
-    );
-    assert_error(
         "fn f(a: [real], b: [real]) { let c = a < b; }",
         "cannot apply `<` to `[real]`",
     );
@@ -457,5 +445,141 @@ fn for_each_variable_has_the_element_type() {
     assert_error(
         "fn f() { for x in 1.5 { } }",
         "expected an array, found `real` or `complex`",
+    );
+}
+
+#[test]
+fn compound_assignment() {
+    assert_ok(
+        "fn f(x: real, v: vec2, a: [real]) { x += 1; x *= 2.0; v *= 2.0; v += v; a[0] /= 2; }",
+    );
+    assert_ok("fn f() { let x = 1; x += 2; let y: int = x; }");
+    assert_error(
+        "fn f(x: real) { x += true; }",
+        "mismatched types: expected `real`, found `bool`",
+    );
+    assert_error(
+        "fn f(x: int) { x /= 2.0; }",
+        "mismatched types: expected `int`, found `real` or `complex`",
+    );
+    assert_error("fn f(b: bool) { b += b; }", "cannot apply `+` to `bool`");
+    // The result has to fit the variable.
+    assert_error(
+        "fn f(x: real, v: vec2) { x *= v; }",
+        "mismatched types: expected `real`, found `vec2`",
+    );
+}
+
+#[test]
+fn range_step_is_an_int() {
+    assert_ok("fn f(n: int) { for i in 0..=n step n { let j: int = i; } }");
+    assert_error(
+        "fn f() { for i in 0..3 step 1.5 { } }",
+        "mismatched types: expected `int`, found `real` or `complex`",
+    );
+}
+
+#[test]
+fn slices_have_the_type_of_the_array() {
+    assert_ok("fn f(a: [real], i: int) { let b: [real] = a[i..]; let c: [real] = a[..]; }");
+    assert_ok("fn f(m: [[int]]) { let r: [[int]] = m[..=1]; let x: int = m[0..1][0][0]; }");
+    assert_error(
+        "fn f(a: [real]) { a[1.5..]; }",
+        "mismatched types: expected `int`, found `real` or `complex`",
+    );
+    assert_error(
+        "fn f(x: real) { x[1..]; }",
+        "expected an array, found `real`",
+    );
+}
+
+#[test]
+fn push_and_concat() {
+    assert_ok("fn f(a: [real]) { let b: [real] = push(a, 1); let c: [real] = concat(a, b); }");
+    assert_ok("fn f() { let m = [[1.0]]; m = push(m, [2.0]); let n: [[real]] = m; }");
+    assert_ok("fn f() { let a = push([], 1.5); let b: [real] = a; }");
+    assert_error(
+        "fn f(a: [real]) { push(a, true); }",
+        "mismatched types: expected `real`, found `bool`",
+    );
+    assert_error(
+        "fn f(a: [real], b: [int]) { concat(a, b); }",
+        "mismatched types: expected `[real]`, found `[int]`",
+    );
+    assert_error(
+        "fn f(x: real) { push(x, 1.0); }",
+        "mismatched types: expected `[_]`, found `real`",
+    );
+}
+
+#[test]
+fn element_wise_operators() {
+    assert_ok("fn f(a: [real], b: [real]) { let c: [real] = a + b - a; let d: [real] = -a; }");
+    assert_ok("fn f(m: [[real]], n: [[real]]) { let c: [[real]] = m + n; }");
+    assert_ok("fn f(a: [vec2]) { let c: [vec2] = a + a; let d: [vec2] = a * 2.0; }");
+    assert_ok(
+        "fn f(a: [real]) { let b: [real] = a * 2; let c: [real] = 2 * a; let d: [real] = a / 2; }",
+    );
+    assert_ok("fn f(a: [int]) { let b: [int] = a * 2; }");
+    assert_ok("fn f(m: [[real]]) { let b: [[real]] = m * 2.0; m *= 2; m += m; }");
+    // A literal takes the type of the elements, or the other way around.
+    assert_ok("fn f() { let a = [1, 2] * 2.5; let b: [real] = a; }");
+
+    assert_error(
+        "fn f(a: [bool]) { let b = a + a; }",
+        "cannot apply `+` to `[bool]`",
+    );
+    assert_error(
+        "fn f(a: [bool]) { let b = -a; }",
+        "cannot apply `-` to `[bool]`",
+    );
+    assert_error(
+        "fn f(a: [real], b: [int]) { a + b; }",
+        "mismatched types: expected `[real]`, found `[int]`",
+    );
+    assert_error(
+        "fn f(a: [real]) { let b = 2.0 / a; }",
+        "cannot apply `/` to `real` or `complex` and `[real]`",
+    );
+    assert_error(
+        "fn f(a: [real], b: [real]) { let c = a / b; }",
+        "cannot apply `/` to `[real]` and `[real]`",
+    );
+    assert_error(
+        "fn f(a: [real]) { let b = a * true; }",
+        "cannot apply `*` to `real` and `bool`",
+    );
+}
+
+#[test]
+fn matrix_product() {
+    assert_ok("fn f(m: [[real]], v: [real]) { let a: [[real]] = m * m; let b: [real] = m * v; }");
+    assert_ok("fn f(m: [[real]], v: [real]) { m *= m; v = m * v; }");
+    assert_ok("fn f(m: [[int]], n: [[complex]]) { let a = m * m; let b = n * n; }");
+    assert_ok("fn f() { let a: [[real]] = [[1, 2]] * [[1.5], [2]]; }");
+
+    assert_error(
+        "fn f(a: [real], b: [real]) { let c = a * b; }",
+        "cannot apply `*` to `[real]` and `[real]`",
+    );
+    assert_error(
+        "fn f(m: [[real]], v: [real]) { let a = v * m; }",
+        "cannot apply `*` to `[real]` and `[[real]]`",
+    );
+    assert_error(
+        "fn f(m: [[bool]]) { let a = m * m; }",
+        "cannot apply `*` to `bool`",
+    );
+    assert_error(
+        "fn f(m: [[real]], n: [[int]]) { let a = m * n; }",
+        "mismatched types: expected `real`, found `int`",
+    );
+    assert_error(
+        "fn f(m: [[[real]]]) { let a = m * m; }",
+        "cannot apply `*` to `[[[real]]]` and `[[[real]]]`",
+    );
+    assert_error(
+        "fn f(m: [[real]], v: [real]) { m *= v; }",
+        "mismatched types: expected `[[real]]`, found `[real]`",
     );
 }

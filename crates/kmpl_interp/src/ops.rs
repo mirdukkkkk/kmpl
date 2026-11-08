@@ -7,6 +7,13 @@
 //!
 //! `&&` and `||` are not here: they skip the right side, so `eval`
 //! handles them.
+//!
+//! Arrays: `+`, `-` and unary `-` work element by element, an array with a
+//! non-array applies the operator to every element, and `*` on two arrays
+//! is the matrix product. Lengths are only known here, so a size mismatch
+//! is a run-time error.
+
+use std::sync::Arc;
 
 use kmpl_ast::{BinOp, UnOp};
 use kmpl_builtins::Value;
@@ -23,6 +30,7 @@ pub fn unary(op: UnOp, v: Value) -> Result<Value, String> {
             re: 0.0 - re,
             im: 0.0 - im,
         },
+        (UnOp::Neg, Value::Array(items)) => map_array(items, |x| unary(op, x.clone()))?,
         (UnOp::Neg, _) => v
             .map_components(|c| -c)
             .unwrap_or_else(|| bug_unary(op, &v)),
@@ -32,11 +40,15 @@ pub fn unary(op: UnOp, v: Value) -> Result<Value, String> {
 }
 
 pub fn binary(op: BinOp, l: Value, r: Value) -> Result<Value, String> {
-    use Value::{Bool, Complex, Int, Real};
+    use Value::{Array, Bool, Complex, Int, Real};
 
     let result = match (op, &l, &r) {
         (BinOp::Eq, ..) => Bool(l == r),
         (BinOp::Ne, ..) => Bool(l != r),
+
+        (_, Array(a), Array(b)) => array_op(op, a, b)?,
+        (_, Array(a), _) => map_array(a, |x| binary(op, x.clone(), r.clone()))?,
+        (_, _, Array(b)) => map_array(b, |x| binary(op, l.clone(), x.clone()))?,
 
         (_, Int(a), Int(b)) => int_op(op, *a, *b)?,
         (_, Real(a), Real(b)) => real_op(op, *a, *b).unwrap_or_else(|| bug(op, &l, &r)),
@@ -64,6 +76,114 @@ pub fn binary(op: BinOp, l: Value, r: Value) -> Result<Value, String> {
         _ => bug(op, &l, &r),
     };
     Ok(result)
+}
+
+fn map_array(
+    items: &[Value],
+    f: impl FnMut(&Value) -> Result<Value, String>,
+) -> Result<Value, String> {
+    let values = items.iter().map(f).collect::<Result<Vec<_>, _>>()?;
+    Ok(Value::Array(Arc::new(values)))
+}
+
+fn array_op(op: BinOp, a: &[Value], b: &[Value]) -> Result<Value, String> {
+    match op {
+        BinOp::Add | BinOp::Sub => {
+            if a.len() != b.len() {
+                return Err(format!(
+                    "arrays have different lengths: {} and {}",
+                    a.len(),
+                    b.len()
+                ));
+            }
+            let values = a
+                .iter()
+                .zip(b)
+                .map(|(x, y)| binary(op, x.clone(), y.clone()))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Value::Array(Arc::new(values)))
+        }
+        BinOp::Mul => matrix_mul(a, b),
+        _ => panic!("operator {op:?} on two arrays, the checker should have rejected it"),
+    }
+}
+
+/// `a * b` for a matrix `a` and a matrix or vector `b`.
+///
+/// An empty `b` has no first element to tell which of the two it is, so
+/// multiplying by it is an error unless `a` is empty too.
+fn matrix_mul(a: &[Value], b: &[Value]) -> Result<Value, String> {
+    if a.is_empty() {
+        return Ok(Value::Array(Arc::new(Vec::new())));
+    }
+    let (rows, cols) = matrix_rows(a)?;
+    let n = rows.len();
+    let Some(first) = b.first() else {
+        return Err(format!(
+            "cannot multiply a {n}x{cols} matrix by an empty array"
+        ));
+    };
+
+    if !matches!(first, Value::Array(_)) {
+        if cols != b.len() {
+            return Err(format!(
+                "cannot multiply a {n}x{cols} matrix by a vector of length {}",
+                b.len()
+            ));
+        }
+        let values = rows
+            .iter()
+            .map(|row| sum_of_products(row, b.iter()))
+            .collect::<Result<Vec<_>, _>>()?;
+        return Ok(Value::Array(Arc::new(values)));
+    }
+
+    let (other, other_cols) = matrix_rows(b)?;
+    if cols != other.len() {
+        return Err(format!(
+            "cannot multiply a {n}x{cols} matrix by a {}x{other_cols} matrix",
+            other.len()
+        ));
+    }
+    let values = rows
+        .iter()
+        .map(|row| {
+            let entries = (0..other_cols)
+                .map(|k| sum_of_products(row, other.iter().map(|r| &r[k])))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Value::Array(Arc::new(entries)))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(Value::Array(Arc::new(values)))
+}
+
+/// The rows of a non-empty matrix and its number of columns.
+fn matrix_rows(matrix: &[Value]) -> Result<(Vec<&[Value]>, usize), String> {
+    let rows: Vec<&[Value]> = matrix.iter().map(Value::as_array).collect();
+    let cols = rows[0].len();
+    for (i, row) in rows.iter().enumerate() {
+        if row.len() != cols {
+            return Err(format!(
+                "matrix is not rectangular: row {i} has {} elements, row 0 has {cols}",
+                row.len()
+            ));
+        }
+    }
+    Ok((rows, cols))
+}
+
+/// `x[0] * y[0] + x[1] * y[1] + ...`. There is at least one term: without
+/// knowing the number type there would be no zero to start from.
+fn sum_of_products<'v>(x: &[Value], y: impl Iterator<Item = &'v Value>) -> Result<Value, String> {
+    let mut total = None;
+    for (p, q) in x.iter().zip(y) {
+        let term = binary(BinOp::Mul, p.clone(), q.clone())?;
+        total = Some(match total {
+            Some(sum) => binary(BinOp::Add, sum, term)?,
+            None => term,
+        });
+    }
+    Ok(total.expect("the caller checked there is at least one column"))
 }
 
 const OVERFLOW: &str = "integer overflow";

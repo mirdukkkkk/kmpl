@@ -169,3 +169,55 @@ fn array_errors() {
     assert_eq!(body_error("f()[0] = 1;"), "expected `;`, found `=`");
     assert_eq!(body_error("[1][0] = 1;"), "expected `;`, found `=`");
 }
+
+#[test]
+fn compound_assignment() {
+    assert_eq!(body("x += 1;"), "[(+= x 1)]");
+    assert_eq!(body("x -= 1;"), "[(-= x 1)]");
+    assert_eq!(body("x *= 2 + 3;"), "[(*= x (+ 2 3))]");
+    assert_eq!(body("x /= 2;"), "[(/= x 2)]");
+    assert_eq!(body("a[i][j] += 1;"), "[(index+= a [i j] 1)]");
+    assert_eq!(body_error("f()[0] += 1;"), "expected `;`, found `+=`");
+    assert_eq!(body_error("1 += 1;"), "expected `;`, found `+=`");
+}
+
+#[test]
+fn inclusive_ranges_and_steps() {
+    assert_eq!(body("for i in 0..=3 { }"), "[(for= i 0 3 [])]");
+    assert_eq!(body("for i in 0..9 step 2 { }"), "[(for i 0 9 step 2 [])]");
+    assert_eq!(
+        body("for i in 9..=0 step -1 { }"),
+        "[(for= i 9 0 step (- 1) [])]"
+    );
+    // `step` is only special after a range.
+    assert_eq!(
+        body("let step = 1; for i in 0..step step step { }"),
+        "[(let step _ 1) (for i 0 step step step [])]"
+    );
+    assert_eq!(
+        body_error("for i in 0..1 step { }"),
+        "expected expression, found `{`"
+    );
+    assert_eq!(
+        body_error("for x in a step 2 { }"),
+        "expected `{`, found identifier `step`"
+    );
+}
+
+#[test]
+fn slices() {
+    assert_eq!(body("a[1..2];"), "[(slice a 1 2)]");
+    assert_eq!(body("a[..2];"), "[(slice a _ 2)]");
+    assert_eq!(body("a[1..];"), "[(slice a 1 _)]");
+    assert_eq!(body("a[..];"), "[(slice a _ _)]");
+    assert_eq!(body("a[1..=2];"), "[(slice= a 1 2)]");
+    assert_eq!(body("a[..=2];"), "[(slice= a _ 2)]");
+    assert_eq!(body("a[1..][0];"), "[(index (slice a 1 _) 0)]");
+    assert_eq!(
+        body("for x in a[1..] { }"),
+        "[(foreach x (slice a 1 _) [])]"
+    );
+    assert_eq!(body_error("a[1..=];"), "expected expression, found `]`");
+    assert_eq!(body_error("a[..=];"), "expected expression, found `]`");
+    assert_eq!(body_error("a[1..2] = 1;"), "expected `;`, found `=`");
+}

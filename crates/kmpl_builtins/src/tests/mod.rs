@@ -74,9 +74,19 @@ fn signatures_match_implementations() {
                     ParamType::Exact(ty) => sample(*ty),
                     ParamType::T => sample(t),
                     ParamType::Any => sample(Type::Int),
-                    ParamType::AnyArray => Value::Array(std::sync::Arc::new(vec![sample(t)])),
+                    ParamType::Elem => sample(t),
+                    ParamType::AnyArray | ParamType::ArrayOfElem => {
+                        Value::Array(std::sync::Arc::new(vec![sample(t)]))
+                    }
                 })
                 .collect();
+
+            let result = (b.func)(&args, &mut Vec::new()).unwrap();
+            // `Value::ty` covers only the closed list of types.
+            if b.ret == RetType::ArrayOfElem {
+                assert!(matches!(result, Some(Value::Array(_))), "`{}`", b.name);
+                continue;
+            }
 
             let expected = match b.ret {
                 RetType::Nothing => None,
@@ -84,9 +94,9 @@ fn signatures_match_implementations() {
                 RetType::T => Some(t),
                 RetType::Magnitude if t == Type::Complex => Some(Type::Real),
                 RetType::Magnitude => Some(t),
+                RetType::ArrayOfElem => unreachable!("handled above"),
             };
 
-            let result = (b.func)(&args, &mut Vec::new()).unwrap();
             assert_eq!(
                 result.map(|v| v.ty()),
                 expected,

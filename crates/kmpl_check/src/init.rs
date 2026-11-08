@@ -2,8 +2,8 @@
 //! after it has been assigned on every path that reaches the read.
 //!
 //! Rules:
-//! - `x = ...` initializes `x`. `x[i] = ...` reads `x`, so `x` must already
-//!   be assigned.
+//! - `x = ...` initializes `x`. `x += ...` and `x[i] = ...` read `x`, so `x`
+//!   must already be assigned.
 //! - After `if`/`else`, `x` is initialized only if both branches initialize it.
 //!   An `if` without `else` initializes nothing.
 //! - Assignments inside `while` and `for` do not count after the loop: the
@@ -106,8 +106,11 @@ impl<'a> InitChecker<'a> {
                 self.declare(name, init.is_some());
                 false
             }
-            StmtKind::Assign { name, value } => {
+            StmtKind::Assign { name, op, value } => {
                 self.expr(value);
+                if op.is_some() {
+                    self.read(name);
+                }
                 if let Some(id) = self.lookup(&name.name) {
                     self.init[id] = true;
                 }
@@ -117,6 +120,7 @@ impl<'a> InitChecker<'a> {
                 name,
                 indices,
                 value,
+                ..
             } => {
                 self.expr(value);
                 for index in indices {
@@ -144,10 +148,15 @@ impl<'a> InitChecker<'a> {
                 var,
                 start,
                 end,
+                step,
                 body,
+                ..
             } => {
                 self.expr(start);
                 self.expr(end);
+                if let Some(step) = step {
+                    self.expr(step);
+                }
                 self.for_body(var, body);
                 false
             }
@@ -234,6 +243,14 @@ impl<'a> InitChecker<'a> {
             ExprKind::Index { base, index } => {
                 self.expr(base);
                 self.expr(index);
+            }
+            ExprKind::Slice {
+                base, start, end, ..
+            } => {
+                self.expr(base);
+                for bound in [start, end].into_iter().flatten() {
+                    self.expr(bound);
+                }
             }
         }
     }

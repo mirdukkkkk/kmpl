@@ -25,6 +25,14 @@ pub enum ExprKind {
     ArrayFill { value: Box<Expr>, len: Box<Expr> },
     /// `base[index]`
     Index { base: Box<Expr>, index: Box<Expr> },
+    /// `base[start..end]`, a copy of that part. A missing `start` is 0, a
+    /// missing `end` is the length. `inclusive` is `..=`.
+    Slice {
+        base: Box<Expr>,
+        start: Option<Box<Expr>>,
+        end: Option<Box<Expr>>,
+        inclusive: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -256,3 +256,51 @@ fn for_each_scope() {
     assert_error("fn f() { for x in x { } }", "undefined variable `x`");
     assert_ok("fn f(a: [int]) { for x in a { if x == 1 { continue; } break; } }");
 }
+
+#[test]
+fn constants_call_only_built_ins() {
+    assert_ok("const A: real = sqrt(2.0);");
+    assert_ok("const A: real = 1.0; const B: real = max(A, 2.0);");
+    assert_ok("fn f() -> real { return A; } const A: real = 1.0;");
+    assert_error(
+        "fn f() -> real { return 1.0; } const A: real = f();",
+        "a constant can only call built-in functions, `f` is not one",
+    );
+    assert_error(
+        "fn f() -> real { return 1.0; } const A: real = sqrt(f());",
+        "a constant can only call built-in functions, `f` is not one",
+    );
+    // The bug this rule closes: `f` reads `B` before it has a value.
+    assert_error(
+        "fn f() -> real { return B; } const A: real = f(); const B: real = 2.0;",
+        "a constant can only call built-in functions, `f` is not one",
+    );
+}
+
+#[test]
+fn compound_assignment_targets() {
+    assert_error(
+        "const A: int = 1; fn f() { A += 1; }",
+        "cannot assign to constant `A`",
+    );
+    assert_error(
+        "fn f() { for i in 0..1 { i += 1; } }",
+        "cannot assign to loop variable `i`",
+    );
+    assert_error("fn f() { x += 1; }", "undefined variable `x`");
+    assert_error("fn f(a: [int]) { a[y] += 1; }", "undefined variable `y`");
+}
+
+#[test]
+fn step_and_slices_resolve_their_names() {
+    assert_error(
+        "fn f() { for i in 0..1 step s { } }",
+        "undefined variable `s`",
+    );
+    assert_error(
+        "fn f() { for i in 0..1 step i { } }",
+        "undefined variable `i`",
+    );
+    assert_error("fn f(a: [int]) { a[n..]; }", "undefined variable `n`");
+    assert_error("fn f(a: [int]) { a[..n]; }", "undefined variable `n`");
+}

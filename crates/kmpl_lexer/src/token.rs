@@ -34,6 +34,10 @@ pub enum Token {
     #[token(">")] Gt,
     #[token(">=")] Ge,
     #[token("=")] Assign,
+    #[token("+=")] PlusEq,
+    #[token("-=")] MinusEq,
+    #[token("*=")] StarEq,
+    #[token("/=")] SlashEq,
     #[token("->")] Arrow,
 
     #[token("(")] LParen,
@@ -46,6 +50,7 @@ pub enum Token {
     #[token(";")] Semi,
     #[token(":")] Colon,
     #[token("..")] DotDot,
+    #[token("..=")] DotDotEq,
 
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*", |l| l.slice().to_owned())]
     Ident(String),
@@ -102,6 +107,10 @@ impl std::fmt::Display for Token {
             Token::Gt => ">",
             Token::Ge => ">=",
             Token::Assign => "=",
+            Token::PlusEq => "+=",
+            Token::MinusEq => "-=",
+            Token::StarEq => "*=",
+            Token::SlashEq => "/=",
             Token::Arrow => "->",
             Token::LParen => "(",
             Token::RParen => ")",
@@ -113,6 +122,7 @@ impl std::fmt::Display for Token {
             Token::Semi => ";",
             Token::Colon => ":",
             Token::DotDot => "..",
+            Token::DotDotEq => "..=",
             Token::Ident(name) => return write!(f, "identifier `{name}`"),
             Token::Imag(v) => return write!(f, "number `{v:?}i`"),
             Token::Real(v) => return write!(f, "number `{v:?}`"),

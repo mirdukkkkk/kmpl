@@ -22,12 +22,14 @@ stmt        ::= let | if | while | for | break | continue | return | assign | in
 let         ::= 'let' IDENT (':' type)? ('=' expr)? ';'
 if          ::= 'if' expr block ('else' (if | block))?
 while       ::= 'while' expr block
-for         ::= 'for' IDENT 'in' expr ('..' expr)? block   (* a range without its end, or an array *)
+for         ::= 'for' IDENT 'in' expr (('..' | '..=') expr step?)? block   (* a range, or an array *)
+step        ::= 'step' expr               (* 'step' is an ordinary IDENT, special only here *)
 break       ::= 'break' ';'
 continue    ::= 'continue' ';'
 return      ::= 'return' expr? ';'
-assign      ::= IDENT '=' expr ';'
-indexassign ::= IDENT ('[' expr ']')+ '=' expr ';'
+assign      ::= IDENT assignop expr ';'
+indexassign ::= IDENT ('[' expr ']')+ assignop expr ';'
+assignop    ::= '=' | '+=' | '-=' | '*=' | '/='
 exprstmt    ::= expr ';'
 
 (* expressions: from lowest to highest precedence *)
@@ -39,7 +41,8 @@ comp        ::= add (('<' | '<=' | '>' | '>=') add)*
 add         ::= mul (('+' | '-') mul)*
 mul         ::= unary (('*' | '/') unary)*
 unary       ::= ('!' | '-') unary | postfix
-postfix     ::= primary ('[' expr ']')* (':' swizzle)?
+postfix     ::= primary ('[' (expr | slice) ']')* (':' swizzle)?
+slice       ::= expr? '..' expr? | expr? '..=' expr
 primary     ::= INT | REAL | IMAG | 'true' | 'false' | IDENT | call | array | '(' expr ')'
 array       ::= '[' (expr (',' expr)* ','?)? ']' | '[' expr ';' expr ']'
 call        ::= IDENT '(' (expr (',' expr)* ','?)? ')'

@@ -523,3 +523,251 @@ fn generic_calls_and_literals_inside_arrays() {
                }";
     assert_eq!(run(src).unwrap(), "[2.0, 1.5]\n3\n4\n");
 }
+
+#[test]
+fn constants_use_built_ins() {
+    assert_eq!(
+        run("const A: real = sqrt(4.0); const V: [real] = [1.0, 2.0] * A; fn main() { print(V); }")
+            .unwrap(),
+        "[2.0, 4.0]\n"
+    );
+}
+
+#[test]
+fn compound_assignment() {
+    assert_eq!(
+        output("let x = 1; x += 2; x *= 5; x -= 3; x /= 2; print(x);"),
+        "6\n"
+    );
+    assert_eq!(output("let x = 1.0; x /= 4; print(x);"), "0.25\n");
+    assert_eq!(
+        output("let v = vec2(1, 2); v *= 2.0; print(v);"),
+        "(2.0, 4.0)\n"
+    );
+    assert_eq!(output("let a = [1, 2]; a[1] += 5; print(a);"), "[1, 7]\n");
+    assert_eq!(
+        output("let m = [[1, 2]]; m[0][1] *= 3; print(m);"),
+        "[[1, 6]]\n"
+    );
+    assert_eq!(
+        output("let a = [1]; let b = a; b[0] += 1; print(a); print(b);"),
+        "[1]\n[2]\n"
+    );
+}
+
+#[test]
+fn compound_index_assignment_runs_each_part_once() {
+    let src = "fn value() -> int { print(1); return 1; }
+               fn index() -> int { print(2); return 0; }
+               fn main() { let a = [1]; a[index()] += value(); print(a); }";
+    assert_eq!(run(src).unwrap(), "1\n2\n[2]\n");
+}
+
+#[test]
+fn compound_assignment_errors() {
+    let run_body = |body: &str| runtime_error(&format!("fn main() {{ {body} }}"));
+    assert_eq!(
+        run_body("let x = 9223372036854775807; x += 1;"),
+        "integer overflow"
+    );
+    assert_eq!(run_body("let x = 1; x /= 0;"), "division by zero");
+    assert_eq!(
+        run_body("let a = [1]; a[5] += 1;"),
+        "index 5 is out of bounds for an array of length 1"
+    );
+}
+
+#[test]
+fn inclusive_ranges() {
+    assert_eq!(output("for i in 1..=3 { print(i); }"), "1\n2\n3\n");
+    assert_eq!(output("for i in 3..=3 { print(i); }"), "3\n");
+    assert_eq!(output("for i in 4..=3 { print(i); }"), "");
+}
+
+#[test]
+fn range_steps() {
+    assert_eq!(output("for i in 0..7 step 3 { print(i); }"), "0\n3\n6\n");
+    assert_eq!(output("for i in 0..6 step 3 { print(i); }"), "0\n3\n");
+    assert_eq!(output("for i in 0..=6 step 3 { print(i); }"), "0\n3\n6\n");
+    assert_eq!(output("for i in 3..0 step -1 { print(i); }"), "3\n2\n1\n");
+    assert_eq!(output("for i in 3..=0 step -2 { print(i); }"), "3\n1\n");
+    assert_eq!(output("for i in 0..3 step -1 { print(i); }"), "");
+    assert_eq!(
+        runtime_error("fn main() { for i in 0..3 step 0 { } }"),
+        "loop step cannot be zero"
+    );
+}
+
+#[test]
+fn ranges_stop_at_the_end_of_int() {
+    assert_eq!(
+        output("for i in 9223372036854775806..=9223372036854775807 { print(i); }"),
+        "9223372036854775806\n9223372036854775807\n"
+    );
+    assert_eq!(
+        output("for i in 9223372036854775807..=9223372036854775807 step 5 { print(i); }"),
+        "9223372036854775807\n"
+    );
+}
+
+#[test]
+fn range_parts_run_once_in_order() {
+    let src = "fn n(x: int) -> int { print(x); return x; }
+               fn main() { for i in n(0)..n(4) step n(2) { print(100 + i); } }";
+    assert_eq!(run(src).unwrap(), "0\n4\n2\n100\n102\n");
+}
+
+#[test]
+fn slices() {
+    let body = |slice: &str| output(&format!("let a = [1, 2, 3]; print(a[{slice}]);"));
+    assert_eq!(body("1..3"), "[2, 3]\n");
+    assert_eq!(body("..2"), "[1, 2]\n");
+    assert_eq!(body("1.."), "[2, 3]\n");
+    assert_eq!(body(".."), "[1, 2, 3]\n");
+    assert_eq!(body("0..=1"), "[1, 2]\n");
+    assert_eq!(body("..=0"), "[1]\n");
+    assert_eq!(body("1..1"), "[]\n");
+    assert_eq!(body("3.."), "[]\n");
+    assert_eq!(body("1..=2"), "[2, 3]\n");
+}
+
+#[test]
+fn a_slice_is_a_copy() {
+    assert_eq!(
+        output("let a = [1, 2]; let b = a[..]; b[0] = 9; print(a); print(b);"),
+        "[1, 2]\n[9, 2]\n"
+    );
+}
+
+#[test]
+fn slice_errors() {
+    let error = |slice: &str| {
+        runtime_error(&format!(
+            "fn main() {{ let a = [1, 2, 3]; print(a[{slice}]); }}"
+        ))
+    };
+    let of_three = "is out of bounds for an array of length 3";
+    assert_eq!(error("2..1"), format!("slice 2..1 {of_three}"));
+    assert_eq!(error("..4"), format!("slice 0..4 {of_three}"));
+    assert_eq!(error("4.."), format!("slice 4..3 {of_three}"));
+    assert_eq!(error("-1.."), format!("slice -1..3 {of_three}"));
+    assert_eq!(error("..=3"), format!("slice 0..=3 {of_three}"));
+    assert_eq!(error("0..=-1"), format!("slice 0..=-1 {of_three}"));
+    assert_eq!(
+        error("..=9223372036854775807"),
+        format!("slice 0..=9223372036854775807 {of_three}")
+    );
+}
+
+#[test]
+fn push_and_concat_return_new_arrays() {
+    assert_eq!(
+        output("let a = [1]; let b = push(a, 2); print(a); print(b);"),
+        "[1]\n[1, 2]\n"
+    );
+    assert_eq!(
+        output("let a: [int] = []; a = push(a, 1); a = push(a, 2); print(a);"),
+        "[1, 2]\n"
+    );
+    assert_eq!(output("print(concat([1], [2, 3]));"), "[1, 2, 3]\n");
+    assert_eq!(
+        output("let m = [[1]]; m = push(m, [2]); print(m);"),
+        "[[1], [2]]\n"
+    );
+}
+
+#[test]
+fn element_wise_operators() {
+    assert_eq!(
+        output("print([1, 2] + [3, 4]); print([1.5] - [0.5]);"),
+        "[4, 6]\n[1.0]\n"
+    );
+    assert_eq!(output("print(-[1, 2]);"), "[-1, -2]\n");
+    assert_eq!(output("print([[1, 2]] + [[3, 4]]);"), "[[4, 6]]\n");
+    assert_eq!(
+        output("print([1, 2] * 2); print(2 * [1, 2]); print([4.0] / 2);"),
+        "[2, 4]\n[2, 4]\n[2.0]\n"
+    );
+    assert_eq!(output("print([[1, 2]] * 3);"), "[[3, 6]]\n");
+    assert_eq!(output("print([1, 2] * 2.5);"), "[2.5, 5.0]\n");
+    assert_eq!(output("print([vec2(1, 2)] * 2.0);"), "[(2.0, 4.0)]\n");
+    assert_eq!(output("let a = [1]; a += [2]; a *= 3; print(a);"), "[9]\n");
+}
+
+#[test]
+fn element_wise_errors() {
+    let error = |body: &str| runtime_error(&format!("fn main() {{ {body} }}"));
+    assert_eq!(
+        error("print([1] + [1, 2]);"),
+        "arrays have different lengths: 1 and 2"
+    );
+    assert_eq!(
+        error("print([[1]] + [[1, 2]]);"),
+        "arrays have different lengths: 1 and 2"
+    );
+    assert_eq!(error("print([1] / 0);"), "division by zero");
+    assert_eq!(
+        error("print([9223372036854775807] + [1]);"),
+        "integer overflow"
+    );
+}
+
+#[test]
+fn generic_functions_on_arrays() {
+    let src = "fn twice<T: real | vec2>(a: [T]) -> [T] { return a + a; }
+               fn main() { print(twice([1.5])); print(twice([vec2(1, 2)])); }";
+    assert_eq!(run(src).unwrap(), "[3.0]\n[(2.0, 4.0)]\n");
+}
+
+#[test]
+fn matrix_product() {
+    assert_eq!(
+        output("print([[1, 2], [3, 4]] * [[5, 6], [7, 8]]);"),
+        "[[19, 22], [43, 50]]\n"
+    );
+    assert_eq!(output("print([[1, 2], [3, 4]] * [1, 1]);"), "[3, 7]\n");
+    assert_eq!(
+        output("print([[1, 2, 3], [4, 5, 6]] * [[1], [1], [1]]);"),
+        "[[6], [15]]\n"
+    );
+    assert_eq!(output("print([[1.0i]] * [[1.0i]]);"), "[[-1.0+0.0i]]\n");
+    assert_eq!(output("let m = [[2]]; m *= m; print(m);"), "[[4]]\n");
+    // The right side is untouched by the product.
+    assert_eq!(
+        output("let m = [[2]]; let n = m * m; n[0][0] = 9; print(m);"),
+        "[[2]]\n"
+    );
+}
+
+#[test]
+fn matrix_product_errors() {
+    let error = |body: &str| runtime_error(&format!("fn main() {{ {body} }}"));
+    assert_eq!(
+        error("print([[1, 2]] * [[1, 2]]);"),
+        "cannot multiply a 1x2 matrix by a 1x2 matrix"
+    );
+    assert_eq!(
+        error("print([[1, 2]] * [1]);"),
+        "cannot multiply a 1x2 matrix by a vector of length 1"
+    );
+    assert_eq!(
+        error("print([[1, 2], [3]] * [1, 2]);"),
+        "matrix is not rectangular: row 1 has 1 elements, row 0 has 2"
+    );
+    assert_eq!(
+        error("print([[1]] * [[1], [2, 3]]);"),
+        "matrix is not rectangular: row 1 has 2 elements, row 0 has 1"
+    );
+    assert_eq!(
+        error("let m: [[int]] = [[1]]; let v: [int] = []; print(m * v);"),
+        "cannot multiply a 1x1 matrix by an empty array"
+    );
+}
+
+#[test]
+fn matrix_product_with_an_empty_left_side() {
+    assert_eq!(
+        output("let m: [[int]] = []; let v: [int] = [1]; print(m * v);"),
+        "[]\n"
+    );
+}

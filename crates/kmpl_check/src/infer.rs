@@ -5,8 +5,8 @@
 //! sets. After the whole program is walked, variables that still have
 //! several candidates get a default (`int`, then `real`, then `complex`).
 //!
-//! `*`, `/` and swizzles must know whether an operand is a number or a
-//! vector when they are reached. In practice it always is, because a
+//! `*`, `/` and swizzles must know whether an operand is a number, a vector
+//! or an array when they are reached. In practice it always is, because a
 //! variable cannot be read before it is assigned.
 //!
 //! Runs only on programs without name errors, so every name exists and
@@ -240,16 +240,17 @@ impl<'a> Infer<'a> {
                     .insert(&name.name, var);
                 self.locals.push((name, var));
             }
-            StmtKind::Assign { name, value } => {
+            StmtKind::Assign { name, op, value } => {
                 let value_ty = self.expr(value);
                 // Constants and functions are rejected by `resolve`.
                 if let Some(var) = self.lookup(&name.name) {
-                    self.unify(value_ty, var, value.span);
+                    self.store(var, *op, value_ty, value.span, name.span, stmt.span);
                 }
             }
             StmtKind::IndexAssign {
                 name,
                 indices,
+                op,
                 value,
             } => {
                 let value_ty = self.expr(value);
@@ -259,7 +260,7 @@ impl<'a> Infer<'a> {
                         self.index_type(index);
                         var = self.array_elem(var, name.span);
                     }
-                    self.unify(value_ty, var, value.span);
+                    self.store(var, *op, value_ty, value.span, name.span, stmt.span);
                 }
             }
             StmtKind::If {
@@ -281,9 +282,11 @@ impl<'a> Infer<'a> {
                 var,
                 start,
                 end,
+                step,
                 body,
+                ..
             } => {
-                for bound in [start, end] {
+                for bound in [start, end].into_iter().chain(step) {
                     let ty = self.expr(bound);
                     self.expect(ty, Type::Int, bound.span);
                 }
@@ -307,6 +310,24 @@ impl<'a> Infer<'a> {
                 }
             },
         }
+    }
+
+    /// `target = value`, or `target op= value` when `op` is set. The result
+    /// must fit the target: `x *= v` is an error for `x: real`, `v: vec2`.
+    fn store(
+        &mut self,
+        target: TyVar,
+        op: Option<BinOp>,
+        value: TyVar,
+        value_span: Span,
+        target_span: Span,
+        span: Span,
+    ) {
+        let result = match op {
+            Some(op) => self.binary_types(op, target, value, target_span, value_span, span),
+            None => value,
+        };
+        self.unify(result, target, value_span);
     }
 
     fn for_body(&mut self, var: &'a Ident, ty: TyVar, body: &'a Block) {
@@ -367,7 +388,7 @@ impl<'a> Infer<'a> {
             ExprKind::Unary { op, operand } => {
                 let ty = self.expr(operand);
                 match op {
-                    UnOp::Neg => self.restrict(ty, TypeSet::LINEAR, "-", e.span),
+                    UnOp::Neg => self.restrict_linear(ty, "-", e.span),
                     UnOp::Not => self.expect(ty, Type::Bool, operand.span),
                 }
                 ty
@@ -401,6 +422,16 @@ impl<'a> Infer<'a> {
                 self.index_type(index);
                 self.array_elem(base_ty, base.span)
             }
+            ExprKind::Slice {
+                base, start, end, ..
+            } => {
+                let base_ty = self.expr(base);
+                for bound in [start, end].into_iter().flatten() {
+                    self.index_type(bound);
+                }
+                self.array_elem(base_ty, base.span);
+                base_ty
+            }
         }
     }
 
@@ -430,35 +461,120 @@ impl<'a> Infer<'a> {
     fn binary(&mut self, op: BinOp, lhs: &'a Expr, rhs: &'a Expr, span: Span) -> TyVar {
         let l = self.expr(lhs);
         let r = self.expr(rhs);
+        self.binary_types(op, l, r, lhs.span, rhs.span, span)
+    }
+
+    fn binary_types(
+        &mut self,
+        op: BinOp,
+        l: TyVar,
+        r: TyVar,
+        lhs_span: Span,
+        rhs_span: Span,
+        span: Span,
+    ) -> TyVar {
         let sym = op_symbol(op);
 
         match op {
             BinOp::Add | BinOp::Sub => {
-                self.unify(r, l, rhs.span);
-                self.restrict(l, TypeSet::LINEAR, sym, span);
+                self.unify(r, l, rhs_span);
+                self.restrict_linear(l, sym, span);
                 l
             }
-            BinOp::Mul | BinOp::Div => self.mul_div(op, l, r, rhs.span, span),
+            BinOp::Mul | BinOp::Div => self.mul_div(op, l, r, rhs_span, span),
             BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
-                self.unify(r, l, rhs.span);
+                self.unify(r, l, rhs_span);
                 self.restrict(l, TypeSet::ORDERED, sym, span);
                 self.known(Type::Bool)
             }
             BinOp::Eq | BinOp::Ne => {
-                self.unify(r, l, rhs.span);
+                self.unify(r, l, rhs_span);
                 self.known(Type::Bool)
             }
             BinOp::And | BinOp::Or => {
-                self.expect(l, Type::Bool, lhs.span);
-                self.expect(r, Type::Bool, rhs.span);
+                self.expect(l, Type::Bool, lhs_span);
+                self.expect(r, Type::Bool, rhs_span);
                 self.known(Type::Bool)
             }
         }
     }
 
+    /// `+`, `-` and unary `-` work on numbers, vectors and arrays of them,
+    /// at any depth.
+    fn restrict_linear(&mut self, var: TyVar, op: &str, span: Span) {
+        let mut inner = var;
+        while let Some(elem) = self.u.element(inner) {
+            inner = elem;
+        }
+        if self.u.restrict(inner, TypeSet::LINEAR).is_err() {
+            let found = self.u.describe(var);
+            self.error(format!("cannot apply `{op}` to {found}"), span);
+        }
+    }
+
+    /// An array with a non-array applies the operator to every element.
+    /// Two arrays can only be a matrix product.
+    fn mul_div(&mut self, op: BinOp, l: TyVar, r: TyVar, rhs_span: Span, span: Span) -> TyVar {
+        match (self.u.element(l), self.u.element(r)) {
+            (None, None) => self.scalar_mul_div(op, l, r, rhs_span, span),
+            (Some(elem), None) => {
+                let result = self.mul_div(op, elem, r, rhs_span, span);
+                self.u.new_array(result)
+            }
+            (None, Some(elem)) if op == BinOp::Mul => {
+                let result = self.mul_div(op, l, elem, rhs_span, span);
+                self.u.new_array(result)
+            }
+            (Some(row), Some(r_elem)) if op == BinOp::Mul => {
+                self.matrix_mul(l, r, row, r_elem, rhs_span, span)
+            }
+            _ => self.bad_operands(op, l, r, span),
+        }
+    }
+
+    /// `[[T]] * [[T]]` is `[[T]]` and `[[T]] * [T]` is `[T]`, for a number
+    /// `T`. `row` and `r_elem` are the element types of `l` and `r`.
+    fn matrix_mul(
+        &mut self,
+        l: TyVar,
+        r: TyVar,
+        row: TyVar,
+        r_elem: TyVar,
+        rhs_span: Span,
+        span: Span,
+    ) -> TyVar {
+        let (r_number, result) = match self.u.element(r_elem) {
+            Some(number) => (number, l),
+            None => (r_elem, row),
+        };
+
+        match self.u.element(row) {
+            Some(number) if self.u.element(number).is_none() => {
+                self.unify(r_number, number, rhs_span);
+                self.restrict(number, TypeSet::NUMBER, "*", span);
+                result
+            }
+            _ => self.bad_operands(BinOp::Mul, l, r, span),
+        }
+    }
+
+    fn bad_operands(&mut self, op: BinOp, l: TyVar, r: TyVar, span: Span) -> TyVar {
+        let sym = op_symbol(op);
+        let (l, r) = (self.u.describe(l), self.u.describe(r));
+        self.error(format!("cannot apply `{sym}` to {l} and {r}"), span);
+        self.u.new_var(TypeSet::ANY)
+    }
+
     /// `number * number`, `vec * real`, `real * vec`, `number / number`,
     /// `vec / real`.
-    fn mul_div(&mut self, op: BinOp, l: TyVar, r: TyVar, rhs_span: Span, span: Span) -> TyVar {
+    fn scalar_mul_div(
+        &mut self,
+        op: BinOp,
+        l: TyVar,
+        r: TyVar,
+        rhs_span: Span,
+        span: Span,
+    ) -> TyVar {
         let sym = op_symbol(op);
         let (ls, rs) = (self.u.set(l), self.u.set(r));
         let is_number = |s: TypeSet| s.is_subset(TypeSet::NUMBER);
@@ -482,16 +598,16 @@ impl<'a> Infer<'a> {
         // otherwise the types are simply wrong (`bool`, `vec * vec`, ...).
         let linear = |s: TypeSet| !s.intersect(TypeSet::LINEAR).is_empty();
         let unclear = |s: TypeSet| linear(s) && !is_number(s) && !is_vector(s);
-        let message = if (unclear(ls) && linear(rs)) || (unclear(rs) && linear(ls)) {
-            format!(
-                "cannot tell if the operands of `{sym}` are numbers or vectors, add a type annotation"
-            )
-        } else {
-            let (l, r) = (self.u.describe(l), self.u.describe(r));
-            format!("cannot apply `{sym}` to {l} and {r}")
-        };
-        self.error(message, span);
-        self.u.new_var(TypeSet::ANY)
+        if (unclear(ls) && linear(rs)) || (unclear(rs) && linear(ls)) {
+            self.error(
+                format!(
+                    "cannot tell if the operands of `{sym}` are numbers or vectors, add a type annotation"
+                ),
+                span,
+            );
+            return self.u.new_var(TypeSet::ANY);
+        }
+        self.bad_operands(op, l, r, span)
     }
 
     /// Checks a call and returns the type of its value, or `None` if the
@@ -503,6 +619,7 @@ impl<'a> Infer<'a> {
 
         let builtin = kmpl_builtins::lookup(&name.name).expect("checked by resolve");
         let t = self.u.new_var(TypeSet::of(builtin.generic));
+        let elem = self.u.new_var(TypeSet::ANY);
 
         for (arg, param) in args.iter().zip(builtin.params) {
             let arg_ty = self.expr(arg);
@@ -513,6 +630,11 @@ impl<'a> Infer<'a> {
                 ParamType::AnyArray => {
                     self.array_elem(arg_ty, arg.span);
                 }
+                ParamType::Elem => self.unify(arg_ty, elem, arg.span),
+                ParamType::ArrayOfElem => {
+                    let array = self.u.new_array(elem);
+                    self.unify(arg_ty, array, arg.span);
+                }
             }
         }
 
@@ -520,6 +642,7 @@ impl<'a> Infer<'a> {
             RetType::Nothing => None,
             RetType::Exact(ty) => Some(self.known(ty)),
             RetType::T => Some(t),
+            RetType::ArrayOfElem => Some(self.u.new_array(elem)),
             RetType::Magnitude => {
                 if self.u.set(t) == TypeSet::single(Type::Complex) {
                     Some(self.known(Type::Real))

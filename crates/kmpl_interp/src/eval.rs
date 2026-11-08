@@ -61,6 +61,38 @@ fn checked_index(i: i64, len: usize, span: Span) -> Result<usize> {
     }
 }
 
+/// The range `from..to` of an array of length `len`, or `from..=to`.
+fn slice_bounds(
+    from: i64,
+    to: i64,
+    inclusive: bool,
+    len: usize,
+) -> std::result::Result<std::ops::Range<usize>, String> {
+    let bounds = (|| {
+        let start = usize::try_from(from).ok()?;
+        let end = usize::try_from(to).ok()?;
+        let end = if inclusive { end.checked_add(1)? } else { end };
+        (start <= end && end <= len).then_some(start..end)
+    })();
+    let dots = if inclusive { "..=" } else { ".." };
+    bounds.ok_or_else(|| {
+        format!("slice {from}{dots}{to} is out of bounds for an array of length {len}")
+    })
+}
+
+/// The values of a `for` range. `step` is not zero; a negative one counts
+/// down. Ends at the last value that fits an `int` instead of overflowing.
+fn range_values(start: i64, end: i64, inclusive: bool, step: i64) -> impl Iterator<Item = Value> {
+    std::iter::successors(Some(start), move |v| v.checked_add(step))
+        .take_while(move |&v| match (step > 0, inclusive) {
+            (true, false) => v < end,
+            (true, true) => v <= end,
+            (false, false) => v > end,
+            (false, true) => v >= end,
+        })
+        .map(Value::Int)
+}
+
 impl<'p, 'o> Interp<'p, 'o> {
     pub fn new(program: &'p Program, out: &'o mut dyn Write) -> Self {
         let functions = program
@@ -162,6 +194,20 @@ impl<'p, 'o> Interp<'p, 'o> {
         Ok(())
     }
 
+    /// The current value of `name[i][j]`. Keeps no reference to the array,
+    /// so `assign_index` right after it does not have to copy it.
+    fn read_index(&self, name: &Ident, positions: &[(i64, Span)]) -> Result<Value> {
+        let mut value = self.read(name);
+        for &(i, span) in positions {
+            let Value::Array(items) = &value else {
+                panic!("indexing {value:?}, the checker should have rejected it");
+            };
+            let element = items[checked_index(i, items.len(), span)?].clone();
+            value = element;
+        }
+        Ok(value)
+    }
+
     // ----- statements -----
 
     fn block(&mut self, block: &'p Block) -> Result<Flow> {
@@ -186,19 +232,28 @@ impl<'p, 'o> Interp<'p, 'o> {
                 };
                 self.declare(&name.name, value);
             }
-            StmtKind::Assign { name, value } => {
-                let value = self.eval(value)?;
+            StmtKind::Assign { name, op, value } => {
+                let mut value = self.eval(value)?;
+                if let Some(op) = op {
+                    value = ops::binary(*op, self.read(name), value)
+                        .map_err(|m| error(m, stmt.span))?;
+                }
                 self.assign(name, value);
             }
             StmtKind::IndexAssign {
                 name,
                 indices,
+                op,
                 value,
             } => {
-                let value = self.eval(value)?;
+                let mut value = self.eval(value)?;
                 let mut positions = Vec::with_capacity(indices.len());
                 for index in indices {
                     positions.push((self.eval_int(index)?, index.span));
+                }
+                if let Some(op) = op {
+                    let old = self.read_index(name, &positions)?;
+                    value = ops::binary(*op, old, value).map_err(|m| error(m, stmt.span))?;
                 }
                 self.assign_index(name, &positions, value)?;
             }
@@ -227,11 +282,20 @@ impl<'p, 'o> Interp<'p, 'o> {
                 var,
                 start,
                 end,
+                inclusive,
+                step,
                 body,
             } => {
                 let start = self.eval_int(start)?;
                 let end = self.eval_int(end)?;
-                return self.for_loop(var, body, (start..end).map(Value::Int));
+                let by = match step {
+                    Some(step) => match self.eval_int(step)? {
+                        0 => return Err(error("loop step cannot be zero", step.span)),
+                        by => by,
+                    },
+                    None => 1,
+                };
+                return self.for_loop(var, body, range_values(start, end, *inclusive, by));
             }
             StmtKind::ForEach { var, array, body } => {
                 // `items` keeps the array as it was when the loop started.
@@ -362,6 +426,25 @@ impl<'p, 'o> Interp<'p, 'o> {
                 let items = self.eval_array(base)?;
                 let i = self.eval_int(index)?;
                 items[checked_index(i, items.len(), index.span)?].clone()
+            }
+            ExprKind::Slice {
+                base,
+                start,
+                end,
+                inclusive,
+            } => {
+                let items = self.eval_array(base)?;
+                let from = match start {
+                    Some(start) => self.eval_int(start)?,
+                    None => 0,
+                };
+                let (to, inclusive) = match end {
+                    Some(end) => (self.eval_int(end)?, *inclusive),
+                    None => (items.len() as i64, false),
+                };
+                let range =
+                    slice_bounds(from, to, inclusive, items.len()).map_err(|m| error(m, e.span))?;
+                Value::Array(Arc::new(items[range].to_vec()))
             }
             ExprKind::Call { name, args } => self
                 .call(name, args, e.span)?

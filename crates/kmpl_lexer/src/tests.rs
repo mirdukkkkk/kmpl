@@ -419,3 +419,33 @@ fn brackets() {
         ]
     );
 }
+
+#[test]
+fn compound_assignment_tokens() {
+    assert_eq!(
+        tokens("+= -= *= /="),
+        vec![Token::PlusEq, Token::MinusEq, Token::StarEq, Token::SlashEq]
+    );
+    assert_eq!(
+        tokens("a-=1"),
+        vec![Token::Ident("a".into()), Token::MinusEq, Token::Int(1)]
+    );
+}
+
+#[test]
+fn ranges_next_to_numbers() {
+    assert_eq!(
+        tokens("0..=9"),
+        vec![Token::Int(0), Token::DotDotEq, Token::Int(9)]
+    );
+    assert_eq!(
+        tokens("[1..]"),
+        vec![
+            Token::LBracket,
+            Token::Int(1),
+            Token::DotDot,
+            Token::RBracket
+        ]
+    );
+    assert_eq!(tokens("..5"), vec![Token::DotDot, Token::Int(5)]);
+}

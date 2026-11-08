@@ -50,6 +50,14 @@ impl Value {
         }
     }
 
+    /// Elements of an array. Panics on other variants, like `as_real`.
+    pub fn as_array(&self) -> &[Value] {
+        match self {
+            Value::Array(items) => items,
+            other => panic!("expected an array, got {other:?}"),
+        }
+    }
+
     /// Components of a vector. Panics on other variants, like `as_real`.
     pub fn components(&self) -> &[f64] {
         match self {

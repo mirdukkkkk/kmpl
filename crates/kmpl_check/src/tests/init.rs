@@ -134,3 +134,16 @@ fn for_each_body_may_not_run() {
         UNINIT_X,
     );
 }
+
+#[test]
+fn compound_assignment_reads_the_variable() {
+    assert_error("fn f() { let x: int; x += 1; }", UNINIT_X);
+    assert_error("fn f(a: [int]) { let x: int; a[0] += x; }", UNINIT_X);
+    assert_ok("fn f() { let x: int; x = 1; x += 1; }");
+}
+
+#[test]
+fn step_and_slices_read_variables() {
+    assert_error("fn f() { let x: int; for i in 0..1 step x { } }", UNINIT_X);
+    assert_error("fn f(a: [int]) { let x: int; a[x..]; }", UNINIT_X);
+}

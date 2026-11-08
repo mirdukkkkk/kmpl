@@ -1,6 +1,6 @@
 //! Statements and blocks.
 
-use kmpl_ast::{Block, Expr, ExprKind, Ident, Span, Stmt, StmtKind, Type, TypeExpr};
+use kmpl_ast::{BinOp, Block, Expr, ExprKind, Ident, Span, Stmt, StmtKind, Type, TypeExpr};
 use kmpl_lexer::Token;
 
 use crate::error::PResult;
@@ -32,7 +32,7 @@ pub fn stmt(ts: &mut TokenStream) -> PResult<Stmt> {
         Some(Token::Break) => keyword_stmt(ts, StmtKind::Break),
         Some(Token::Continue) => keyword_stmt(ts, StmtKind::Continue),
         Some(Token::Return) => return_stmt(ts),
-        Some(Token::Ident(_)) if ts.peek_nth(1) == Some(&Token::Assign) => assign_stmt(ts),
+        Some(Token::Ident(_)) if assign_op(ts.peek_nth(1)).is_some() => assign_stmt(ts),
         _ => expr_stmt(ts),
     }
 }
@@ -102,26 +102,41 @@ fn while_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     })
 }
 
-/// `'for' IDENT 'in' expr ('..' expr)? block`
+/// `'for' IDENT 'in' expr (('..' | '..=') expr ('step' expr)?)? block`
+///
+/// `step` is not a token, only a word with a meaning here, so a variable
+/// can still be called `step`.
 fn for_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     let first = ts.expect(Token::For)?;
     let var = ts.expect_ident()?;
     ts.expect(Token::In)?;
     let start = expr(ts)?;
 
-    if ts.eat(&Token::DotDot).is_none() {
-        let (body, last) = block(ts)?;
-        return Ok(Stmt {
-            kind: StmtKind::ForEach {
-                var,
-                array: start,
-                body,
-            },
-            span: first.to(last),
-        });
-    }
+    let inclusive = match ts.peek() {
+        Some(Token::DotDot) => false,
+        Some(Token::DotDotEq) => true,
+        _ => {
+            let (body, last) = block(ts)?;
+            return Ok(Stmt {
+                kind: StmtKind::ForEach {
+                    var,
+                    array: start,
+                    body,
+                },
+                span: first.to(last),
+            });
+        }
+    };
+    ts.next();
 
     let end = expr(ts)?;
+    let step = match ts.peek() {
+        Some(Token::Ident(word)) if word == "step" => {
+            ts.next();
+            Some(expr(ts)?)
+        }
+        _ => None,
+    };
     let (body, last) = block(ts)?;
 
     Ok(Stmt {
@@ -129,6 +144,8 @@ fn for_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
             var,
             start,
             end,
+            inclusive,
+            step,
             body,
         },
         span: first.to(last),
@@ -163,25 +180,39 @@ fn return_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     })
 }
 
-/// `IDENT '=' expr ';'`
+/// `=` is `Some(None)`, `+=` is `Some(Some(BinOp::Add))`, anything that
+/// does not assign is `None`.
+fn assign_op(token: Option<&Token>) -> Option<Option<BinOp>> {
+    match token? {
+        Token::Assign => Some(None),
+        Token::PlusEq => Some(Some(BinOp::Add)),
+        Token::MinusEq => Some(Some(BinOp::Sub)),
+        Token::StarEq => Some(Some(BinOp::Mul)),
+        Token::SlashEq => Some(Some(BinOp::Div)),
+        _ => None,
+    }
+}
+
+/// `IDENT assign_op expr ';'`
 fn assign_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     let name = ts.expect_ident()?;
-    ts.expect(Token::Assign)?;
+    let op = assign_op(ts.peek()).expect("checked by stmt");
+    ts.next();
     let value = expr(ts)?;
     let end = ts.expect(Token::Semi)?;
 
     let span = name.span.to(end);
     Ok(Stmt {
-        kind: StmtKind::Assign { name, value },
+        kind: StmtKind::Assign { name, op, value },
         span,
     })
 }
 
-/// `expr ';'` or `IDENT ('[' expr ']')+ '=' expr ';'`. An index expression
+/// `expr ';'` or `IDENT ('[' expr ']')+ assign_op expr ';'`. An index expression
 /// can be any length, so the `=` is only visible after parsing it.
 fn expr_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     let e = expr(ts)?;
-    if ts.peek() == Some(&Token::Assign) && is_index_target(&e) {
+    if assign_op(ts.peek()).is_some() && is_index_target(&e) {
         return index_assign(ts, e);
     }
 
@@ -204,13 +235,14 @@ fn is_index_target(e: &Expr) -> bool {
     }
 }
 
-/// Parses the rest of `target = value;`.
+/// Parses the rest of `target = value;` or `target += value;`.
 fn index_assign(ts: &mut TokenStream, target: Expr) -> PResult<Stmt> {
     let start = target.span;
     let mut indices = Vec::new();
     let name = split_target(target, &mut indices);
 
-    ts.expect(Token::Assign)?;
+    let op = assign_op(ts.peek()).expect("checked by expr_stmt");
+    ts.next();
     let value = expr(ts)?;
     let end = ts.expect(Token::Semi)?;
 
@@ -218,6 +250,7 @@ fn index_assign(ts: &mut TokenStream, target: Expr) -> PResult<Stmt> {
         kind: StmtKind::IndexAssign {
             name,
             indices,
+            op,
             value,
         },
         span: start.to(end),

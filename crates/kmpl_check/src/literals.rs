@@ -71,10 +71,17 @@ impl Rewriter<'_> {
                     self.block(body);
                 }
                 StmtKind::For {
-                    start, end, body, ..
+                    start,
+                    end,
+                    step,
+                    body,
+                    ..
                 } => {
                     self.expr(start);
                     self.expr(end);
+                    if let Some(step) = step {
+                        self.expr(step);
+                    }
                     self.block(body);
                 }
                 StmtKind::Break | StmtKind::Continue => {}
@@ -133,6 +140,14 @@ impl Rewriter<'_> {
             ExprKind::Index { base, index } => {
                 self.expr(base);
                 self.expr(index);
+            }
+            ExprKind::Slice {
+                base, start, end, ..
+            } => {
+                self.expr(base);
+                for bound in [start, end].into_iter().flatten() {
+                    self.expr(bound);
+                }
             }
         }
     }

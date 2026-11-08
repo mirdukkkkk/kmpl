@@ -81,7 +81,9 @@ fn sexp_stmt(s: &Stmt) -> String {
             let init = init.as_ref().map_or("_".to_owned(), sexp);
             format!("(let {} {ty} {init})", name.name)
         }
-        StmtKind::Assign { name, value } => format!("(= {} {})", name.name, sexp(value)),
+        StmtKind::Assign { name, op, value } => {
+            format!("({}= {} {})", assign_prefix(*op), name.name, sexp(value))
+        }
         StmtKind::If {
             cond,
             then,
@@ -100,22 +102,29 @@ fn sexp_stmt(s: &Stmt) -> String {
             var,
             start,
             end,
+            inclusive,
+            step,
             body,
         } => format!(
-            "(for {} {} {} {})",
+            "({} {} {} {} {}{})",
+            if *inclusive { "for=" } else { "for" },
             var.name,
             sexp(start),
             sexp(end),
+            step.as_ref()
+                .map_or(String::new(), |s| format!("step {} ", sexp(s))),
             sexp_block(body)
         ),
         StmtKind::IndexAssign {
             name,
             indices,
+            op,
             value,
         } => {
             let indices: Vec<String> = indices.iter().map(sexp).collect();
             format!(
-                "(index= {} [{}] {})",
+                "(index{}= {} [{}] {})",
+                assign_prefix(*op),
                 name.name,
                 indices.join(" "),
                 sexp(value)
@@ -134,6 +143,28 @@ fn sexp_stmt(s: &Stmt) -> String {
         StmtKind::Return(Some(e)) => format!("(return {})", sexp(e)),
         StmtKind::Return(None) => "(return)".to_owned(),
         StmtKind::Expr(e) => sexp(e),
+    }
+}
+
+/// The `+` of `+=`, or nothing for plain `=`.
+fn assign_prefix(op: Option<BinOp>) -> &'static str {
+    op.map_or("", bin_op)
+}
+
+fn bin_op(op: BinOp) -> &'static str {
+    match op {
+        BinOp::Add => "+",
+        BinOp::Sub => "-",
+        BinOp::Mul => "*",
+        BinOp::Div => "/",
+        BinOp::Eq => "==",
+        BinOp::Ne => "!=",
+        BinOp::Lt => "<",
+        BinOp::Le => "<=",
+        BinOp::Gt => ">",
+        BinOp::Ge => ">=",
+        BinOp::And => "&&",
+        BinOp::Or => "||",
     }
 }
 
@@ -181,21 +212,7 @@ fn sexp(e: &Expr) -> String {
             format!("({op} {})", sexp(operand))
         }
         ExprKind::Binary { op, lhs, rhs } => {
-            let op = match op {
-                BinOp::Add => "+",
-                BinOp::Sub => "-",
-                BinOp::Mul => "*",
-                BinOp::Div => "/",
-                BinOp::Eq => "==",
-                BinOp::Ne => "!=",
-                BinOp::Lt => "<",
-                BinOp::Le => "<=",
-                BinOp::Gt => ">",
-                BinOp::Ge => ">=",
-                BinOp::And => "&&",
-                BinOp::Or => "||",
-            };
-            format!("({op} {} {})", sexp(lhs), sexp(rhs))
+            format!("({} {} {})", bin_op(*op), sexp(lhs), sexp(rhs))
         }
         ExprKind::Call { name, args } => {
             let args: Vec<String> = args.iter().map(sexp).collect();
@@ -207,6 +224,21 @@ fn sexp(e: &Expr) -> String {
         }
         ExprKind::ArrayFill { value, len } => format!("(fill {} {})", sexp(value), sexp(len)),
         ExprKind::Index { base, index } => format!("(index {} {})", sexp(base), sexp(index)),
+        ExprKind::Slice {
+            base,
+            start,
+            end,
+            inclusive,
+        } => {
+            let bound = |b: &Option<Box<Expr>>| b.as_ref().map_or("_".to_owned(), |e| sexp(e));
+            format!(
+                "({} {} {} {})",
+                if *inclusive { "slice=" } else { "slice" },
+                sexp(base),
+                bound(start),
+                bound(end)
+            )
+        }
         ExprKind::Swizzle { base, mask } => format!("(: {} {})", sexp(base), mask.name),
     }
 }

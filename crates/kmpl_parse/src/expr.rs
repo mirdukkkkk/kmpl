@@ -108,16 +108,7 @@ fn postfix(ts: &mut TokenStream) -> PResult<Expr> {
     let mut base = primary(ts)?;
 
     while ts.eat(&Token::LBracket).is_some() {
-        let index = expr(ts)?;
-        let close = ts.expect(Token::RBracket)?;
-        let span = base.span.to(close);
-        base = Expr {
-            kind: ExprKind::Index {
-                base: Box::new(base),
-                index: Box::new(index),
-            },
-            span,
-        };
+        base = index_or_slice(ts, base)?;
     }
 
     if ts.eat(&Token::Colon).is_none() {
@@ -131,6 +122,51 @@ fn postfix(ts: &mut TokenStream) -> PResult<Expr> {
         kind: ExprKind::Swizzle {
             base: Box::new(base),
             mask,
+        },
+        span,
+    })
+}
+
+fn is_range_op(token: Option<&Token>) -> bool {
+    matches!(token, Some(Token::DotDot | Token::DotDotEq))
+}
+
+/// The rest of `base[`: `expr ']'`, or a slice with optional bounds.
+/// `..=` needs an end: "up to and including" nothing means nothing.
+fn index_or_slice(ts: &mut TokenStream, base: Expr) -> PResult<Expr> {
+    let start = match is_range_op(ts.peek()) {
+        true => None,
+        false => Some(expr(ts)?),
+    };
+
+    if !is_range_op(ts.peek()) {
+        let index = start.expect("no range operator, so there was an expression");
+        let close = ts.expect(Token::RBracket)?;
+        let span = base.span.to(close);
+        return Ok(Expr {
+            kind: ExprKind::Index {
+                base: Box::new(base),
+                index: Box::new(index),
+            },
+            span,
+        });
+    }
+
+    let inclusive = ts.peek() == Some(&Token::DotDotEq);
+    ts.next();
+    let end = match !inclusive && ts.peek() == Some(&Token::RBracket) {
+        true => None,
+        false => Some(expr(ts)?),
+    };
+    let close = ts.expect(Token::RBracket)?;
+    let span = base.span.to(close);
+
+    Ok(Expr {
+        kind: ExprKind::Slice {
+            base: Box::new(base),
+            start: start.map(Box::new),
+            end: end.map(Box::new),
+            inclusive,
         },
         span,
     })
