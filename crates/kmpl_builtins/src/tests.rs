@@ -18,7 +18,7 @@ fn sample(ty: Type) -> Value {
 }
 
 fn call(name: &str, args: &[Value]) -> Option<Value> {
-    (lookup(name).unwrap().func)(args)
+    (lookup(name).unwrap().func)(args, &mut Vec::new()).unwrap()
 }
 
 #[test]
@@ -58,7 +58,7 @@ fn signatures_match_implementations() {
                 RetType::T => Some(t),
             };
 
-            let result = (b.func)(&args);
+            let result = (b.func)(&args, &mut Vec::new()).unwrap();
             assert_eq!(
                 result.map(|v| v.ty()),
                 expected,
@@ -170,4 +170,30 @@ fn complex_math() {
 fn abs_keeps_the_type() {
     assert_eq!(call("abs", &[Value::Int(-3)]), Some(Value::Int(3)));
     assert_eq!(call("abs", &[Value::Real(-2.5)]), Some(Value::Real(2.5)));
+}
+
+#[test]
+fn print_writes_to_out() {
+    let print = lookup("print").unwrap();
+    let mut out = Vec::new();
+    (print.func)(&[Value::Int(1)], &mut out).unwrap();
+    (print.func)(&[Value::Vec2([0.5, 2.0])], &mut out).unwrap();
+    assert_eq!(String::from_utf8(out).unwrap(), "1\n(0.5, 2.0)\n");
+}
+
+#[test]
+fn print_reports_write_errors() {
+    struct Broken;
+    impl std::io::Write for Broken {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("disk full"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let print = lookup("print").unwrap();
+    let err = (print.func)(&[Value::Int(1)], &mut Broken).unwrap_err();
+    assert_eq!(err, "cannot write output: disk full");
 }
