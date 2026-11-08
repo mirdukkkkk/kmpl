@@ -93,8 +93,8 @@ impl std::fmt::Display for Token {
             Token::Semi => ";",
             Token::Colon => ":",
             Token::Ident(name) => return write!(f, "identifier `{name}`"),
-            Token::Imag(v) => return write!(f, "number `{v}i`"),
-            Token::Real(v) => return write!(f, "number `{v}`"),
+            Token::Imag(v) => return write!(f, "number `{v:?}i`"),
+            Token::Real(v) => return write!(f, "number `{v:?}`"),
             Token::Int(v) => return write!(f, "number `{v}`"),
         };
         write!(f, "`{text}`")

@@ -5,6 +5,9 @@ mod span;
 mod stmt;
 mod ty;
 
+#[cfg(test)]
+mod tests;
+
 pub use expr::*;
 pub use ident::*;
 pub use item::*;
