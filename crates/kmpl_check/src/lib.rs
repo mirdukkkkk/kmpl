@@ -2,6 +2,9 @@ mod error;
 mod init;
 mod main_fn;
 mod resolve;
+// Used by the type inference pass (next step); remove this allow then.
+#[allow(dead_code)]
+mod types;
 
 #[cfg(test)]
 mod tests;

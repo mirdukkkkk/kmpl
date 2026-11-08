@@ -3,6 +3,7 @@
 mod init;
 mod main_fn;
 mod resolve;
+mod types;
 
 use crate::check;
 
