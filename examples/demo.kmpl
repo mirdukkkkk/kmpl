@@ -1,0 +1,55 @@
+// kmpl demo: uses every construct of grammar v0.1.
+
+const N: int = 10;
+const TAU: real = 6.283185307179586;
+const I: complex = 1.0i;
+
+// Sum of 1..=n, skipping multiples of 3, stopping above 20.
+fn sum_skip(n: int) -> int {
+    let total = 0;
+    let i: int = 0;
+
+    while i < n {
+        i = i + 1;
+
+        if i / 3 * 3 == i {
+            continue;
+        } else if total > 20 {
+            break;
+        }
+
+        total = total + i;
+    }
+
+    return total;
+}
+
+fn sign(x: real) -> real {
+    if x > 0.0 {
+        return 1.0;
+    } else if x < 0.0 {
+        return -1.0;
+    } else {
+        return 0.0;
+    }
+}
+
+fn is_between(x: real, lo: real, hi: real) -> bool {
+    return x >= lo && x <= hi || !(lo < hi);
+}
+
+fn main() {
+    let v = vec3(1.0, 2.0, 3.0);
+    let r: vec3 = v:zyx;
+    let xy: vec2;
+    xy = r:xy;
+
+    let z = 2.0 + 3.0i;
+    let s = sum_skip(N);
+
+    print(s);
+    print(sign(-TAU));
+    print(is_between(0.5, 0.0, 1.0));
+    print(-(z * I));
+    print(xy);
+}

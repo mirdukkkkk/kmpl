@@ -1,0 +1,14 @@
+// Complex numbers and the real/complex versions of math built-ins.
+
+fn main() {
+    print(sqrt(-1));          // real: NaN
+    let z: complex = -1;
+    print(sqrt(z));           // complex: i
+    print(sqrt(-4 + 0.0i));
+
+    let w = 1.0 + 2.0i;
+    print(w * w);             // (1 + 2i)^2 = -3 + 4i
+    print(w / (3.0 + 4.0i));
+    print(exp(3.141592653589793i));
+    print(log(z));
+}
