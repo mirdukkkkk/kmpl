@@ -37,6 +37,40 @@ impl Value {
         }
     }
 
+    /// Components of a vector. Panics on other variants, like `as_real`.
+    pub fn components(&self) -> &[f64] {
+        match self {
+            Value::Vec2(a) => a,
+            Value::Vec3(a) => a,
+            Value::Vec4(a) => a,
+            other => panic!("expected a vector, got {:?}", other.ty()),
+        }
+    }
+
+    /// Applies `f` to every component of a vector. `None` if `self` is
+    /// not a vector.
+    pub fn map_components(self, f: impl Fn(f64) -> f64) -> Option<Value> {
+        let v = match self {
+            Value::Vec2(a) => Value::Vec2(a.map(f)),
+            Value::Vec3(a) => Value::Vec3(a.map(f)),
+            Value::Vec4(a) => Value::Vec4(a.map(f)),
+            _ => return None,
+        };
+        Some(v)
+    }
+
+    /// Applies `f` to matching components of two vectors of the same size.
+    /// `None` if they are not vectors of the same size.
+    pub fn zip_components(self, other: Value, f: impl Fn(f64, f64) -> f64) -> Option<Value> {
+        let v = match (self, other) {
+            (Value::Vec2(a), Value::Vec2(b)) => Value::Vec2(std::array::from_fn(|i| f(a[i], b[i]))),
+            (Value::Vec3(a), Value::Vec3(b)) => Value::Vec3(std::array::from_fn(|i| f(a[i], b[i]))),
+            (Value::Vec4(a), Value::Vec4(b)) => Value::Vec4(std::array::from_fn(|i| f(a[i], b[i]))),
+            _ => return None,
+        };
+        Some(v)
+    }
+
     /// `(re, im)` of a `Complex`. Panics on other variants, like `as_real`.
     pub fn as_complex(&self) -> (f64, f64) {
         match self {

@@ -1,5 +1,6 @@
 mod complex;
 mod math;
+mod vector;
 
 use std::collections::HashSet;
 
@@ -103,7 +104,7 @@ fn vector_constructors() {
 
 #[test]
 fn unknown_name() {
-    assert!(lookup("lerp").is_none());
+    assert!(lookup("no_such_function").is_none());
 }
 
 #[test]

@@ -23,7 +23,7 @@ pub fn unary(op: UnOp, v: Value) -> Result<Value, String> {
             re: 0.0 - re,
             im: 0.0 - im,
         },
-        (UnOp::Neg, v) => map_components(v, |c| -c).unwrap_or_else(|| bug_unary(op, v)),
+        (UnOp::Neg, v) => v.map_components(|c| -c).unwrap_or_else(|| bug_unary(op, v)),
         (UnOp::Not, v) => bug_unary(op, v),
     };
     Ok(result)
@@ -44,14 +44,18 @@ pub fn binary(op: BinOp, l: Value, r: Value) -> Result<Value, String> {
         }
 
         // vector + vector, vector - vector
-        (BinOp::Add, l, r) => zip_components(l, r, |a, b| a + b).unwrap_or_else(|| bug(op, l, r)),
-        (BinOp::Sub, l, r) => zip_components(l, r, |a, b| a - b).unwrap_or_else(|| bug(op, l, r)),
+        (BinOp::Add, l, r) => l
+            .zip_components(r, |a, b| a + b)
+            .unwrap_or_else(|| bug(op, l, r)),
+        (BinOp::Sub, l, r) => l
+            .zip_components(r, |a, b| a - b)
+            .unwrap_or_else(|| bug(op, l, r)),
 
         // scaling
         (BinOp::Mul, v, Real(k)) | (BinOp::Mul, Real(k), v) => {
-            map_components(v, |c| c * k).unwrap_or_else(|| bug(op, l, r))
+            v.map_components(|c| c * k).unwrap_or_else(|| bug(op, l, r))
         }
-        (BinOp::Div, v, Real(k)) => map_components(v, |c| c / k).unwrap_or_else(|| bug(op, l, r)),
+        (BinOp::Div, v, Real(k)) => v.map_components(|c| c / k).unwrap_or_else(|| bug(op, l, r)),
 
         _ => bug(op, l, r),
     };
@@ -111,39 +115,9 @@ fn complex_op(op: BinOp, (a, b): (f64, f64), (c, d): (f64, f64)) -> Option<(f64,
     Some(v)
 }
 
-/// Applies `f` to every component of a vector. `None` if `v` is not a vector.
-fn map_components(v: Value, f: impl Fn(f64) -> f64) -> Option<Value> {
-    let v = match v {
-        Value::Vec2(a) => Value::Vec2(a.map(f)),
-        Value::Vec3(a) => Value::Vec3(a.map(f)),
-        Value::Vec4(a) => Value::Vec4(a.map(f)),
-        _ => return None,
-    };
-    Some(v)
-}
-
-/// Applies `f` to matching components of two vectors of the same size.
-fn zip_components(l: Value, r: Value, f: impl Fn(f64, f64) -> f64) -> Option<Value> {
-    let v = match (l, r) {
-        (Value::Vec2(a), Value::Vec2(b)) => Value::Vec2(std::array::from_fn(|i| f(a[i], b[i]))),
-        (Value::Vec3(a), Value::Vec3(b)) => Value::Vec3(std::array::from_fn(|i| f(a[i], b[i]))),
-        (Value::Vec4(a), Value::Vec4(b)) => Value::Vec4(std::array::from_fn(|i| f(a[i], b[i]))),
-        _ => return None,
-    };
-    Some(v)
-}
-
 /// `v:zyx`. The checker guarantees the mask uses only valid letters.
 pub fn swizzle(v: Value, mask: &str) -> Value {
-    let components: &[f64] = match &v {
-        Value::Vec2(a) => a,
-        Value::Vec3(a) => a,
-        Value::Vec4(a) => a,
-        other => panic!(
-            "swizzle on {:?}, the checker should have rejected it",
-            other.ty()
-        ),
-    };
+    let components = v.components();
 
     let picked: Vec<f64> = mask
         .chars()

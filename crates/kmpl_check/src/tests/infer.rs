@@ -229,3 +229,28 @@ fn abs_of_complex_is_real() {
         "mismatched types: expected `complex`, found `int` or `real`",
     );
 }
+
+#[test]
+fn vector_builtins() {
+    assert_ok(
+        "fn f(u: vec3, v: vec3) {
+             let d: real = dot(u, v);
+             let n: vec3 = normalize(cross(u, v));
+             let m: vec3 = lerp(u, v, 0.5);
+             let l: real = length(u) + distance(u, v);
+         }",
+    );
+    assert_ok("fn f() { let x: real = lerp(0, 10, 0.5); let k: int = clamp(7, 0, 5); }");
+    assert_error(
+        "fn f(u: vec2, v: vec3) { let d = dot(u, v); }",
+        "mismatched types: expected `vec2`, found `vec3`",
+    );
+    assert_error(
+        "fn f(u: vec2, w: vec3) { let c = cross(u, w); }",
+        "mismatched types: expected `vec3`, found `vec2`",
+    );
+    assert_error(
+        "fn f(n: int) { let x = lerp(n, 1.0, 0.5); }",
+        "mismatched types: expected `real`, `complex`, `vec2`, `vec3` or `vec4`, found `int`",
+    );
+}

@@ -205,3 +205,15 @@ fn complex_helpers() {
         "5.0\n3.0+4.0i\n7\n3.141592653589793\n"
     );
 }
+
+#[test]
+fn vector_builtins() {
+    assert_eq!(
+        output(
+            "let u = vec3(1, 0, 0); let v = vec3(0, 1, 0);
+             print(cross(u, v)); print(dot(u, v)); print(length(vec2(3, 4)));
+             print(lerp(u, v, 0.5)); print(clamp(15, 0, 10)); print(max(2.5, 1));"
+        ),
+        "(0.0, 0.0, 1.0)\n0.0\n5.0\n(0.5, 0.5, 0.0)\n10\n2.5\n"
+    );
+}

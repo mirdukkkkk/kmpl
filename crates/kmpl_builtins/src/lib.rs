@@ -60,6 +60,16 @@ const COMPLEX: ParamType = ParamType::Exact(Type::Complex);
 const REAL_OR_COMPLEX: &[Type] = &[Type::Real, Type::Complex];
 const INT_OR_REAL: &[Type] = &[Type::Int, Type::Real];
 const NUMBER: &[Type] = &[Type::Int, Type::Real, Type::Complex];
+const VECTOR: &[Type] = &[Type::Vec2, Type::Vec3, Type::Vec4];
+const REAL_OR_VECTOR: &[Type] = &[Type::Real, Type::Vec2, Type::Vec3, Type::Vec4];
+const FLOAT_OR_VECTOR: &[Type] = &[
+    Type::Real,
+    Type::Complex,
+    Type::Vec2,
+    Type::Vec3,
+    Type::Vec4,
+];
+const VEC3: ParamType = ParamType::Exact(Type::Vec3);
 
 pub static BUILTINS: &[Builtin] = &[
     // ----- `T -> T` with `T` in `real, complex` -----
@@ -133,6 +143,51 @@ pub static BUILTINS: &[Builtin] = &[
         params: &[REAL],
         ret: RetType::Exact(Type::Bool),
         func: |a, _| ok(Value::Bool(a[0].as_real().is_infinite())),
+    },
+    Builtin {
+        name: "min",
+        generic: INT_OR_REAL,
+        params: &[ParamType::T, ParamType::T],
+        ret: RetType::T,
+        func: |a, _| match (a[0], a[1]) {
+            (Value::Int(x), Value::Int(y)) => ok(Value::Int(x.min(y))),
+            // `f64::min` ignores a NaN argument and returns the other one.
+            (x, y) => ok(Value::Real(x.as_real().min(y.as_real()))),
+        },
+    },
+    Builtin {
+        name: "max",
+        generic: INT_OR_REAL,
+        params: &[ParamType::T, ParamType::T],
+        ret: RetType::T,
+        func: |a, _| match (a[0], a[1]) {
+            (Value::Int(x), Value::Int(y)) => ok(Value::Int(x.max(y))),
+            (x, y) => ok(Value::Real(x.as_real().max(y.as_real()))),
+        },
+    },
+    Builtin {
+        name: "clamp",
+        generic: INT_OR_REAL,
+        params: &[ParamType::T, ParamType::T, ParamType::T],
+        ret: RetType::T,
+        func: |a, _| math::clamp(a[0], a[1], a[2]).map(Some),
+    },
+    Builtin {
+        name: "lerp",
+        generic: FLOAT_OR_VECTOR,
+        params: &[ParamType::T, ParamType::T, REAL],
+        ret: RetType::T,
+        func: |a, _| ok(math::lerp(a[0], a[1], a[2].as_real())),
+    },
+    Builtin {
+        name: "smoothstep",
+        generic: &[],
+        params: &[REAL, REAL, REAL],
+        ret: RetType::Exact(Type::Real),
+        func: |a, _| {
+            let (e0, e1, x) = (a[0].as_real(), a[1].as_real(), a[2].as_real());
+            ok(Value::Real(math::smoothstep(e0, e1, x)))
+        },
     },
     // ----- conversions -----
     Builtin {
@@ -233,6 +288,58 @@ pub static BUILTINS: &[Builtin] = &[
                 a[1].as_real(),
                 a[2].as_real(),
                 a[3].as_real(),
+            ]))
+        },
+    },
+    Builtin {
+        name: "dot",
+        generic: VECTOR,
+        params: &[ParamType::T, ParamType::T],
+        ret: RetType::Exact(Type::Real),
+        func: |a, _| ok(Value::Real(math::dot(&a[0], &a[1]))),
+    },
+    Builtin {
+        name: "length",
+        generic: VECTOR,
+        params: &[ParamType::T],
+        ret: RetType::Exact(Type::Real),
+        func: |a, _| ok(Value::Real(math::dot(&a[0], &a[0]).sqrt())),
+    },
+    Builtin {
+        name: "distance",
+        generic: REAL_OR_VECTOR,
+        params: &[ParamType::T, ParamType::T],
+        ret: RetType::Exact(Type::Real),
+        func: |a, _| match (a[0], a[1]) {
+            (Value::Real(x), Value::Real(y)) => ok(Value::Real((x - y).abs())),
+            (u, v) => {
+                let d = u.zip_components(v, |x, y| x - y).expect("same vector type");
+                ok(Value::Real(math::dot(&d, &d).sqrt()))
+            }
+        },
+    },
+    Builtin {
+        name: "normalize",
+        generic: VECTOR,
+        params: &[ParamType::T],
+        ret: RetType::T,
+        // A zero vector gives NaN components (0 / 0), as in GLSL.
+        func: |a, _| {
+            let len = math::dot(&a[0], &a[0]).sqrt();
+            ok(a[0].map_components(|c| c / len).expect("a vector"))
+        },
+    },
+    Builtin {
+        name: "cross",
+        generic: &[],
+        params: &[VEC3, VEC3],
+        ret: RetType::Exact(Type::Vec3),
+        func: |a, _| {
+            let (u, v) = (a[0].components(), a[1].components());
+            ok(Value::Vec3([
+                u[1] * v[2] - u[2] * v[1],
+                u[2] * v[0] - u[0] * v[2],
+                u[0] * v[1] - u[1] * v[0],
             ]))
         },
     },
