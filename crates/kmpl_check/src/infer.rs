@@ -36,15 +36,23 @@ struct Infer<'a> {
     scopes: Vec<HashMap<&'a str, TyVar>>,
     /// Every `let` variable, to check at the end that its type is known.
     locals: Vec<(&'a Ident, TyVar)>,
+    /// Every `1` and `1.0` literal, to pick its final type at the end.
+    literals: Vec<(Span, TyVar)>,
     /// The function being checked: its name and return type.
     current_fn: Option<(&'a str, Option<Type>)>,
     errors: Vec<CheckError>,
 }
 
+pub struct Inference {
+    pub errors: Vec<CheckError>,
+    /// Final type of every integer and real literal, by its span.
+    pub literal_types: HashMap<Span, Type>,
+}
+
 /// `report_unknown`: report `let` variables whose type stays unknown.
 /// Off when earlier checks already failed, since their errors (e.g. a
 /// variable never assigned) usually cause these.
-pub fn infer(program: &Program, report_unknown: bool) -> Vec<CheckError> {
+pub fn infer(program: &Program, report_unknown: bool) -> Inference {
     let mut inf = Infer {
         u: Unifier::default(),
         functions: HashMap::new(),
@@ -52,6 +60,7 @@ pub fn infer(program: &Program, report_unknown: bool) -> Vec<CheckError> {
         scopes: Vec::new(),
         locals: Vec::new(),
         current_fn: None,
+        literals: Vec::new(),
         errors: Vec::new(),
     };
 
@@ -83,7 +92,18 @@ pub fn infer(program: &Program, report_unknown: bool) -> Vec<CheckError> {
     if report_unknown {
         inf.finish();
     }
-    inf.errors
+
+    // Literals always have a default: their sets are subsets of NUMBER.
+    let literal_types = inf
+        .literals
+        .iter()
+        .filter_map(|&(span, var)| Some((span, inf.u.set(var).default_type()?)))
+        .collect();
+
+    Inference {
+        errors: inf.errors,
+        literal_types,
+    }
 }
 
 impl<'a> Infer<'a> {
@@ -234,9 +254,9 @@ impl<'a> Infer<'a> {
 
     fn expr(&mut self, e: &'a Expr) -> TyVar {
         match &e.kind {
-            ExprKind::Int(_) => self.u.new_var(TypeSet::NUMBER),
-            ExprKind::Real(_) => self.u.new_var(TypeSet::FLOAT),
-            ExprKind::Imag(_) => self.known(Type::Complex),
+            ExprKind::Int(_) => self.literal(TypeSet::NUMBER, e.span),
+            ExprKind::Real(_) => self.literal(TypeSet::FLOAT, e.span),
+            ExprKind::Complex { .. } => self.known(Type::Complex),
             ExprKind::Bool(_) => self.known(Type::Bool),
             ExprKind::Var(name) => match self.lookup(&name.name) {
                 Some(var) => var,
@@ -263,6 +283,12 @@ impl<'a> Infer<'a> {
             },
             ExprKind::Swizzle { base, mask } => self.swizzle(base, mask),
         }
+    }
+
+    fn literal(&mut self, set: TypeSet, span: Span) -> TyVar {
+        let var = self.u.new_var(set);
+        self.literals.push((span, var));
+        var
     }
 
     fn binary(&mut self, op: BinOp, lhs: &'a Expr, rhs: &'a Expr, span: Span) -> TyVar {

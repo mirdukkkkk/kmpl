@@ -23,7 +23,7 @@ fn main() {
         }
     };
 
-    let program = match kmpl_parse::parse(tokens) {
+    let mut program = match kmpl_parse::parse(tokens) {
         Ok(program) => program,
         Err(err) => {
             eprintln!(
@@ -34,7 +34,7 @@ fn main() {
         }
     };
 
-    if let Err(errors) = kmpl_check::check(&program) {
+    if let Err(errors) = kmpl_check::check(&mut program) {
         for err in &errors {
             eprintln!(
                 "{path}: {} at {}..{}",

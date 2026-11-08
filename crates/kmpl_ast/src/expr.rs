@@ -10,7 +10,9 @@ pub struct Expr {
 pub enum ExprKind {
     Int(i64),
     Real(f64),
-    Imag(f64),
+    /// `2.0i` parses as `Complex { re: 0.0, im: 2.0 }`. The checker also
+    /// rewrites `1` or `1.0` into this when they are used as `complex`.
+    Complex { re: f64, im: f64 },
     Bool(bool),
     Var(Ident),
     Unary { op: UnOp, operand: Box<Expr> },

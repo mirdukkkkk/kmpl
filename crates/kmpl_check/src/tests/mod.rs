@@ -2,6 +2,7 @@
 
 mod infer;
 mod init;
+mod literals;
 mod main_fn;
 mod resolve;
 mod returns;
@@ -25,7 +26,8 @@ fn errors(src: &str) -> Vec<String> {
 fn errors_exact(src: &str) -> Vec<String> {
     let tokens = kmpl_lexer::lex(src).unwrap();
     let program = kmpl_parse::parse(tokens).unwrap();
-    match check(&program) {
+    let mut program = program;
+    match check(&mut program) {
         Ok(()) => Vec::new(),
         Err(errors) => errors.into_iter().map(|e| e.message).collect(),
     }

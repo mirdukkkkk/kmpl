@@ -169,7 +169,8 @@ impl<'a> InitChecker<'a> {
 
     fn expr(&mut self, e: &'a Expr) {
         match &e.kind {
-            ExprKind::Int(_) | ExprKind::Real(_) | ExprKind::Imag(_) | ExprKind::Bool(_) => {}
+            ExprKind::Int(_) | ExprKind::Real(_) | ExprKind::Complex { .. } | ExprKind::Bool(_) => {
+            }
             ExprKind::Var(name) => self.read(name),
             ExprKind::Unary { operand, .. } => self.expr(operand),
             ExprKind::Binary { lhs, rhs, .. } => {
