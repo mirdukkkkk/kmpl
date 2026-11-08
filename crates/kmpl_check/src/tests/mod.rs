@@ -1,5 +1,6 @@
 //! Test helpers shared by the per-module test files.
 
+mod infer;
 mod init;
 mod main_fn;
 mod resolve;

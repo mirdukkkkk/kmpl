@@ -2,15 +2,10 @@ use std::collections::HashSet;
 
 use kmpl_ast::Type;
 
-use crate::{BUILTINS, ParamType, Value, lookup};
+use crate::{BUILTINS, ParamType, RetType, Value, lookup};
 
-/// Some value accepted by the given parameter, to call built-ins with.
-fn sample(param: ParamType) -> Value {
-    let ty = match param {
-        ParamType::Exact(ty) => ty,
-        ParamType::Any => Type::Int,
-    };
-
+/// Some value of the given type, to call built-ins with.
+fn sample(ty: Type) -> Value {
     match ty {
         Type::Int => Value::Int(2),
         Type::Real => Value::Real(2.0),
@@ -34,14 +29,43 @@ fn names_are_unique() {
     }
 }
 
-/// Every built-in accepts arguments of its declared `params`
-/// and returns a value of its declared `ret`.
+/// Every built-in accepts arguments of its declared `params` and returns
+/// a value of its declared `ret`, for every type its `T` may stand for.
 #[test]
 fn signatures_match_implementations() {
     for b in BUILTINS {
-        let args: Vec<Value> = b.params.iter().map(|&p| sample(p)).collect();
-        let result = (b.func)(&args);
-        assert_eq!(result.map(|v| v.ty()), b.ret, "built-in `{}`", b.name);
+        // Non-generic built-ins are called once; `T` is unused then.
+        let choices: &[Type] = if b.generic.is_empty() {
+            &[Type::Int]
+        } else {
+            b.generic
+        };
+
+        for &t in choices {
+            let args: Vec<Value> = b
+                .params
+                .iter()
+                .map(|p| match p {
+                    ParamType::Exact(ty) => sample(*ty),
+                    ParamType::T => sample(t),
+                    ParamType::Any => sample(Type::Int),
+                })
+                .collect();
+
+            let expected = match b.ret {
+                RetType::Nothing => None,
+                RetType::Exact(ty) => Some(ty),
+                RetType::T => Some(t),
+            };
+
+            let result = (b.func)(&args);
+            assert_eq!(
+                result.map(|v| v.ty()),
+                expected,
+                "built-in `{}` with T = {t:?}",
+                b.name
+            );
+        }
     }
 }
 
@@ -81,7 +105,7 @@ fn unknown_name() {
 fn print_accepts_any_type() {
     let print = lookup("print").unwrap();
     assert_eq!(print.params, &[ParamType::Any]);
-    assert_eq!(print.ret, None);
+    assert_eq!(print.ret, RetType::Nothing);
 }
 
 #[test]
@@ -95,4 +119,55 @@ fn display() {
     assert_eq!(show(Value::Complex { re: 2.0, im: -3.0 }), "2.0-3.0i");
     assert_eq!(show(Value::Vec2([1.0, -2.5])), "(1.0, -2.5)");
     assert_eq!(show(Value::Vec4([0.0; 4])), "(0.0, 0.0, 0.0, 0.0)");
+}
+
+fn complex(re: f64, im: f64) -> Value {
+    Value::Complex { re, im }
+}
+
+/// Calls a built-in on a complex number and returns `(re, im)`.
+fn call_complex(name: &str, re: f64, im: f64) -> (f64, f64) {
+    match call(name, &[complex(re, im)]) {
+        Some(Value::Complex { re, im }) => (re, im),
+        other => panic!("`{name}` returned {other:?}"),
+    }
+}
+
+fn assert_close(actual: (f64, f64), expected: (f64, f64)) {
+    let close = |a: f64, b: f64| (a - b).abs() < 1e-12;
+    assert!(
+        close(actual.0, expected.0) && close(actual.1, expected.1),
+        "{actual:?} != {expected:?}"
+    );
+}
+
+#[test]
+fn sqrt_of_negative_real_is_nan() {
+    let Some(Value::Real(v)) = call("sqrt", &[Value::Real(-1.0)]) else {
+        panic!("expected a real");
+    };
+    assert!(v.is_nan());
+}
+
+#[test]
+fn complex_math() {
+    use std::f64::consts::PI;
+
+    assert_close(call_complex("sqrt", -1.0, 0.0), (0.0, 1.0));
+    assert_close(call_complex("sqrt", -4.0, 0.0), (0.0, 2.0));
+    assert_close(call_complex("sqrt", 0.0, 2.0), (1.0, 1.0));
+    assert_close(call_complex("sqrt", 0.0, -2.0), (1.0, -1.0));
+    assert_close(call_complex("exp", 0.0, PI), (-1.0, 0.0));
+    assert_close(call_complex("log", -1.0, 0.0), (0.0, PI));
+    assert_close(call_complex("sin", 0.0, 0.0), (0.0, 0.0));
+    assert_close(call_complex("cos", 0.0, 0.0), (1.0, 0.0));
+    // sin(i) = i sinh(1), cos(i) = cosh(1)
+    assert_close(call_complex("sin", 0.0, 1.0), (0.0, 1f64.sinh()));
+    assert_close(call_complex("cos", 0.0, 1.0), (1f64.cosh(), 0.0));
+}
+
+#[test]
+fn abs_keeps_the_type() {
+    assert_eq!(call("abs", &[Value::Int(-3)]), Some(Value::Int(3)));
+    assert_eq!(call("abs", &[Value::Real(-2.5)]), Some(Value::Real(2.5)));
 }

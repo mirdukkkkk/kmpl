@@ -8,7 +8,7 @@ fn valid_program() {
          fn main() {
              let x = sqrt(2.0);
              let v = vec3(x, x, x);
-             x = helper(N, M);
+             let n = helper(N, M);
              print(v:zyx);
          }
          fn helper(a: int, b: int) -> int { return a + b; }",

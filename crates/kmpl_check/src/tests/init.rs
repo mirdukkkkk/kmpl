@@ -68,7 +68,7 @@ fn diverging_branch_does_not_block() {
 
 #[test]
 fn code_after_return_reports_nothing() {
-    assert_ok("fn f() { let x; return; print(x); }");
+    assert_ok("fn f() { let x: int; return; print(x); }");
 }
 
 #[test]
