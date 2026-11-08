@@ -1,10 +1,12 @@
 //! Statements and blocks.
 
-use kmpl_ast::{BinOp, Block, Expr, ExprKind, Ident, Span, Stmt, StmtKind, Type, TypeExpr};
+use kmpl_ast::{
+    BinOp, Block, Expr, ExprKind, Ident, PathStep, Span, Stmt, StmtKind, Type, TypeExpr,
+};
 use kmpl_lexer::Token;
 
 use crate::error::PResult;
-use crate::expr::expr;
+use crate::expr::{dotted_name, expr, header_expr};
 use crate::token_stream::TokenStream;
 
 /// `'{' stmt* '}'`. Returns the statements and the span from `{` to `}`.
@@ -77,7 +79,7 @@ fn let_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
 /// `else if` becomes an `otherwise` block holding a single `If`.
 fn if_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     let start = ts.expect(Token::If)?;
-    let cond = expr(ts)?;
+    let cond = header_expr(ts)?;
     let (then, mut end) = block(ts)?;
 
     let otherwise = if ts.eat(&Token::Else).is_none() {
@@ -105,7 +107,7 @@ fn if_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
 /// `'while' expr block`
 fn while_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     let start = ts.expect(Token::While)?;
-    let cond = expr(ts)?;
+    let cond = header_expr(ts)?;
     let (body, end) = block(ts)?;
 
     Ok(Stmt {
@@ -122,7 +124,7 @@ fn for_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     let first = ts.expect(Token::For)?;
     let var = ts.expect_ident()?;
     ts.expect(Token::In)?;
-    let start = expr(ts)?;
+    let start = header_expr(ts)?;
 
     let inclusive = match ts.peek() {
         Some(Token::DotDot) => false,
@@ -141,11 +143,11 @@ fn for_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     };
     ts.next();
 
-    let end = expr(ts)?;
+    let end = header_expr(ts)?;
     let step = match ts.peek() {
         Some(Token::Ident(word)) if word == "step" => {
             ts.next();
-            Some(expr(ts)?)
+            Some(header_expr(ts)?)
         }
         _ => None,
     };
@@ -220,12 +222,12 @@ fn assign_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     })
 }
 
-/// `expr ';'` or `IDENT ('[' expr ']')+ assign_op expr ';'`. An index expression
+/// `expr ';'` or `IDENT ('[' expr ']' | '.' IDENT)+ assign_op expr ';'`. A path
 /// can be any length, so the `=` is only visible after parsing it.
 fn expr_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     let e = expr(ts)?;
-    if assign_op(ts.peek()).is_some() && is_index_target(&e) {
-        return index_assign(ts, e);
+    if assign_op(ts.peek()).is_some() && is_path_target(&e) {
+        return path_assign(ts, e);
     }
 
     let end = ts.expect(Token::Semi)?;
@@ -237,21 +239,21 @@ fn expr_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     })
 }
 
-/// `a[i]`, `a[i][j]`, but not `f()[i]`: there is no variable to change.
-fn is_index_target(e: &Expr) -> bool {
+/// `a[i]`, `a.x`, `a[i].x`, but not `f()[i]`: there is no variable to change.
+fn is_path_target(e: &Expr) -> bool {
     match &e.kind {
-        ExprKind::Index { base, .. } => {
-            matches!(base.kind, ExprKind::Var(_)) || is_index_target(base)
+        ExprKind::Index { base, .. } | ExprKind::Field { base, .. } => {
+            matches!(base.kind, ExprKind::Var(_)) || is_path_target(base)
         }
         _ => false,
     }
 }
 
 /// Parses the rest of `target = value;` or `target += value;`.
-fn index_assign(ts: &mut TokenStream, target: Expr) -> PResult<Stmt> {
+fn path_assign(ts: &mut TokenStream, target: Expr) -> PResult<Stmt> {
     let start = target.span;
-    let mut indices = Vec::new();
-    let name = split_target(target, &mut indices);
+    let mut path = Vec::new();
+    let name = split_target(target, &mut path);
 
     let op = assign_op(ts.peek()).expect("checked by expr_stmt");
     ts.next();
@@ -259,9 +261,9 @@ fn index_assign(ts: &mut TokenStream, target: Expr) -> PResult<Stmt> {
     let end = ts.expect(Token::Semi)?;
 
     Ok(Stmt {
-        kind: StmtKind::IndexAssign {
+        kind: StmtKind::PathAssign {
             name,
-            indices,
+            path,
             op,
             value,
         },
@@ -269,16 +271,21 @@ fn index_assign(ts: &mut TokenStream, target: Expr) -> PResult<Stmt> {
     })
 }
 
-/// Splits `a[i][j]` into `a` and `[i, j]`. `e` passed `is_index_target`.
-fn split_target(e: Expr, indices: &mut Vec<Expr>) -> Ident {
+/// Splits `a[i].x` into `a` and its steps. `e` passed `is_path_target`.
+fn split_target(e: Expr, path: &mut Vec<PathStep>) -> Ident {
     match e.kind {
         ExprKind::Index { base, index } => {
-            let name = split_target(*base, indices);
-            indices.push(*index);
+            let name = split_target(*base, path);
+            path.push(PathStep::Index(*index));
+            name
+        }
+        ExprKind::Field { base, name: field } => {
+            let name = split_target(*base, path);
+            path.push(PathStep::Field(field));
             name
         }
         ExprKind::Var(name) => name,
-        _ => unreachable!("checked by is_index_target"),
+        _ => unreachable!("checked by is_path_target"),
     }
 }
 
@@ -300,10 +307,10 @@ fn two_or_more<T>(
     Ok(items)
 }
 
-/// `type ::= IDENT | '[' type ']' | '(' type (',' type)+ ','? ')'`. The
+/// `type ::= name | '[' type ']' | '(' type (',' type)+ ','? ')'`. The
 /// lexer gives type names as plain identifiers.
 /// A built-in name becomes `Known`; any other name becomes `Param` (a
-/// generic parameter or a typo), and the checker decides which.
+/// generic parameter, a struct or a typo), and the checker decides which.
 pub fn ty(ts: &mut TokenStream) -> PResult<TypeExpr> {
     if ts.eat(&Token::LBracket).is_some() {
         let elem = ty(ts)?;
@@ -314,7 +321,7 @@ pub fn ty(ts: &mut TokenStream) -> PResult<TypeExpr> {
         return Ok(TypeExpr::Tuple(two_or_more(ts, ty)?));
     }
 
-    let name = ts.expect_ident()?;
+    let name = dotted_name(ts)?;
     Ok(match Type::from_name(&name.name) {
         Some(ty) => TypeExpr::Known(ty),
         None => TypeExpr::Param(name),

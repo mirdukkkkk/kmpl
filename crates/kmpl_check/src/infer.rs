@@ -17,8 +17,8 @@
 use std::collections::{HashMap, HashSet};
 
 use kmpl_ast::{
-    BinOp, Block, Expr, ExprKind, Function, Ident, Item, Program, Span, Stmt, StmtKind, Type,
-    TypeExpr, UnOp,
+    BinOp, Block, Expr, ExprKind, Function, Ident, Item, PathStep, Program, Span, Stmt, StmtKind,
+    StructDef, Type, TypeExpr, UnOp,
 };
 use kmpl_builtins::{ParamType, RetType};
 
@@ -39,6 +39,9 @@ struct Infer<'a> {
     u: Unifier,
     functions: HashMap<&'a str, &'a Function>,
     consts: HashMap<&'a str, &'a TypeExpr>,
+    /// Name -> id in `Unifier` and in `struct_defs`.
+    struct_ids: HashMap<&'a str, usize>,
+    struct_defs: Vec<&'a StructDef>,
     /// Name -> type of a local. Innermost scope is last.
     scopes: Vec<HashMap<&'a str, TyVar>>,
     /// Every `let` variable, to check at the end that its type is known.
@@ -78,6 +81,8 @@ pub fn infer(program: &Program, report_unknown: bool) -> Inference {
         u: Unifier::default(),
         functions: HashMap::new(),
         consts: HashMap::new(),
+        struct_ids: HashMap::new(),
+        struct_defs: Vec::new(),
         scopes: Vec::new(),
         locals: Vec::new(),
         array_literals: Vec::new(),
@@ -97,6 +102,11 @@ pub fn infer(program: &Program, report_unknown: bool) -> Inference {
             Item::Function(f) => {
                 inf.functions.insert(&f.name.name, f);
             }
+            Item::Struct(s) => {
+                let id = inf.u.add_struct(&s.name.name);
+                inf.struct_ids.insert(&s.name.name, id);
+                inf.struct_defs.push(s);
+            }
         }
     }
 
@@ -109,7 +119,7 @@ pub fn infer(program: &Program, report_unknown: bool) -> Inference {
                 inf.unify(value, expected, c.value.span);
             }
             Item::Function(f) if f.generics.is_empty() => inf.function(f),
-            Item::Function(_) => {}
+            Item::Function(_) | Item::Struct(_) => {}
         }
     }
 
@@ -151,7 +161,7 @@ impl<'a> Infer<'a> {
 
     /// The variable for a type in a signature or annotation. Generic names
     /// were replaced in the checked copies, and `resolve` rejected unknown
-    /// names, so none are left here.
+    /// names, so only structs are left here.
     fn annotated(&mut self, ty: &TypeExpr) -> TyVar {
         self.type_var(ty, &HashMap::new())
     }
@@ -160,7 +170,13 @@ impl<'a> Infer<'a> {
     fn type_var(&mut self, ty: &TypeExpr, generics: &HashMap<&str, TyVar>) -> TyVar {
         match ty {
             TypeExpr::Known(ty) => self.known(*ty),
-            TypeExpr::Param(name) => generics[name.name.as_str()],
+            TypeExpr::Param(name) => match generics.get(name.name.as_str()) {
+                Some(var) => *var,
+                None => {
+                    let id = self.struct_ids[name.name.as_str()];
+                    self.u.new_struct(id)
+                }
+            },
             TypeExpr::Array(elem) => {
                 let elem = self.type_var(elem, generics);
                 self.u.new_array(elem)
@@ -252,18 +268,23 @@ impl<'a> Infer<'a> {
                     self.store(var, *op, value_ty, value.span, name.span, stmt.span);
                 }
             }
-            StmtKind::IndexAssign {
+            StmtKind::PathAssign {
                 name,
-                indices,
+                path,
                 op,
                 value,
             } => {
                 let value_ty = self.expr(value);
                 // Constants and functions are rejected by `resolve`.
                 if let Some(mut var) = self.lookup(&name.name) {
-                    for index in indices {
-                        self.index_type(index);
-                        var = self.array_elem(var, name.span);
+                    for step in path {
+                        var = match step {
+                            PathStep::Index(index) => {
+                                self.index_type(index);
+                                self.array_elem(var, name.span)
+                            }
+                            PathStep::Field(field) => self.field_type(var, field, name.span),
+                        };
                     }
                     self.store(var, *op, value_ty, value.span, name.span, stmt.span);
                 }
@@ -435,6 +456,11 @@ impl<'a> Infer<'a> {
                 }
             },
             ExprKind::Swizzle { base, mask } => self.swizzle(base, mask),
+            ExprKind::Field { base, name } => {
+                let base_ty = self.expr(base);
+                self.field_type(base_ty, name, base.span)
+            }
+            ExprKind::StructLit { name, fields } => self.struct_literal(name, fields),
             ExprKind::Tuple(items) => {
                 let elems = items.iter().map(|item| self.expr(item)).collect();
                 self.u.new_tuple(elems)
@@ -470,6 +496,45 @@ impl<'a> Infer<'a> {
                 base_ty
             }
         }
+    }
+
+    /// The type of field `field` of `ty`, which must be a known struct.
+    fn field_type(&mut self, ty: TyVar, field: &Ident, base_span: Span) -> TyVar {
+        let Some(id) = self.u.struct_id(ty) else {
+            let message = if self.u.set(ty) == TypeSet::ANY {
+                "cannot tell the type of this value, add a type annotation".to_owned()
+            } else {
+                format!("only a struct has fields, found {}", self.u.describe(ty))
+            };
+            self.error(message, base_span);
+            return self.u.new_var(TypeSet::ANY);
+        };
+
+        let def = self.struct_defs[id];
+        match def.fields.iter().find(|f| f.name.name == field.name) {
+            Some(declared) => self.annotated(&declared.ty),
+            None => {
+                self.error(
+                    format!("`{}` has no field `{}`", def.name.name, field.name),
+                    field.span,
+                );
+                self.u.new_var(TypeSet::ANY)
+            }
+        }
+    }
+
+    /// `resolve` already checked that the fields match the definition.
+    fn struct_literal(&mut self, name: &'a Ident, fields: &'a [(Ident, Expr)]) -> TyVar {
+        let id = self.struct_ids[name.name.as_str()];
+        let def = self.struct_defs[id];
+        for (field, value) in fields {
+            let ty = self.expr(value);
+            if let Some(declared) = def.fields.iter().find(|f| f.name.name == field.name) {
+                let expected = self.annotated(&declared.ty);
+                self.unify(ty, expected, value.span);
+            }
+        }
+        self.u.new_struct(id)
     }
 
     /// An index or an array length is an `int`.

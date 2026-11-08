@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 
-use kmpl_ast::{Block, Expr, ExprKind, Item, Program, Span, StmtKind, Type};
+use kmpl_ast::{Block, Expr, ExprKind, Item, PathStep, Program, Span, StmtKind, Type};
 
 use crate::infer::Inference;
 
@@ -31,6 +31,7 @@ pub fn rewrite(program: &mut Program, inference: &Inference) {
         match item {
             Item::Const(c) => r.expr(&mut c.value),
             Item::Function(f) => r.block(&mut f.body),
+            Item::Struct(_) => {}
         }
     }
 }
@@ -47,9 +48,11 @@ impl Rewriter<'_> {
                 StmtKind::LetTuple { value, .. } | StmtKind::Assign { value, .. } => {
                     self.expr(value)
                 }
-                StmtKind::IndexAssign { indices, value, .. } => {
-                    for index in indices {
-                        self.expr(index);
+                StmtKind::PathAssign { path, value, .. } => {
+                    for step in path {
+                        if let PathStep::Index(index) = step {
+                            self.expr(index);
+                        }
                     }
                     self.expr(value);
                 }
@@ -129,7 +132,12 @@ impl Rewriter<'_> {
                     self.expr(arg);
                 }
             }
-            ExprKind::Swizzle { base, .. } => self.expr(base),
+            ExprKind::Swizzle { base, .. } | ExprKind::Field { base, .. } => self.expr(base),
+            ExprKind::StructLit { fields, .. } => {
+                for (_, value) in fields {
+                    self.expr(value);
+                }
+            }
             ExprKind::Array(items) | ExprKind::Tuple(items) => {
                 for item in items {
                     self.expr(item);

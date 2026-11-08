@@ -919,3 +919,143 @@ fn plot_errors() {
         "{message}"
     );
 }
+
+const POINT: &str = "struct P { x: real, n: int } ";
+
+fn with_point(body: &str) -> String {
+    run(&format!("{POINT} fn main() {{ {body} }}")).unwrap()
+}
+
+#[test]
+fn struct_values() {
+    assert_eq!(
+        with_point("let p = P { x: 1, n: 2 }; print(p.x); print(p.n);"),
+        "1.0\n2\n"
+    );
+    assert_eq!(
+        with_point("print(P { n: 2, x: 1 });"),
+        "P { x: 1.0, n: 2 }\n"
+    );
+    assert_eq!(
+        run("struct Empty { } fn main() { print(Empty { }); }").unwrap(),
+        "Empty { }\n"
+    );
+    assert_eq!(
+        with_point(
+            "print(P { x: 1, n: 2 } == P { n: 2, x: 1 }); print(P { x: 1, n: 2 } != P { x: 2, n: 2 });"
+        ),
+        "true\ntrue\n"
+    );
+    assert_eq!(
+        with_point("print(string(P { x: 1, n: 2 }));"),
+        "P { x: 1.0, n: 2 }\n"
+    );
+}
+
+#[test]
+fn struct_fields_run_in_written_order() {
+    let src = "struct P { a: int, b: int }
+               fn v(x: int) -> int { print(x); return x; }
+               fn main() { print(P { b: v(2), a: v(1) }); }";
+    assert_eq!(run(src).unwrap(), "2\n1\nP { a: 1, b: 2 }\n");
+}
+
+#[test]
+fn structs_are_values() {
+    assert_eq!(
+        with_point("let a = P { x: 1, n: 1 }; let b = a; b.n = 2; print(a.n); print(b.n);"),
+        "1\n2\n"
+    );
+    let src = "struct P { n: int }
+               fn change(p: P) -> P { p.n = 9; return p; }
+               fn main() { let a = P { n: 1 }; let b = change(a); print(a.n); print(b.n); }";
+    assert_eq!(run(src).unwrap(), "1\n9\n");
+    assert_eq!(
+        with_point(
+            "let a = [P { x: 1, n: 1 }]; let b = a; b[0].n = 5; print(a[0].n); print(b[0].n);"
+        ),
+        "1\n5\n"
+    );
+}
+
+#[test]
+fn nested_field_assignment() {
+    let src = "struct In { v: [int] }
+               struct Out { a: In, list: [In] }
+               fn main() {
+                   let o = Out { a: In { v: [1] }, list: [In { v: [2, 3] }] };
+                   o.a.v[0] = 7;
+                   o.list[0].v[1] += 10;
+                   print(o.a.v);
+                   print(o.list[0].v);
+                   o.a = In { v: [] };
+                   print(len(o.a.v));
+               }";
+    assert_eq!(run(src).unwrap(), "[7]\n[2, 13]\n0\n");
+}
+
+#[test]
+fn compound_field_assignment_runs_each_part_once() {
+    let src = "struct P { n: int }
+               fn value() -> int { print(1); return 1; }
+               fn index() -> int { print(2); return 0; }
+               fn main() { let a = [P { n: 1 }]; a[index()].n += value(); print(a[0].n); }";
+    assert_eq!(run(src).unwrap(), "1\n2\n2\n");
+}
+
+#[test]
+fn field_paths_report_bad_indices() {
+    assert_eq!(
+        runtime_error(&format!(
+            "{POINT} fn main() {{ let a = [P {{ x: 1, n: 1 }}]; a[3].n = 1; }}"
+        )),
+        "index 3 is out of bounds for an array of length 1"
+    );
+    assert_eq!(
+        runtime_error(&format!(
+            "{POINT} fn main() {{ let a = [P {{ x: 1, n: 1 }}]; a[3].n += 1; }}"
+        )),
+        "index 3 is out of bounds for an array of length 1"
+    );
+}
+
+#[test]
+fn field_reads_of_calls_and_elements() {
+    let src = "struct P { n: int }
+               fn make() -> P { return P { n: 4 }; }
+               fn main() { print(make().n); print([make()][0].n); print((P { n: 5 }).n); }";
+    assert_eq!(run(src).unwrap(), "4\n4\n5\n");
+}
+
+#[test]
+fn literals_get_field_types() {
+    assert_eq!(
+        with_point("let p = P { x: 1, n: 2 }; print(p.x / 2);"),
+        "0.5\n"
+    );
+    assert_eq!(
+        with_point("let p = P { x: 1, n: 2 }; p.x += 1; print(p.x);"),
+        "2.0\n"
+    );
+}
+
+#[test]
+fn struct_constants_and_recursive_data() {
+    let src = "struct Node { value: int, children: [Node] }
+               const LEAF: Node = Node { value: 1, children: [] };
+               fn sum(n: Node) -> int {
+                   let total = n.value;
+                   for c in n.children { total += sum(c); }
+                   return total;
+               }
+               fn main() { print(sum(Node { value: 2, children: [LEAF, LEAF] })); }";
+    assert_eq!(run(src).unwrap(), "4\n");
+}
+
+#[test]
+fn structs_in_if_headers_with_brackets() {
+    assert_eq!(
+        with_point(r#"let a = P { x: 1, n: 1 }; if a == (P { x: 1, n: 1 }) { print("same"); }"#),
+        "same\n"
+    );
+}

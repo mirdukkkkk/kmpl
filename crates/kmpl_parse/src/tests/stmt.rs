@@ -266,13 +266,67 @@ fn strings() {
 }
 
 #[test]
-fn module_names() {
-    assert_eq!(body("stats.G;"), "[stats.G]");
+fn dots() {
+    assert_eq!(body("stats.G;"), "[(. stats G)]");
     assert_eq!(body("stats.mean(1);"), "[(call stats.mean [1])]");
-    assert_eq!(body("m.a[0];"), "[(index m.a 0)]");
-    assert_eq!(body("m.v:xy;"), "[(: m.v xy)]");
-    assert_eq!(body_error("a.b.c;"), "expected `;`, found `.`");
-    assert_eq!(body_error("a.b = 1;"), "expected `;`, found `=`");
-    assert_eq!(body_error("f().x;"), "expected `;`, found `.`");
+    assert_eq!(body("m.a[0];"), "[(index (. m a) 0)]");
+    assert_eq!(body("m.v:xy;"), "[(: (. m v) xy)]");
+    assert_eq!(body("a.b.c;"), "[(. (. a b) c)]");
+    assert_eq!(body("f().x;"), "[(. (call f []) x)]");
+    assert_eq!(body("a[0].x[1];"), "[(index (. (index a 0) x) 1)]");
     assert_eq!(body_error("a.;"), "expected identifier, found `;`");
+    assert_eq!(body_error("a.b.c(1);"), "expected `;`, found `(`");
+}
+
+#[test]
+fn field_assignment() {
+    assert_eq!(body("p.x = 1;"), "[(index= p [.x] 1)]");
+    assert_eq!(body("a[0].x.y += 1;"), "[(index+= a [0 .x .y] 1)]");
+    assert_eq!(body_error("f().x = 1;"), "expected `;`, found `=`");
+}
+
+#[test]
+fn struct_literals() {
+    assert_eq!(body("P { x: 1, y: 2 };"), "[(new P [(x 1) (y 2)])]");
+    assert_eq!(body("P { x: 1, };"), "[(new P [(x 1)])]");
+    assert_eq!(body("P { };"), "[(new P [])]");
+    assert_eq!(body("m.P { x: 1 };"), "[(new m.P [(x 1)])]");
+    assert_eq!(
+        body("P { a: Q { b: 1 } };"),
+        "[(new P [(a (new Q [(b 1)]))])]"
+    );
+    assert_eq!(body("let q: m.P = p;"), "[(let q m.P p)]");
+    assert_eq!(body_error("P { x };"), "expected `:`, found `}`");
+    assert_eq!(
+        body_error("P { x: 1 y: 2 };"),
+        "expected `}`, found identifier `y`"
+    );
+}
+
+#[test]
+fn no_struct_literal_directly_in_headers() {
+    assert_eq!(body("if x { }"), "[(if x [])]");
+    assert_eq!(body("if p.x { }"), "[(if (. p x) [])]");
+    assert_eq!(body("while x { }"), "[(while x [])]");
+    assert_eq!(body("for i in a { }"), "[(foreach i a [])]");
+    assert_eq!(body("for i in 0..n step k { }"), "[(for i 0 n step k [])]");
+    // Inside brackets a literal is not in doubt.
+    assert_eq!(body("if a == (P { }) { }"), "[(if (== a (new P [])) [])]");
+    assert_eq!(
+        body("while f(P { }) { }"),
+        "[(while (call f [(new P [])]) [])]"
+    );
+    assert_eq!(
+        body("for x in [P { }] { }"),
+        "[(foreach x (array (new P [])) [])]"
+    );
+    // The body of `if` still parses as a block after a bracketed literal.
+    assert_eq!(
+        body("if (P { }) == a { x; }"),
+        "[(if (== (new P []) a) [x])]"
+    );
+    assert_eq!(
+        body_error("if P { x: 1 } { }"),
+        "expected identifier, found number `1`"
+    );
 }

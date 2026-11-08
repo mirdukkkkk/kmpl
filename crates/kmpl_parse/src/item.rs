@@ -1,6 +1,8 @@
 //! Top-level items: `const` and `fn`.
 
-use kmpl_ast::{Const, Function, Generic, Import, Item, Param, Program, Type};
+use kmpl_ast::{
+    Const, Function, Generic, Import, Item, Param, Program, StructDef, StructField, Type,
+};
 use kmpl_lexer::Token;
 
 use crate::error::{PResult, ParseError};
@@ -41,8 +43,32 @@ fn item(ts: &mut TokenStream) -> PResult<Item> {
     match ts.peek() {
         Some(Token::Const) => Ok(Item::Const(const_item(ts)?)),
         Some(Token::Fn) => Ok(Item::Function(function(ts)?)),
-        _ => Err(ts.error_expected("`const` or `fn`")),
+        Some(Token::Struct) => Ok(Item::Struct(struct_def(ts)?)),
+        _ => Err(ts.error_expected("`const`, `fn` or `struct`")),
     }
+}
+
+/// `'struct' IDENT '{' (IDENT ':' type (',' IDENT ':' type)* ','?)? '}'`
+fn struct_def(ts: &mut TokenStream) -> PResult<StructDef> {
+    ts.expect(Token::Struct)?;
+    let name = ts.expect_ident()?;
+    ts.expect(Token::LBrace)?;
+
+    let mut fields = Vec::new();
+    while ts.peek() != Some(&Token::RBrace) {
+        let field = ts.expect_ident()?;
+        ts.expect(Token::Colon)?;
+        fields.push(StructField {
+            name: field,
+            ty: ty(ts)?,
+        });
+        if ts.eat(&Token::Comma).is_none() {
+            break;
+        }
+    }
+    ts.expect(Token::RBrace)?;
+
+    Ok(StructDef { name, fields })
 }
 
 /// `'const' IDENT ':' type '=' expr ';'`

@@ -12,7 +12,7 @@ mod value;
 #[cfg(test)]
 mod tests;
 
-pub use value::Value;
+pub use value::{StructLayout, StructValue, Value};
 
 use std::io::Write;
 use std::sync::Arc;

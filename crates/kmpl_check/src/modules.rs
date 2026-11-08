@@ -10,15 +10,17 @@
 //! Rules:
 //! - `stats.mean` needs `import ...stats;` in the same file. Imports are
 //!   not transitive.
-//! - A local variable hides a module of the same name: `stats.mean` is
-//!   then an error, and will mean a field once structs exist.
+//! - A local variable hides a module of the same name: `stats.mean` then
+//!   reads a field of the variable.
 //! - A local variable hides an item of its own module, like it hides a
 //!   constant in a single file. Calls ignore locals, as in `resolve`.
 //! - The file being run has no prefix, so only its `main` is the program's.
 
 use std::collections::{HashMap, HashSet};
 
-use kmpl_ast::{Block, Expr, ExprKind, Function, Ident, Item, Program, Stmt, StmtKind};
+use kmpl_ast::{
+    Block, Expr, ExprKind, Function, Ident, Item, PathStep, Program, Stmt, StmtKind, Type, TypeExpr,
+};
 
 use crate::error::CheckError;
 
@@ -67,6 +69,7 @@ pub fn link(modules: Vec<Module>) -> Result<Program, Vec<CheckError>> {
             imports: &imports,
             exports: &exports,
             scopes: Vec::new(),
+            type_params: HashSet::new(),
             errors: Vec::new(),
         };
         for item in &mut module.program.items {
@@ -93,6 +96,7 @@ fn item_names(program: &Program) -> HashSet<String> {
         .map(|item| match item {
             Item::Const(c) => c.name.name.clone(),
             Item::Function(f) => f.name.name.clone(),
+            Item::Struct(s) => s.name.name.clone(),
         })
         .collect()
 }
@@ -106,6 +110,8 @@ struct Linker<'a> {
     exports: &'a HashMap<String, HashSet<String>>,
     /// Local variables. Innermost scope is last.
     scopes: Vec<HashSet<String>>,
+    /// Generic parameters of the current function. They hide structs.
+    type_params: HashSet<String>,
     errors: Vec<CheckError>,
 }
 
@@ -126,18 +132,35 @@ impl Linker<'_> {
         match item {
             Item::Const(c) => {
                 self.declared(&mut c.name);
+                self.ty(&mut c.ty);
                 self.expr(&mut c.value);
             }
             Item::Function(f) => self.function(f),
+            Item::Struct(s) => {
+                self.declared(&mut s.name);
+                for field in &mut s.fields {
+                    self.ty(&mut field.ty);
+                }
+            }
         }
     }
 
     fn function(&mut self, f: &mut Function) {
         self.declared(&mut f.name);
+        self.type_params = f.generics.iter().map(|g| g.name.name.clone()).collect();
+
+        for param in &mut f.params {
+            self.ty(&mut param.ty);
+        }
+        if let Some(ret) = &mut f.ret {
+            self.ty(ret);
+        }
+
         let params = f.params.iter().map(|p| p.name.name.clone()).collect();
         self.scopes.push(params);
         self.block(&mut f.body);
         self.scopes.pop();
+        self.type_params.clear();
     }
 
     /// Prefixes the name of an item. With a prefix `resolve` could no longer
@@ -148,6 +171,8 @@ impl Linker<'_> {
                 self.error(format!("`{}` is a built-in function", name.name), name);
             } else if kmpl_builtins::lookup_const(&name.name).is_some() {
                 self.error(format!("`{}` is a built-in constant", name.name), name);
+            } else if Type::from_name(&name.name).is_some() {
+                self.error(format!("`{}` is a built-in type", name.name), name);
             }
         }
         name.name = self.full_name(&name.name);
@@ -164,39 +189,69 @@ impl Linker<'_> {
         self.scopes.iter().any(|scope| scope.contains(name))
     }
 
-    /// `stats.mean`, written in a file that imports `stats`. Returns
-    /// whether `name` had a dot, so was handled here.
-    fn qualified(&mut self, name: &mut Ident) -> bool {
-        let Some((module, member)) = name.name.split_once('.') else {
-            return false;
-        };
+    /// `stats.mean`, written in a file that imports `stats`.
+    fn module_item(&mut self, name: &mut Ident) {
+        let (module, member) = name.name.split_once('.').expect("a dotted name");
         let (module, member) = (module.to_owned(), member.to_owned());
 
-        if self.is_local(&module) {
-            self.error(format!("`{module}` is a variable, not a module"), name);
-            return true;
-        }
         let Some(target) = self.imports.get(&module) else {
             self.error(
                 format!("unknown module `{module}`, add `import {module};`"),
                 name,
             );
-            return true;
+            return;
         };
         if !self.exports[target].contains(&member) {
             self.error(format!("module `{module}` has no `{member}`"), name);
-            return true;
+            return;
         }
-
         name.name = format!("{target}.{member}");
-        true
+    }
+
+    /// The name of a function or struct at a call or a literal: not a
+    /// variable, so locals do not hide items.
+    fn item_name(&mut self, name: &mut Ident) {
+        if let Some((module, _)) = name.name.split_once('.') {
+            if self.is_local(module) {
+                let message = format!("`{module}` is a variable, not a module");
+                self.error(message, name);
+            } else {
+                self.module_item(name);
+            }
+        } else if self.own.contains(&name.name) {
+            name.name = self.full_name(&name.name);
+        }
     }
 
     /// A variable that is read or assigned to.
     fn variable(&mut self, name: &mut Ident) {
-        if !self.qualified(name) && !self.is_local(&name.name) && self.own.contains(&name.name) {
+        if !self.is_local(&name.name) && self.own.contains(&name.name) {
             name.name = self.full_name(&name.name);
         }
+    }
+
+    /// Locals do not hide types: they are different kinds of names.
+    fn ty(&mut self, ty: &mut TypeExpr) {
+        match ty {
+            TypeExpr::Known(_) => {}
+            TypeExpr::Array(elem) => self.ty(elem),
+            TypeExpr::Tuple(items) => {
+                for item in items {
+                    self.ty(item);
+                }
+            }
+            TypeExpr::Param(name) if name.name.contains('.') => self.module_item(name),
+            TypeExpr::Param(name) => {
+                if !self.type_params.contains(&name.name) && self.own.contains(&name.name) {
+                    name.name = self.full_name(&name.name);
+                }
+            }
+        }
+    }
+
+    /// Is `name` a module here? A local of that name hides it.
+    fn is_module(&self, name: &str) -> bool {
+        !self.is_local(name) && self.imports.contains_key(name)
     }
 
     fn block(&mut self, block: &mut Block) {
@@ -209,7 +264,10 @@ impl Linker<'_> {
 
     fn stmt(&mut self, stmt: &mut Stmt) {
         match &mut stmt.kind {
-            StmtKind::Let { name, init, .. } => {
+            StmtKind::Let { name, ty, init } => {
+                if let Some(ty) = ty {
+                    self.ty(ty);
+                }
                 // The initializer comes first: `let x = x;` sees the outer `x`.
                 if let Some(init) = init {
                     self.expr(init);
@@ -226,17 +284,26 @@ impl Linker<'_> {
                 self.expr(value);
                 self.variable(name);
             }
-            StmtKind::IndexAssign {
-                name,
-                indices,
-                value,
-                ..
+            StmtKind::PathAssign {
+                name, path, value, ..
             } => {
                 self.expr(value);
-                for index in indices {
-                    self.expr(index);
+                for step in path.iter_mut() {
+                    if let PathStep::Index(index) = step {
+                        self.expr(index);
+                    }
                 }
-                self.variable(name);
+
+                // `stats.G[0] = 1;` starts with an item of a module.
+                if self.is_module(&name.name)
+                    && let Some(PathStep::Field(member)) = path.first()
+                {
+                    name.name = format!("{}.{}", name.name, member.name);
+                    self.module_item(name);
+                    path.remove(0);
+                } else {
+                    self.variable(name);
+                }
             }
             StmtKind::If {
                 cond,
@@ -302,14 +369,40 @@ impl Linker<'_> {
                 self.expr(rhs);
             }
             ExprKind::Call { name, args } => {
-                if !self.qualified(name) && self.own.contains(&name.name) {
-                    name.name = self.full_name(&name.name);
-                }
+                self.item_name(name);
                 for arg in args {
                     self.expr(arg);
                 }
             }
             ExprKind::Swizzle { base, .. } => self.expr(base),
+            ExprKind::Field { base, name } => {
+                if let ExprKind::Var(first) = &base.kind {
+                    let (head, is_known) = (
+                        first.name.clone(),
+                        self.is_local(&first.name)
+                            || self.own.contains(&first.name)
+                            || kmpl_builtins::lookup_const(&first.name).is_some(),
+                    );
+                    // A variable or constant has fields; anything else
+                    // before the dot has to be a module.
+                    if self.is_module(&head) || !is_known {
+                        let mut item = Ident {
+                            name: format!("{head}.{}", name.name),
+                            span: e.span,
+                        };
+                        self.module_item(&mut item);
+                        e.kind = ExprKind::Var(item);
+                        return;
+                    }
+                }
+                self.expr(base);
+            }
+            ExprKind::StructLit { name, fields } => {
+                self.item_name(name);
+                for (_, value) in fields {
+                    self.expr(value);
+                }
+            }
             ExprKind::Tuple(items) | ExprKind::Array(items) => {
                 for item in items {
                     self.expr(item);

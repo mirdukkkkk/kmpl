@@ -63,6 +63,7 @@ fn items_get_the_module_prefix() {
         .map(|item| match item {
             Item::Const(c) => c.name.name.as_str(),
             Item::Function(f) => f.name.name.as_str(),
+            Item::Struct(s) => s.name.name.as_str(),
         })
         .collect();
     assert_eq!(names, ["lib.a.G", "lib.a.f", "main"]);
@@ -195,12 +196,129 @@ fn missing_members() {
 #[test]
 fn a_local_hides_a_module() {
     assert_eq!(
-        link_errors(vec![
+        errors(vec![
             module("a", &[], "const X: int = 1;"),
             module("", &[("a", "a")], "fn main() { let a = 1; print(a.X); }"),
         ]),
+        ["only a struct has fields, found `int`, `real` or `complex`"]
+    );
+    assert_eq!(
+        errors(vec![
+            module("a", &[], "fn f() { }"),
+            module("", &[("a", "a")], "fn main() { let a = 1; a.f(); }"),
+        ]),
         ["`a` is a variable, not a module"]
     );
+}
+
+#[test]
+fn structs_in_modules() {
+    assert_ok(vec![
+        module(
+            "lib.g",
+            &[],
+            "struct P { x: real }
+             struct L { a: P, b: [P] }
+             const O: P = P { x: 0.0 };
+             fn make(x: real) -> P { let p: P = P { x: x }; return p; }",
+        ),
+        module(
+            "",
+            &[("g", "lib.g")],
+            "fn f(p: g.P) -> [g.P] { return [p, g.make(1.0), g.O]; }
+             fn main() {
+                 let p: g.P = g.P { x: 1.0 };
+                 let l = g.L { a: p, b: f(p) };
+                 print(l.a.x + g.O.x + g.make(2.0).x);
+                 l.b[0].x = 3.0;
+             }",
+        ),
+    ]);
+}
+
+#[test]
+fn local_does_not_hide_a_type() {
+    assert_ok(vec![
+        module("g", &[], "struct P { x: real }"),
+        module(
+            "",
+            &[("g", "g")],
+            "fn main() { let g = 1; let a: [g.P] = []; print(len(a)); }",
+        ),
+    ]);
+}
+
+#[test]
+fn local_hides_own_struct_constant_but_not_the_type() {
+    assert_ok(vec![
+        module(
+            "a",
+            &[],
+            "struct P { x: real }
+             fn f(P: int) -> P { let y: int = P; return P { x: 1.0 }; }",
+        ),
+        module("", &[("a", "a")], MAIN),
+    ]);
+}
+
+#[test]
+fn generic_parameter_hides_a_struct() {
+    assert_ok(vec![
+        module(
+            "a",
+            &[],
+            "struct T { x: real }
+             fn f<T: int>(v: T) -> T { return v; }",
+        ),
+        module("", &[("a", "a")], MAIN),
+    ]);
+}
+
+#[test]
+fn missing_types_in_modules() {
+    assert_eq!(
+        link_errors(vec![
+            module("g", &[], ""),
+            module("", &[("g", "g")], "fn f(p: g.P) { } fn main() { }"),
+        ]),
+        ["module `g` has no `P`"]
+    );
+    assert_eq!(
+        link_errors(vec![module("", &[], "fn f(p: g.P) { } fn main() { }")]),
+        ["unknown module `g`, add `import g;`"]
+    );
+    assert_eq!(
+        link_errors(vec![
+            module("g", &[], "struct P { }"),
+            module("", &[("g", "g")], "fn main() { let g = 1; g.P { }; }",),
+        ]),
+        ["`g` is a variable, not a module"]
+    );
+}
+
+#[test]
+fn modules_cannot_reuse_built_in_type_names() {
+    assert_eq!(
+        link_errors(vec![
+            module("a", &[], "struct bool { }"),
+            module("", &[("a", "a")], MAIN),
+        ]),
+        ["`bool` is a built-in type"]
+    );
+}
+
+#[test]
+fn fields_of_module_constants_and_own_constants() {
+    assert_ok(vec![
+        module(
+            "a",
+            &[],
+            "struct P { x: real }
+             const O: P = P { x: 1.0 };
+             fn f() -> real { return O.x; }",
+        ),
+        module("", &[("a", "a")], "fn main() { print(a.O.x); }"),
+    ]);
 }
 
 #[test]

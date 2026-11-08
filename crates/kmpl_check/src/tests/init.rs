@@ -154,3 +154,17 @@ fn unpacking_initializes_and_reads() {
     assert_error("fn f() { let x: int; let (a, b) = (x, 1); }", UNINIT_X);
     assert_error("fn f() { let x: int; let t = (x, 1); }", UNINIT_X);
 }
+
+#[test]
+fn fields_read_their_variable() {
+    let p = "struct P { x: int }";
+    assert_error(&format!("{p} fn f() {{ let x: P; x.x = 1; }}"), UNINIT_X);
+    assert_error(&format!("{p} fn f() {{ let x: P; print(x.x); }}"), UNINIT_X);
+    assert_error(
+        &format!("{p} fn f() {{ let x: int; P {{ x: x }}; }}"),
+        UNINIT_X,
+    );
+    assert_ok(&format!(
+        "{p} fn f() {{ let q; q = P {{ x: 1 }}; q.x = 2; }}"
+    ));
+}

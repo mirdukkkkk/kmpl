@@ -7,7 +7,9 @@ program     ::= import* item*
 import      ::= 'import' IDENT ('.' IDENT)* ';'
 
 (* items *)
-item        ::= const | function
+item        ::= const | function | struct
+struct      ::= 'struct' IDENT '{' (field (',' field)* ','?)? '}'
+field       ::= IDENT ':' type
 const       ::= 'const' IDENT ':' type '=' expr ';'
 function    ::= 'fn' IDENT generics? '(' params? ')' ('->' type)? block
 generics    ::= '<' generic (',' generic)* ','? '>'
@@ -17,13 +19,13 @@ bound_item  ::= IDENT                       (* a type, or number | float | vecto
 params      ::= param (',' param)* ','?
 param       ::= IDENT ':' type
 
-type        ::= IDENT                       (* a built-in type or a generic parameter *)
+type        ::= name                        (* a built-in type, a generic parameter or a struct *)
               | '[' type ']'                (* an array of any length *)
               | '(' type (',' type)+ ','? ')'
 
 (* statements *)
 block       ::= '{' stmt* '}'
-stmt        ::= let | if | while | for | break | continue | return | assign | indexassign | exprstmt
+stmt        ::= let | if | while | for | break | continue | return | assign | pathassign | exprstmt
 let         ::= 'let' IDENT (':' type)? ('=' expr)? ';'
               | 'let' '(' IDENT (',' IDENT)+ ','? ')' '=' expr ';'   (* '_' skips an element *)
 if          ::= 'if' expr block ('else' (if | block))?
@@ -34,7 +36,7 @@ break       ::= 'break' ';'
 continue    ::= 'continue' ';'
 return      ::= 'return' expr? ';'
 assign      ::= IDENT assignop expr ';'
-indexassign ::= IDENT ('[' expr ']')+ assignop expr ';'
+pathassign  ::= IDENT ('[' expr ']' | '.' IDENT)+ assignop expr ';'
 assignop    ::= '=' | '+=' | '-=' | '*=' | '/='
 exprstmt    ::= expr ';'
 
@@ -47,9 +49,12 @@ comp        ::= add (('<' | '<=' | '>' | '>=') add)*
 add         ::= mul (('+' | '-') mul)*
 mul         ::= unary (('*' | '/') unary)*
 unary       ::= ('!' | '-') unary | postfix
-postfix     ::= primary ('[' (expr | slice) ']')* (':' swizzle)?
+postfix     ::= primary ('[' (expr | slice) ']' | '.' IDENT)* (':' swizzle)?
 slice       ::= expr? '..' expr? | expr? '..=' expr
-primary     ::= INT | REAL | IMAG | STRING | 'true' | 'false' | name | call | array | tuple | '(' expr ')'
+primary     ::= INT | REAL | IMAG | STRING | 'true' | 'false' | IDENT | call | structlit | array | tuple | '(' expr ')'
+(* Not directly in the header of if, while or for, where '{' starts the
+   body. Inside brackets it is allowed: if a == (P { x: 1 }) { ... } *)
+structlit   ::= name '{' (IDENT ':' expr (',' IDENT ':' expr)* ','?)? '}'
 tuple       ::= '(' expr (',' expr)+ ','? ')'
 array       ::= '[' (expr (',' expr)* ','?)? ']' | '[' expr ';' expr ']'
 call        ::= name '(' (expr (',' expr)* ','?)? ')'

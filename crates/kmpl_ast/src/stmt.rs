@@ -8,6 +8,13 @@ pub struct Stmt {
     pub span: Span,
 }
 
+/// One step of an assignment target.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PathStep {
+    Index(Expr),
+    Field(Ident),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtKind {
     Let {
@@ -23,12 +30,12 @@ pub enum StmtKind {
         op: Option<BinOp>,
         value: Expr,
     },
-    /// `name[i][j] = value`: one entry in `indices` per `[...]`. `op` is
-    /// set for `name[i] += value`. Not desugared to `a[i] = a[i] + value`,
+    /// `name[i].x = value`: one step per `[...]` or `.field`. `op` is set
+    /// for `name[i] += value`. Not desugared to `a[i] = a[i] + value`,
     /// because the indices must run only once.
-    IndexAssign {
+    PathAssign {
         name: Ident,
-        indices: Vec<Expr>,
+        path: Vec<PathStep>,
         op: Option<BinOp>,
         value: Expr,
     },

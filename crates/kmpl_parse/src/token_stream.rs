@@ -8,6 +8,9 @@ pub struct TokenStream {
     pos: usize,
     /// Empty span right after the last token, used for "found end of file".
     eof: Span,
+    /// Off in the header of `if`, `while` and `for`, where a `{` after a
+    /// name starts the body. Back on inside any brackets.
+    pub struct_literals: bool,
 }
 
 impl TokenStream {
@@ -18,6 +21,7 @@ impl TokenStream {
             tokens,
             pos: 0,
             eof: Span::new(end, end),
+            struct_literals: true,
         }
     }
 

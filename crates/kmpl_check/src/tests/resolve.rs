@@ -321,3 +321,90 @@ fn unpacking_declares_names() {
     assert_error("fn f() { let (a, b) = (a, 1); }", "undefined variable `a`");
     assert_error("fn f(t: (int, Foo)) { }", "unknown type `Foo`");
 }
+
+#[test]
+fn struct_definitions() {
+    assert_ok("struct P { x: real } struct L { a: P, b: [P], c: (P, int) } struct Empty { }");
+    assert_ok("fn f(p: P) -> P { return p; } struct P { x: real }");
+    assert_error(
+        "struct P { x: real, x: int }",
+        "field `x` is already defined in `P`",
+    );
+    assert_error("struct P { x: Q }", "unknown type `Q`");
+    assert_error("struct P { } struct P { }", "`P` is already defined");
+    assert_error("struct P { } fn P() { }", "`P` is already defined");
+    assert_error("struct sqrt { }", "`sqrt` is a built-in function");
+    assert_error("struct bool { }", "`bool` is a built-in type");
+}
+
+#[test]
+fn structs_cannot_contain_themselves() {
+    let message = "`A` contains itself, so it would be infinitely large; use an array of `A`";
+    assert_error("struct A { a: A }", message);
+    assert_error("struct A { t: (int, A) }", message);
+    assert_eq!(
+        errors("struct A { b: B } struct B { a: A }"),
+        [
+            message,
+            "`B` contains itself, so it would be infinitely large; use an array of `B`"
+        ]
+    );
+    assert_ok("struct A { children: [A] }");
+    assert_ok("struct A { b: [B] } struct B { a: A }");
+    // Reaching a cycle is not being part of it: reported for the cycle only.
+    assert_eq!(errors("struct C { a: A } struct A { a: A }"), [message]);
+}
+
+#[test]
+fn struct_literal_fields() {
+    let p = "struct P { x: real, y: real }";
+    assert_ok(&format!("{p} fn f() {{ P {{ y: 1, x: 2 }}; }}"));
+    assert_error(
+        &format!("{p} fn f() {{ P {{ x: 1, y: 2, z: 3 }}; }}"),
+        "`P` has no field `z`",
+    );
+    assert_error(
+        &format!("{p} fn f() {{ P {{ x: 1, x: 2, y: 3 }}; }}"),
+        "field `x` is specified twice",
+    );
+    assert_error(
+        &format!("{p} fn f() {{ P {{ x: 1 }}; }}"),
+        "missing field `y` in `P`",
+    );
+    assert_error(
+        &format!("{p} fn f() {{ P {{ }}; }}"),
+        "missing fields `x`, `y` in `P`",
+    );
+    assert_error("fn f() { Q { }; }", "unknown struct `Q`");
+    assert_error("fn g() { } fn f() { g { }; }", "`g` is not a struct");
+    assert_error("fn f() { sqrt { }; }", "`sqrt` is not a struct");
+    assert_error(
+        "fn f() { P { x: y }; } struct P { x: int }",
+        "undefined variable `y`",
+    );
+}
+
+#[test]
+fn struct_names_are_not_values() {
+    assert_error(
+        "struct P { } fn f() { print(P); }",
+        "`P` is a struct, not a value",
+    );
+    assert_error(
+        "struct P { } fn f() { P = 1; }",
+        "cannot assign to struct `P`",
+    );
+    assert_error("struct P { } fn f() { P(); }", "`P` is not a function");
+    assert_error(
+        "struct P { x: int } fn f(p: P) { p.x = y; }",
+        "undefined variable `y`",
+    );
+    assert_error(
+        "struct P { x: [int] } const C: P = P { x: [1] }; fn f() { C.x[0] = 2; }",
+        "cannot assign to constant `C`",
+    );
+    assert_error(
+        "struct P { x: int } fn f(a: [P]) { for p in a { p.x = 1; } }",
+        "cannot assign to loop variable `p`",
+    );
+}

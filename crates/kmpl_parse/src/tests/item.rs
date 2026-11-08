@@ -50,7 +50,10 @@ fn function_span() {
 
 #[test]
 fn errors() {
-    assert_eq!(error("let x = 1;"), "expected `const` or `fn`, found `let`");
+    assert_eq!(
+        error("let x = 1;"),
+        "expected `const`, `fn` or `struct`, found `let`"
+    );
     assert_eq!(error("const N = 1;"), "expected `:`, found `=`");
     assert_eq!(error("fn f(a) { }"), "expected `:`, found `)`");
     assert_eq!(error("fn f() -> { }"), "expected identifier, found `{`");
@@ -126,6 +129,22 @@ fn import_errors() {
     assert_eq!(error("import a.;"), "expected identifier, found `;`");
     assert_eq!(
         error("fn f() { } import a;"),
-        "expected `const` or `fn`, found `import`"
+        "expected `const`, `fn` or `struct`, found `import`"
+    );
+}
+
+#[test]
+fn structs() {
+    let program = parse_program("struct P { x: real, y: [int], q: m.Q, } struct E { }").unwrap();
+    assert_eq!(
+        sexp_program(&program),
+        "(struct P [(x real) (y [int]) (q m.Q)]) (struct E [])"
+    );
+    let error = |src: &str| parse_program(src).unwrap_err().message;
+    assert_eq!(error("struct { }"), "expected identifier, found `{`");
+    assert_eq!(error("struct P { x }"), "expected `:`, found `}`");
+    assert_eq!(
+        error("struct P { x: real y: int }"),
+        "expected `}`, found identifier `y`"
     );
 }

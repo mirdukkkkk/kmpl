@@ -5,7 +5,9 @@ mod expr;
 mod item;
 mod stmt;
 
-use kmpl_ast::{BinOp, Block, Expr, ExprKind, Item, Program, Stmt, StmtKind, Type, TypeExpr, UnOp};
+use kmpl_ast::{
+    BinOp, Block, Expr, ExprKind, Item, PathStep, Program, Stmt, StmtKind, Type, TypeExpr, UnOp,
+};
 
 use crate::ParseError;
 
@@ -50,6 +52,14 @@ fn sexp_item(item: &Item) -> String {
             sexp_ty(&c.ty),
             sexp(&c.value)
         ),
+        Item::Struct(s) => {
+            let fields: Vec<String> = s
+                .fields
+                .iter()
+                .map(|f| format!("({} {})", f.name.name, sexp_ty(&f.ty)))
+                .collect();
+            format!("(struct {} [{}])", s.name.name, fields.join(" "))
+        }
         Item::Function(f) => {
             let params: Vec<String> = f
                 .params
@@ -119,18 +129,24 @@ fn sexp_stmt(s: &Stmt) -> String {
                 .map_or(String::new(), |s| format!("step {} ", sexp(s))),
             sexp_block(body)
         ),
-        StmtKind::IndexAssign {
+        StmtKind::PathAssign {
             name,
-            indices,
+            path,
             op,
             value,
         } => {
-            let indices: Vec<String> = indices.iter().map(sexp).collect();
+            let steps: Vec<String> = path
+                .iter()
+                .map(|step| match step {
+                    PathStep::Index(index) => sexp(index),
+                    PathStep::Field(field) => format!(".{}", field.name),
+                })
+                .collect();
             format!(
                 "(index{}= {} [{}] {})",
                 assign_prefix(*op),
                 name.name,
-                indices.join(" "),
+                steps.join(" "),
                 sexp(value)
             )
         }
@@ -253,5 +269,13 @@ fn sexp(e: &Expr) -> String {
             )
         }
         ExprKind::Swizzle { base, mask } => format!("(: {} {})", sexp(base), mask.name),
+        ExprKind::Field { base, name } => format!("(. {} {})", sexp(base), name.name),
+        ExprKind::StructLit { name, fields } => {
+            let fields: Vec<String> = fields
+                .iter()
+                .map(|(field, value)| format!("({} {})", field.name, sexp(value)))
+                .collect();
+            format!("(new {} [{}])", name.name, fields.join(" "))
+        }
     }
 }

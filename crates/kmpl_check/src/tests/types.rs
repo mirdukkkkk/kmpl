@@ -246,3 +246,42 @@ fn a_tuple_cannot_contain_itself() {
     let tuple = u.new_tuple(vec![open, int]);
     assert_eq!(u.unify(open, tuple), Err(Mismatch));
 }
+
+#[test]
+fn structs_compare_by_name() {
+    let mut u = Unifier::default();
+    let p = u.add_struct("P");
+    let q = u.add_struct("Q");
+
+    let (a, b, c) = (u.new_struct(p), u.new_struct(p), u.new_struct(q));
+    u.unify(a, b).unwrap();
+    assert_eq!(u.unify(a, c), Err(Mismatch));
+    assert_eq!(u.describe(c), "`Q`");
+    assert!(u.is_resolved(a));
+}
+
+#[test]
+fn open_variable_becomes_a_struct() {
+    let mut u = Unifier::default();
+    let p = u.add_struct("P");
+    let s = u.new_struct(p);
+    let open = u.new_var(TypeSet::ANY);
+    u.unify(open, s).unwrap();
+    assert_eq!(u.struct_id(open), Some(p));
+    assert_eq!(u.set(open), TypeSet::STRUCT);
+
+    let number = u.new_var(TypeSet::NUMBER);
+    assert_eq!(u.unify(number, s), Err(Mismatch));
+}
+
+#[test]
+fn struct_is_not_an_array_or_tuple() {
+    let mut u = Unifier::default();
+    let p = u.add_struct("P");
+    let s = u.new_struct(p);
+    let int = u.new_var(TypeSet::single(Type::Int));
+    let array = u.new_array(int);
+    let tuple = u.new_tuple(vec![int, int]);
+    assert_eq!(u.unify(s, array), Err(Mismatch));
+    assert_eq!(u.unify(tuple, s), Err(Mismatch));
+}

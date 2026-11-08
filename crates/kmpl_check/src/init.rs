@@ -2,7 +2,7 @@
 //! after it has been assigned on every path that reaches the read.
 //!
 //! Rules:
-//! - `x = ...` initializes `x`. `x += ...` and `x[i] = ...` read `x`, so `x`
+//! - `x = ...` initializes `x`. `x += ...`, `x[i] = ...` and `x.f = ...` read `x`, so `x`
 //!   must already be assigned.
 //! - After `if`/`else`, `x` is initialized only if both branches initialize it.
 //!   An `if` without `else` initializes nothing.
@@ -18,7 +18,7 @@
 
 use std::collections::HashMap;
 
-use kmpl_ast::{Block, Expr, ExprKind, Function, Ident, Item, Program, Stmt, StmtKind};
+use kmpl_ast::{Block, Expr, ExprKind, Function, Ident, Item, PathStep, Program, Stmt, StmtKind};
 
 use crate::error::CheckError;
 
@@ -123,15 +123,14 @@ impl<'a> InitChecker<'a> {
                 }
                 false
             }
-            StmtKind::IndexAssign {
-                name,
-                indices,
-                value,
-                ..
+            StmtKind::PathAssign {
+                name, path, value, ..
             } => {
                 self.expr(value);
-                for index in indices {
-                    self.expr(index);
+                for step in path {
+                    if let PathStep::Index(index) = step {
+                        self.expr(index);
+                    }
                 }
                 self.read(name);
                 false
@@ -240,7 +239,12 @@ impl<'a> InitChecker<'a> {
                     self.expr(arg);
                 }
             }
-            ExprKind::Swizzle { base, .. } => self.expr(base),
+            ExprKind::Swizzle { base, .. } | ExprKind::Field { base, .. } => self.expr(base),
+            ExprKind::StructLit { fields, .. } => {
+                for (_, value) in fields {
+                    self.expr(value);
+                }
+            }
             ExprKind::Array(items) | ExprKind::Tuple(items) => {
                 for item in items {
                     self.expr(item);

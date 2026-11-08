@@ -9,8 +9,9 @@
 //! The set only covers types from a fixed list. An array is a different
 //! kind of variable that points at the variable of its elements, so
 //! `[real]` and `[[real]]` need no entries in the list. A variable that may
-//! still become an array has the `ARRAY` bit in its set. Tuples work the
-//! same way, with the `TUPLE` bit.
+//! still become an array has the `ARRAY` bit in its set. Tuples and structs
+//! work the same way, with the `TUPLE` and `STRUCT` bits. Structs compare by
+//! name, not by their fields.
 
 use kmpl_ast::Type;
 
@@ -31,12 +32,14 @@ const ALL: [Type; 8] = [
 ];
 
 impl TypeSet {
-    pub const ANY: TypeSet = TypeSet(0b11_1111_1111);
+    pub const ANY: TypeSet = TypeSet(0b111_1111_1111);
     /// The set of a variable known to be an array. The bit after the
     /// eight types in `ALL`.
     pub const ARRAY: TypeSet = TypeSet(1 << 8);
     /// The set of a variable known to be a tuple.
     pub const TUPLE: TypeSet = TypeSet(1 << 9);
+    /// The set of a variable known to be a struct.
+    pub const STRUCT: TypeSet = TypeSet(1 << 10);
     /// Type of an integer literal like `1`.
     pub const NUMBER: TypeSet = TypeSet::of(&[Type::Int, Type::Real, Type::Complex]);
     /// Type of a real literal like `1.0`.
@@ -165,6 +168,9 @@ enum Slot {
     /// A representative variable known to be a tuple: an index into
     /// `Unifier::tuples`. Keeps `Slot` small and `Copy`.
     Tuple(usize),
+    /// A representative variable known to be this struct: an index into
+    /// `Unifier::struct_names`.
+    Struct(usize),
 }
 
 /// Union-find over type variables.
@@ -173,6 +179,8 @@ pub struct Unifier {
     slots: Vec<Slot>,
     /// The element variables of every tuple.
     tuples: Vec<Vec<TyVar>>,
+    /// The name of every struct, for messages.
+    struct_names: Vec<String>,
 }
 
 impl Unifier {
@@ -192,6 +200,25 @@ impl Unifier {
         TyVar(self.slots.len() - 1)
     }
 
+    /// Registers a struct and returns its id for `new_struct`.
+    pub fn add_struct(&mut self, name: &str) -> usize {
+        self.struct_names.push(name.to_owned());
+        self.struct_names.len() - 1
+    }
+
+    pub fn new_struct(&mut self, id: usize) -> TyVar {
+        self.slots.push(Slot::Struct(id));
+        TyVar(self.slots.len() - 1)
+    }
+
+    /// The struct id, if `var` is known to be a struct.
+    pub fn struct_id(&self, var: TyVar) -> Option<usize> {
+        match self.slots[self.root(var)] {
+            Slot::Struct(id) => Some(id),
+            _ => None,
+        }
+    }
+
     /// Index of the root slot that `var` is merged into.
     fn root(&self, var: TyVar) -> usize {
         let mut i = var.0;
@@ -206,6 +233,7 @@ impl Unifier {
             Slot::Root(set) => set,
             Slot::Array(_) => TypeSet::ARRAY,
             Slot::Tuple(_) => TypeSet::TUPLE,
+            Slot::Struct(_) => TypeSet::STRUCT,
             Slot::Link(_) => unreachable!("root() returns a root"),
         }
     }
@@ -247,10 +275,12 @@ impl Unifier {
             (Slot::Array(_), Slot::Root(set)) => self.bind(rb, set, ra, TypeSet::ARRAY)?,
             (Slot::Root(set), Slot::Tuple(_)) => self.bind(ra, set, rb, TypeSet::TUPLE)?,
             (Slot::Tuple(_), Slot::Root(set)) => self.bind(rb, set, ra, TypeSet::TUPLE)?,
-            (Slot::Array(_), Slot::Tuple(_)) | (Slot::Tuple(_), Slot::Array(_)) => {
-                return Err(Mismatch);
-            }
+            (Slot::Struct(sa), Slot::Struct(sb)) if sa == sb => self.slots[rb] = Slot::Link(ra),
+            (Slot::Root(set), Slot::Struct(_)) => self.bind(ra, set, rb, TypeSet::STRUCT)?,
+            (Slot::Struct(_), Slot::Root(set)) => self.bind(rb, set, ra, TypeSet::STRUCT)?,
             (Slot::Link(_), _) | (_, Slot::Link(_)) => unreachable!("root() returns a root"),
+            // Two different kinds, or two different structs.
+            _ => return Err(Mismatch),
         }
         Ok(())
     }
@@ -324,6 +354,7 @@ impl Unifier {
             Slot::Root(set) => set.default_type().is_some(),
             Slot::Array(elem) => self.is_resolved(elem),
             Slot::Tuple(t) => self.tuples[t].iter().all(|&e| self.is_resolved(e)),
+            Slot::Struct(_) => true,
             Slot::Link(_) => unreachable!("root() returns a root"),
         }
     }
@@ -349,6 +380,7 @@ impl Unifier {
                 let names: Vec<String> = self.tuples[t].iter().map(|&e| self.name(e)).collect();
                 format!("({})", names.join(", "))
             }
+            Slot::Struct(id) => self.struct_names[id].clone(),
             Slot::Link(_) => unreachable!("root() returns a root"),
         }
     }

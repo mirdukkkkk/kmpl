@@ -17,13 +17,16 @@
 //! - A `for` variable lives in its own scope around the body and cannot be
 //!   assigned to. The body may shadow it with `let`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use kmpl_ast::{Block, Expr, ExprKind, Function, Ident, Item, Program, Stmt, StmtKind, TypeExpr};
+use kmpl_ast::{
+    Block, Expr, ExprKind, Function, Ident, Item, PathStep, Program, Stmt, StmtKind, StructDef,
+    Type, TypeExpr,
+};
 
 use crate::error::CheckError;
 
-enum Global {
+enum Global<'a> {
     /// `index` is the position of the item in the program.
     Const {
         index: usize,
@@ -31,10 +34,13 @@ enum Global {
     Function {
         params: usize,
     },
+    Struct {
+        fields: Vec<&'a str>,
+    },
 }
 
 struct Resolver<'a> {
-    globals: HashMap<&'a str, Global>,
+    globals: HashMap<&'a str, Global<'a>>,
     /// Name -> is it a `for` variable? Innermost scope is last.
     scopes: Vec<HashMap<&'a str, bool>>,
     /// While checking a constant's initializer: that constant's index.
@@ -67,8 +73,10 @@ pub fn resolve(program: &Program) -> Vec<CheckError> {
                 r.current_const = None;
             }
             Item::Function(f) => r.function(f),
+            Item::Struct(s) => r.struct_def(s),
         }
     }
+    r.recursive_structs(program);
 
     r.errors
 }
@@ -88,16 +96,64 @@ impl<'a> Resolver<'a> {
                         params: f.params.len(),
                     },
                 ),
+                Item::Struct(s) => (
+                    &s.name,
+                    Global::Struct {
+                        fields: s.fields.iter().map(|f| f.name.name.as_str()).collect(),
+                    },
+                ),
             };
 
             if kmpl_builtins::lookup(&name.name).is_some() {
                 self.error(format!("`{}` is a built-in function", name.name), name);
             } else if kmpl_builtins::lookup_const(&name.name).is_some() {
                 self.error(format!("`{}` is a built-in constant", name.name), name);
+            } else if Type::from_name(&name.name).is_some() {
+                self.error(format!("`{}` is a built-in type", name.name), name);
             } else if self.globals.contains_key(name.name.as_str()) {
                 self.error(format!("`{}` is already defined", name.name), name);
             } else {
                 self.globals.insert(&name.name, global);
+            }
+        }
+    }
+
+    fn struct_def(&mut self, s: &'a StructDef) {
+        let mut seen = HashSet::new();
+        for field in &s.fields {
+            if !seen.insert(field.name.name.as_str()) {
+                self.error(
+                    format!(
+                        "field `{}` is already defined in `{}`",
+                        field.name.name, s.name.name
+                    ),
+                    &field.name,
+                );
+            }
+            self.check_type(&field.ty);
+        }
+    }
+
+    /// `struct A { b: B }` with a `B` that holds an `A` has no finite size.
+    /// An array can be empty, so it ends the chain.
+    fn recursive_structs(&mut self, program: &'a Program) {
+        let structs: HashMap<&str, &StructDef> = program
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Struct(s) => Some((s.name.name.as_str(), s)),
+                _ => None,
+            })
+            .collect();
+
+        for item in &program.items {
+            let Item::Struct(s) = item else { continue };
+            let name = s.name.name.as_str();
+            if reaches(s, name, &structs, &mut HashSet::new()) {
+                self.error(
+                    format!("`{name}` contains itself, so it would be infinitely large; use an array of `{name}`"),
+                    &s.name,
+                );
             }
         }
     }
@@ -129,7 +185,13 @@ impl<'a> Resolver<'a> {
     /// A non-built-in type name must be a generic parameter in scope.
     fn check_type(&mut self, ty: &TypeExpr) {
         match ty {
-            TypeExpr::Param(name) if !self.type_params.contains(&name.name.as_str()) => {
+            TypeExpr::Param(name)
+                if !self.type_params.contains(&name.name.as_str())
+                    && !matches!(
+                        self.globals.get(name.name.as_str()),
+                        Some(Global::Struct { .. })
+                    ) =>
+            {
                 self.error(format!("unknown type `{}`", name.name), name);
             }
             TypeExpr::Array(elem) => self.check_type(elem),
@@ -199,15 +261,14 @@ impl<'a> Resolver<'a> {
                 self.expr(value);
                 self.assign_target(name);
             }
-            StmtKind::IndexAssign {
-                name,
-                indices,
-                value,
-                ..
+            StmtKind::PathAssign {
+                name, path, value, ..
             } => {
                 self.expr(value);
-                for index in indices {
-                    self.expr(index);
+                for step in path {
+                    if let PathStep::Index(index) = step {
+                        self.expr(index);
+                    }
                 }
                 self.assign_target(name);
             }
@@ -291,6 +352,7 @@ impl<'a> Resolver<'a> {
 
         let message = match self.globals.get(n) {
             Some(Global::Const { .. }) => format!("cannot assign to constant `{n}`"),
+            Some(Global::Struct { .. }) => format!("cannot assign to struct `{n}`"),
             _ if kmpl_builtins::lookup_const(n).is_some() => {
                 format!("cannot assign to constant `{n}`")
             }
@@ -319,7 +381,8 @@ impl<'a> Resolver<'a> {
                     self.expr(arg);
                 }
             }
-            ExprKind::Swizzle { base, .. } => self.expr(base),
+            ExprKind::Swizzle { base, .. } | ExprKind::Field { base, .. } => self.expr(base),
+            ExprKind::StructLit { name, fields } => self.struct_literal(name, fields),
             ExprKind::Array(items) | ExprKind::Tuple(items) => {
                 for item in items {
                     self.expr(item);
@@ -344,6 +407,52 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    fn struct_literal(&mut self, name: &'a Ident, fields: &'a [(Ident, Expr)]) {
+        for (_, value) in fields {
+            self.expr(value);
+        }
+
+        let n = name.name.as_str();
+        let Some(Global::Struct { fields: declared }) = self.globals.get(n) else {
+            let known = self.globals.contains_key(n) || kmpl_builtins::lookup(n).is_some();
+            let message = if known {
+                format!("`{n}` is not a struct")
+            } else {
+                format!("unknown struct `{n}`")
+            };
+            self.error(message, name);
+            return;
+        };
+        let declared = declared.clone();
+
+        let mut seen = HashSet::new();
+        for (field, _) in fields {
+            let f = field.name.as_str();
+            if !declared.contains(&f) {
+                self.error(format!("`{n}` has no field `{f}`"), field);
+            } else if !seen.insert(f) {
+                self.error(format!("field `{f}` is specified twice"), field);
+            }
+        }
+
+        let missing: Vec<String> = declared
+            .iter()
+            .filter(|f| !seen.contains(*f))
+            .map(|f| format!("`{f}`"))
+            .collect();
+        if !missing.is_empty() {
+            let word = if missing.len() == 1 {
+                "field"
+            } else {
+                "fields"
+            };
+            self.error(
+                format!("missing {word} {} in `{n}`", missing.join(", ")),
+                name,
+            );
+        }
+    }
+
     fn var(&mut self, name: &Ident) {
         let n = name.name.as_str();
         if self.is_local(n) {
@@ -357,6 +466,7 @@ impl<'a> Resolver<'a> {
                 }
                 _ => return,
             },
+            Some(Global::Struct { .. }) => format!("`{n}` is a struct, not a value"),
             _ if kmpl_builtins::lookup_const(n).is_some() => return,
             _ if self.is_function(n) => {
                 format!("`{n}` is a function, call it with `{n}(...)`")
@@ -401,5 +511,39 @@ impl<'a> Resolver<'a> {
             format!("undefined function `{n}`")
         };
         self.error(message, name);
+    }
+}
+
+/// Does a value of struct `s` hold a `target` inside it?
+fn reaches<'a>(
+    s: &'a StructDef,
+    target: &str,
+    structs: &HashMap<&str, &'a StructDef>,
+    visited: &mut HashSet<&'a str>,
+) -> bool {
+    let mut held = Vec::new();
+    for field in &s.fields {
+        held_structs(&field.ty, &mut held);
+    }
+
+    held.into_iter().any(|name| {
+        name == target
+            || (visited.insert(name)
+                && structs
+                    .get(name)
+                    .is_some_and(|next| reaches(next, target, structs, visited)))
+    })
+}
+
+/// Names of the structs a value of type `ty` always contains.
+fn held_structs<'a>(ty: &'a TypeExpr, out: &mut Vec<&'a str>) {
+    match ty {
+        TypeExpr::Param(name) => out.push(&name.name),
+        TypeExpr::Tuple(items) => {
+            for item in items {
+                held_structs(item, out);
+            }
+        }
+        TypeExpr::Known(_) | TypeExpr::Array(_) => {}
     }
 }

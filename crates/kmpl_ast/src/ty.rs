@@ -46,8 +46,8 @@ impl Type {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeExpr {
     Known(Type),
-    /// Any other name: a generic parameter like `T`, or a typo. The parser
-    /// cannot tell which; the checker reports unknown names.
+    /// Any other name: a generic parameter like `T`, a struct, or a typo.
+    /// The parser cannot tell which; the checker reports unknown names.
     Param(Ident),
     /// `[T]`: an array of `T`, of any length.
     Array(Box<TypeExpr>),

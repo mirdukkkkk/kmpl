@@ -18,6 +18,20 @@ pub struct Import {
 pub enum Item {
     Const(Const),
     Function(Function),
+    Struct(StructDef),
+}
+
+/// `struct Point { x: real, y: real }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructDef {
+    pub name: Ident,
+    pub fields: Vec<StructField>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructField {
+    pub name: Ident,
+    pub ty: TypeExpr,
 }
 
 #[derive(Debug, Clone, PartialEq)]

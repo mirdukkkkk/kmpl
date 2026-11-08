@@ -733,3 +733,112 @@ fn plot_signature() {
         "`plot` returns no value",
     );
 }
+
+const POINT: &str = "struct P { x: real, n: int } ";
+
+fn with_point(src: &str) -> String {
+    format!("{POINT}{src}")
+}
+
+#[test]
+fn struct_types() {
+    assert_ok(&with_point(
+        "fn f(p: P) -> real { let q: P = p; return q.x; }",
+    ));
+    assert_ok(&with_point(
+        "fn f() { let p = P { x: 1, n: 2 }; let a: real = p.x; let b: int = p.n; }",
+    ));
+    assert_ok(&with_point(
+        "fn f(a: [P]) { let x: real = a[0].x; for p in a { let y: int = p.n; } }",
+    ));
+    assert_ok(&with_point(
+        "fn f(t: (P, int)) { let (p, _) = t; let x: real = p.x; }",
+    ));
+    assert_ok(&with_point(
+        "fn f(a: P, b: P) { let same: bool = a == b; print(a); let s: string = string(a); }",
+    ));
+    assert_ok(&with_point("const O: P = P { x: 0, n: 0 };"));
+    assert_ok("struct A { b: B } struct B { v: vec2 } fn f(a: A) { let s: vec2 = a.b.v:yx; }");
+}
+
+#[test]
+fn struct_type_errors() {
+    assert_error(
+        &with_point("fn f() { P { x: true, n: 1 }; }"),
+        "mismatched types: expected `real`, found `bool`",
+    );
+    assert_error(
+        &with_point("fn f() { P { x: 1, n: 2.5 }; }"),
+        "mismatched types: expected `int`, found `real` or `complex`",
+    );
+    assert_error(&with_point("fn f(p: P) { p.z; }"), "`P` has no field `z`");
+    assert_error(
+        "struct P { } struct Q { } fn f(p: P) { let q: Q = p; }",
+        "mismatched types: expected `Q`, found `P`",
+    );
+    assert_error(
+        "fn f(x: real) { x.y; }",
+        "only a struct has fields, found `real`",
+    );
+    assert_error(
+        "fn f(a: [int]) { a.y; }",
+        "only a struct has fields, found `[int]`",
+    );
+}
+
+#[test]
+fn field_assignment_types() {
+    assert_ok(&with_point("fn f(p: P) { p.x = 1; p.x += 2; p.n *= 2; }"));
+    assert_ok(&with_point(
+        "fn f(a: [P]) { a[0].n = 1; a[0].x /= 2; a[1] = a[0]; }",
+    ));
+    assert_ok("struct A { v: [real] } fn f(a: A) { a.v[0] = 1; a.v += a.v; }");
+    assert_error(
+        &with_point("fn f(p: P) { p.n = 1.5; }"),
+        "mismatched types: expected `int`, found `real` or `complex`",
+    );
+    assert_error(
+        &with_point("fn f(p: P) { p.z = 1; }"),
+        "`P` has no field `z`",
+    );
+    assert_error(
+        &with_point("fn f(x: int) { x.y = 1; }"),
+        "only a struct has fields, found `int`",
+    );
+    assert_error(
+        &with_point("fn f(a: [P], i: real) { a[i].n = 1; }"),
+        "mismatched types: expected `int`, found `real`",
+    );
+}
+
+#[test]
+fn structs_have_no_arithmetic() {
+    assert_error(
+        &with_point("fn f(p: P) { p + p; }"),
+        "cannot apply `+` to `P`",
+    );
+    assert_error(&with_point("fn f(p: P) { -p; }"), "cannot apply `-` to `P`");
+    assert_error(
+        &with_point("fn f(p: P) { p * 2.0; }"),
+        "cannot apply `*` to `P` and `real` or `complex`",
+    );
+    assert_error(
+        &with_point("fn f(p: P) { p < p; }"),
+        "cannot apply `<` to `P`",
+    );
+    assert_error(
+        &with_point("fn f(p: P) { p[0]; }"),
+        "expected an array, found `P`",
+    );
+    assert_error(
+        &with_point("fn f(p: P) { p:x; }"),
+        "swizzle needs a vector, found `P`",
+    );
+}
+
+#[test]
+fn structs_infer_through_empty_arrays() {
+    assert_ok(&with_point(
+        "fn f(p: P) { let a = []; a = push(a, p); let n: int = a[0].n; }",
+    ));
+}

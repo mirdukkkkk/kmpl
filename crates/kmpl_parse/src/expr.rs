@@ -11,6 +11,22 @@ pub fn expr(ts: &mut TokenStream) -> PResult<Expr> {
     or(ts)
 }
 
+/// An expression in the header of `if`, `while` or `for`.
+pub fn header_expr(ts: &mut TokenStream) -> PResult<Expr> {
+    ts.struct_literals = false;
+    let e = expr(ts);
+    ts.struct_literals = true;
+    e
+}
+
+/// An expression inside brackets, where a struct literal is never in doubt.
+fn inner_expr(ts: &mut TokenStream) -> PResult<Expr> {
+    let outer = std::mem::replace(&mut ts.struct_literals, true);
+    let e = expr(ts);
+    ts.struct_literals = outer;
+    e
+}
+
 fn or(ts: &mut TokenStream) -> PResult<Expr> {
     left_assoc(ts, and, |tok| match tok {
         Token::Or => Some(BinOp::Or),
@@ -107,8 +123,22 @@ fn unary(ts: &mut TokenStream) -> PResult<Expr> {
 fn postfix(ts: &mut TokenStream) -> PResult<Expr> {
     let mut base = primary(ts)?;
 
-    while ts.eat(&Token::LBracket).is_some() {
-        base = index_or_slice(ts, base)?;
+    loop {
+        if ts.eat(&Token::LBracket).is_some() {
+            base = index_or_slice(ts, base)?;
+        } else if ts.eat(&Token::Dot).is_some() {
+            let name = ts.expect_ident()?;
+            let span = base.span.to(name.span);
+            base = Expr {
+                kind: ExprKind::Field {
+                    base: Box::new(base),
+                    name,
+                },
+                span,
+            };
+        } else {
+            break;
+        }
     }
 
     if ts.eat(&Token::Colon).is_none() {
@@ -136,7 +166,7 @@ fn is_range_op(token: Option<&Token>) -> bool {
 fn index_or_slice(ts: &mut TokenStream, base: Expr) -> PResult<Expr> {
     let start = match is_range_op(ts.peek()) {
         true => None,
-        false => Some(expr(ts)?),
+        false => Some(inner_expr(ts)?),
     };
 
     if !is_range_op(ts.peek()) {
@@ -156,7 +186,7 @@ fn index_or_slice(ts: &mut TokenStream, base: Expr) -> PResult<Expr> {
     ts.next();
     let end = match !inclusive && ts.peek() == Some(&Token::RBracket) {
         true => None,
-        false => Some(expr(ts)?),
+        false => Some(inner_expr(ts)?),
     };
     let close = ts.expect(Token::RBracket)?;
     let span = base.span.to(close);
@@ -186,7 +216,7 @@ fn primary(ts: &mut TokenStream) -> PResult<Expr> {
         Some(Token::LBracket) => return array(ts),
         Some(Token::LParen) => {
             ts.next();
-            let first = expr(ts)?;
+            let first = inner_expr(ts)?;
             if ts.peek() == Some(&Token::Comma) {
                 return tuple(ts, start, first);
             }
@@ -204,7 +234,7 @@ fn primary(ts: &mut TokenStream) -> PResult<Expr> {
 fn tuple(ts: &mut TokenStream, open: Span, first: Expr) -> PResult<Expr> {
     let mut items = vec![first];
     while ts.eat(&Token::Comma).is_some() && ts.peek() != Some(&Token::RParen) {
-        items.push(expr(ts)?);
+        items.push(inner_expr(ts)?);
     }
     if items.len() < 2 {
         return Err(ts.error_expected("expression"));
@@ -223,9 +253,9 @@ fn array(ts: &mut TokenStream) -> PResult<Expr> {
 
     let mut items = Vec::new();
     while ts.peek() != Some(&Token::RBracket) {
-        items.push(expr(ts)?);
+        items.push(inner_expr(ts)?);
         if items.len() == 1 && ts.eat(&Token::Semi).is_some() {
-            let len = expr(ts)?;
+            let len = inner_expr(ts)?;
             let close = ts.expect(Token::RBracket)?;
             let value = items.pop().expect("just pushed");
             return Ok(Expr {
@@ -250,7 +280,7 @@ fn array(ts: &mut TokenStream) -> PResult<Expr> {
 
 /// `IDENT ('.' IDENT)?`. `stats.mean` becomes one `Ident` with that name;
 /// the module linker works out what it refers to.
-fn name(ts: &mut TokenStream) -> PResult<Ident> {
+pub fn dotted_name(ts: &mut TokenStream) -> PResult<Ident> {
     let first = ts.expect_ident()?;
     if ts.eat(&Token::Dot).is_none() {
         return Ok(first);
@@ -263,8 +293,27 @@ fn name(ts: &mut TokenStream) -> PResult<Ident> {
     })
 }
 
+/// Is the next thing `a.b(` or `a.B {`? Those name an item of a module.
+/// Any other `a.b` reads a field, which `postfix` handles.
+fn at_module_item(ts: &TokenStream) -> bool {
+    ts.peek_nth(1) == Some(&Token::Dot)
+        && matches!(ts.peek_nth(2), Some(Token::Ident(_)))
+        && match ts.peek_nth(3) {
+            Some(Token::LParen) => true,
+            Some(Token::LBrace) => ts.struct_literals,
+            _ => false,
+        }
+}
+
 fn var_or_call(ts: &mut TokenStream) -> PResult<Expr> {
-    let name = name(ts)?;
+    let name = match at_module_item(ts) {
+        true => dotted_name(ts)?,
+        false => ts.expect_ident()?,
+    };
+
+    if ts.struct_literals && ts.peek() == Some(&Token::LBrace) {
+        return struct_literal(ts, name);
+    }
 
     if ts.eat(&Token::LParen).is_none() {
         let span = name.span;
@@ -276,7 +325,7 @@ fn var_or_call(ts: &mut TokenStream) -> PResult<Expr> {
 
     let mut args = Vec::new();
     while ts.peek() != Some(&Token::RParen) {
-        args.push(expr(ts)?);
+        args.push(inner_expr(ts)?);
         if ts.eat(&Token::Comma).is_none() {
             break;
         }
@@ -286,6 +335,28 @@ fn var_or_call(ts: &mut TokenStream) -> PResult<Expr> {
 
     Ok(Expr {
         kind: ExprKind::Call { name, args },
+        span,
+    })
+}
+
+/// The rest of `name '{' (IDENT ':' expr (',' IDENT ':' expr)* ','?)? '}'`.
+fn struct_literal(ts: &mut TokenStream, name: Ident) -> PResult<Expr> {
+    ts.expect(Token::LBrace)?;
+
+    let mut fields = Vec::new();
+    while ts.peek() != Some(&Token::RBrace) {
+        let field = ts.expect_ident()?;
+        ts.expect(Token::Colon)?;
+        fields.push((field, inner_expr(ts)?));
+        if ts.eat(&Token::Comma).is_none() {
+            break;
+        }
+    }
+
+    let close = ts.expect(Token::RBrace)?;
+    let span = name.span.to(close);
+    Ok(Expr {
+        kind: ExprKind::StructLit { name, fields },
         span,
     })
 }

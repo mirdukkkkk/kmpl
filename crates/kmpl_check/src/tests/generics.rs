@@ -136,7 +136,7 @@ fn program_is_monomorphized() {
         .iter()
         .filter_map(|item| match item {
             Item::Function(f) => Some(f.name.name.as_str()),
-            Item::Const(_) => None,
+            _ => None,
         })
         .collect();
     assert_eq!(names, vec!["main", "twice<int>", "twice<real>"]);
@@ -229,5 +229,20 @@ fn strings_in_generics() {
     assert_error(
         r#"fn f<T: number>(x: T) -> T { return x; } fn g() { f("a"); }"#,
         "mismatched types: expected `int`, `real` or `complex`, found `string`",
+    );
+}
+
+#[test]
+fn structs_and_generics() {
+    let p = "struct P { x: real } ";
+    assert_ok(&format!(
+        "{p} fn f<T: int | real>(v: T, p: P) -> (T, P) {{ return (v, p); }}"
+    ));
+    assert_ok(&format!(
+        "{p} fn f<T>(a: [P], v: T) -> P {{ return a[0]; }}"
+    ));
+    assert_error(
+        &format!("{p} fn id<T: int | real>(x: T) -> T {{ return x; }} fn g(p: P) {{ id(p); }}"),
+        "mismatched types: expected `int` or `real`, found `P`",
     );
 }

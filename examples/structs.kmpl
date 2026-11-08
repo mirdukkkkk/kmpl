@@ -1,0 +1,70 @@
+// Structs: named fields, value semantics, nesting.
+
+struct Point {
+    x: real,
+    y: real,
+}
+
+struct Segment {
+    from: Point,
+    to: Point,
+}
+
+struct Particle {
+    pos: vec2,
+    vel: vec2,
+}
+
+fn seg_length(s: Segment) -> real {
+    return hypot(s.to.x - s.from.x, s.to.y - s.from.y);
+}
+
+fn midpoint(s: Segment) -> Point {
+    return Point {
+        x: (s.from.x + s.to.x) / 2.0,
+        y: (s.from.y + s.to.y) / 2.0,
+    };
+}
+
+// `p` is a copy: the caller's point does not change.
+fn moved(p: Point, dx: real) -> Point {
+    p.x += dx;
+    return p;
+}
+
+fn advance(particles: [Particle], dt: real) -> [Particle] {
+    for i in 0..len(particles) {
+        particles[i].pos += particles[i].vel * dt;
+    }
+    return particles;
+}
+
+fn main() {
+    let s = Segment {
+        from: Point { x: 0.0, y: 0.0 },
+        to: Point { x: 3.0, y: 4.0 },
+    };
+    print(seg_length(s));
+    print(midpoint(s));
+
+    let a = Point { x: 1.0, y: 1.0 };
+    let b = moved(a, 2.0);
+    print(a.x);
+    print(b.x);
+
+    // Field order in a literal does not matter.
+    print(a == Point { y: 1.0, x: 1.0 });
+
+    s.to.y = 0.0;
+    print(seg_length(s));
+
+    let ps = [Particle { pos: vec2(0, 0), vel: vec2(1, 2) }];
+    let later = advance(ps, 0.5);
+    print(ps[0].pos);
+    print(later[0].pos);
+
+    // In a header a literal needs brackets: `{` would start the body.
+    if a == (Point { x: 1.0, y: 1.0 }) {
+        print("same point");
+    }
+}

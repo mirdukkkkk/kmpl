@@ -2,7 +2,31 @@ use std::sync::Arc;
 
 use kmpl_ast::Type;
 
-/// A runtime value. One variant per `Type`, plus arrays and tuples.
+/// The shape of a struct, shared by all its values.
+#[derive(Debug, PartialEq)]
+pub struct StructLayout {
+    pub name: String,
+    pub fields: Vec<String>,
+}
+
+impl StructLayout {
+    /// Position of a field the checker has verified exists.
+    pub fn field(&self, name: &str) -> usize {
+        self.fields
+            .iter()
+            .position(|f| f == name)
+            .expect("checker ensures the field exists")
+    }
+}
+
+/// `values` is in the order of `layout.fields`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructValue {
+    pub layout: Arc<StructLayout>,
+    pub values: Vec<Value>,
+}
+
+/// A runtime value. One variant per `Type`, plus arrays, tuples and structs.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Int(i64),
@@ -24,6 +48,8 @@ pub enum Value {
     Array(Arc<Vec<Value>>),
     /// Never changed after it is built, so it is simply shared.
     Tuple(Arc<[Value]>),
+    /// A value too, written through `Arc::make_mut` like an array.
+    Struct(Arc<StructValue>),
 }
 
 impl Value {
@@ -42,6 +68,7 @@ impl Value {
             Value::Str(_) => Type::Str,
             Value::Array(_) => panic!("an array has no `Type`"),
             Value::Tuple(_) => panic!("a tuple has no `Type`"),
+            Value::Struct(_) => panic!("a struct has no `Type`"),
         }
     }
 
@@ -140,6 +167,22 @@ impl std::fmt::Display for Value {
             Value::Tuple(items) => {
                 let parts: Vec<String> = items.iter().map(Value::to_string).collect();
                 write!(f, "({})", parts.join(", "))
+            }
+            Value::Struct(s) => {
+                // In a module the name is `lib.geometry.Point`.
+                let name = s.layout.name.rsplit('.').next().unwrap_or_default();
+                let parts: Vec<String> = s
+                    .layout
+                    .fields
+                    .iter()
+                    .zip(&s.values)
+                    .map(|(field, value)| format!("{field}: {value}"))
+                    .collect();
+                if parts.is_empty() {
+                    write!(f, "{name} {{ }}")
+                } else {
+                    write!(f, "{name} {{ {} }}", parts.join(", "))
+                }
             }
         }
     }

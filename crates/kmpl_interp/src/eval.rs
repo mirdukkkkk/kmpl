@@ -9,9 +9,9 @@ use std::io::Write;
 use std::sync::Arc;
 
 use kmpl_ast::{
-    BinOp, Block, Expr, ExprKind, Function, Ident, Item, Program, Span, Stmt, StmtKind,
+    BinOp, Block, Expr, ExprKind, Function, Ident, Item, PathStep, Program, Span, Stmt, StmtKind,
 };
-use kmpl_builtins::Value;
+use kmpl_builtins::{StructLayout, StructValue, Value};
 
 use crate::RuntimeError;
 use crate::ops;
@@ -37,8 +37,16 @@ struct Frame<'p> {
 pub struct Interp<'p, 'o> {
     functions: HashMap<&'p str, &'p Function>,
     consts: HashMap<&'p str, Value>,
+    structs: HashMap<&'p str, Arc<StructLayout>>,
     frames: Vec<Frame<'p>>,
     out: &'o mut dyn Write,
+}
+
+/// One evaluated step of an assignment target.
+#[derive(Clone, Copy)]
+enum Step<'p> {
+    Index(i64, Span),
+    Field(&'p str),
 }
 
 type Result<T> = std::result::Result<T, RuntimeError>;
@@ -100,13 +108,29 @@ impl<'p, 'o> Interp<'p, 'o> {
             .iter()
             .filter_map(|item| match item {
                 Item::Function(f) => Some((f.name.name.as_str(), f)),
-                Item::Const(_) => None,
+                _ => None,
+            })
+            .collect();
+
+        let structs = program
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Struct(s) => {
+                    let layout = StructLayout {
+                        name: s.name.name.clone(),
+                        fields: s.fields.iter().map(|f| f.name.name.clone()).collect(),
+                    };
+                    Some((s.name.name.as_str(), Arc::new(layout)))
+                }
+                _ => None,
             })
             .collect();
 
         Self {
             functions,
             consts: HashMap::new(),
+            structs,
             frames: Vec::new(),
             out,
         }
@@ -170,39 +194,44 @@ impl<'p, 'o> Interp<'p, 'o> {
         *self.slot(name) = Some(value);
     }
 
-    /// `name[i][j] = value`. `Arc::make_mut` copies an array only if it
-    /// is shared, which is what makes arrays behave like values.
-    fn assign_index(
-        &mut self,
-        name: &Ident,
-        positions: &[(i64, Span)],
-        value: Value,
-    ) -> Result<()> {
+    /// `name[i].x = value`. `Arc::make_mut` copies an array or struct only
+    /// if it is shared, which is what makes them behave like values.
+    fn assign_path(&mut self, name: &Ident, path: &[Step], value: Value) -> Result<()> {
         let slot = self.slot(name);
         let mut target = slot
             .as_mut()
             .expect("checker ensures assignment before use");
-        for &(i, span) in positions {
-            let Value::Array(items) = target else {
-                panic!("indexing {target:?}, the checker should have rejected it");
+        for step in path {
+            target = match (*step, target) {
+                (Step::Index(i, span), Value::Array(items)) => {
+                    let items = Arc::make_mut(items);
+                    let i = checked_index(i, items.len(), span)?;
+                    &mut items[i]
+                }
+                (Step::Field(field), Value::Struct(s)) => {
+                    let s = Arc::make_mut(s);
+                    let i = s.layout.field(field);
+                    &mut s.values[i]
+                }
+                (_, other) => panic!("bad target {other:?}, the checker should have rejected it"),
             };
-            let items = Arc::make_mut(items);
-            let i = checked_index(i, items.len(), span)?;
-            target = &mut items[i];
         }
         *target = value;
         Ok(())
     }
 
-    /// The current value of `name[i][j]`. Keeps no reference to the array,
-    /// so `assign_index` right after it does not have to copy it.
-    fn read_index(&self, name: &Ident, positions: &[(i64, Span)]) -> Result<Value> {
+    /// The current value of `name[i].x`. Keeps no reference to the array,
+    /// so `assign_path` right after it does not have to copy it.
+    fn read_path(&self, name: &Ident, path: &[Step]) -> Result<Value> {
         let mut value = self.read(name);
-        for &(i, span) in positions {
-            let Value::Array(items) = &value else {
-                panic!("indexing {value:?}, the checker should have rejected it");
+        for step in path {
+            let element = match (*step, &value) {
+                (Step::Index(i, span), Value::Array(items)) => {
+                    items[checked_index(i, items.len(), span)?].clone()
+                }
+                (Step::Field(field), Value::Struct(s)) => s.values[s.layout.field(field)].clone(),
+                (_, other) => panic!("bad target {other:?}, the checker should have rejected it"),
             };
-            let element = items[checked_index(i, items.len(), span)?].clone();
             value = element;
         }
         Ok(value)
@@ -250,22 +279,25 @@ impl<'p, 'o> Interp<'p, 'o> {
                 }
                 self.assign(name, value);
             }
-            StmtKind::IndexAssign {
+            StmtKind::PathAssign {
                 name,
-                indices,
+                path,
                 op,
                 value,
             } => {
                 let mut value = self.eval(value)?;
-                let mut positions = Vec::with_capacity(indices.len());
-                for index in indices {
-                    positions.push((self.eval_int(index)?, index.span));
+                let mut steps = Vec::with_capacity(path.len());
+                for step in path {
+                    steps.push(match step {
+                        PathStep::Index(index) => Step::Index(self.eval_int(index)?, index.span),
+                        PathStep::Field(field) => Step::Field(&field.name),
+                    });
                 }
                 if let Some(op) = op {
-                    let old = self.read_index(name, &positions)?;
+                    let old = self.read_path(name, &steps)?;
                     value = ops::binary(*op, old, value).map_err(|m| error(m, stmt.span))?;
                 }
-                self.assign_index(name, &positions, value)?;
+                self.assign_path(name, &steps, value)?;
             }
             StmtKind::If {
                 cond,
@@ -467,6 +499,24 @@ impl<'p, 'o> Interp<'p, 'o> {
             ExprKind::Call { name, args } => self
                 .call(name, args, e.span)?
                 .expect("checker ensures the function returns a value"),
+            ExprKind::Field { base, name } => {
+                let Value::Struct(s) = self.eval(base)? else {
+                    panic!("a field of a non-struct, the checker should have rejected it");
+                };
+                s.values[s.layout.field(&name.name)].clone()
+            }
+            ExprKind::StructLit { name, fields } => {
+                let layout = self.structs[name.name.as_str()].clone();
+                let mut values = vec![None; layout.fields.len()];
+                for (field, value) in fields {
+                    values[layout.field(&field.name)] = Some(self.eval(value)?);
+                }
+                let values = values
+                    .into_iter()
+                    .map(|v| v.expect("checker ensures every field is given"))
+                    .collect();
+                Value::Struct(Arc::new(StructValue { layout, values }))
+            }
             ExprKind::Swizzle { base, mask } => {
                 let v = self.eval(base)?;
                 ops::swizzle(v, &mask.name)

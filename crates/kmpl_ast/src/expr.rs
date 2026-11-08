@@ -29,6 +29,10 @@ pub enum ExprKind {
     ArrayFill { value: Box<Expr>, len: Box<Expr> },
     /// `base[index]`
     Index { base: Box<Expr>, index: Box<Expr> },
+    /// `base.name`
+    Field { base: Box<Expr>, name: Ident },
+    /// `Point { x: 1.0, y: 2.0 }`, fields in the order they are written.
+    StructLit { name: Ident, fields: Vec<(Ident, Expr)> },
     /// `base[start..end]`, a copy of that part. A missing `start` is 0, a
     /// missing `end` is the length. `inclusive` is `..=`.
     Slice {
