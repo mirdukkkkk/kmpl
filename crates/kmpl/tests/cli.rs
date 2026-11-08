@@ -36,7 +36,7 @@ fn stdout(out: &Output) -> String {
 fn no_arguments_prints_usage() {
     let out = kmpl(&[]);
     assert_eq!(out.status.code(), Some(2));
-    assert!(stderr(&out).contains("usage: kmpl [--ast] <file>"));
+    assert!(stderr(&out).contains("usage: kmpl [--ast | --ir] <file>"));
 }
 
 #[test]
@@ -330,7 +330,10 @@ fn help_is_printed_to_stdout() {
         let out = kmpl(&args);
         assert_eq!(out.status.code(), Some(0), "{flags:?}");
         let text = stdout(&out);
-        assert!(text.contains("kmpl [--ast] <file> [args...]"), "{text}");
+        assert!(
+            text.contains("kmpl [--ast | --ir] <file> [args...]"),
+            "{text}"
+        );
         assert!(text.contains("--ast"), "{text}");
         assert!(text.contains("-h, --help"), "{text}");
         assert_eq!(stderr(&out), "");
@@ -375,4 +378,18 @@ fn end_of_input_without_any_data() {
     );
     let out = kmpl_with_input(&[path.as_os_str()], b"");
     assert_eq!(stdout(&out), "false\n");
+}
+
+#[test]
+fn ir_flag_prints_the_ir() {
+    let path = source_file(
+        "ir_flag",
+        "fn f(x: real) -> real { return x * x; } fn main() { print(f(2.0)); }",
+    );
+    let out = kmpl(&["--ir".as_ref(), path.as_os_str()]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("fn f(v0: real) -> real {"), "{text}");
+    assert!(text.contains("v1 = mul v0, v0"), "{text}");
+    assert!(!text.contains("4.0\n"), "must not run: {text}");
 }

@@ -25,6 +25,7 @@ dependencies = [
  "kmpl_check",
  "kmpl_interp",
  "kmpl_lexer",
+ "kmpl_lower",
  "kmpl_parse",
 ]
 
@@ -73,6 +74,18 @@ version = "0.1.0"
 dependencies = [
  "kmpl_ast",
  "logos",
+]
+
+[[package]]
+name = "kmpl_lower"
+version = "0.1.0"
+dependencies = [
+ "kmpl_ast",
+ "kmpl_builtins",
+ "kmpl_check",
+ "kmpl_ir",
+ "kmpl_lexer",
+ "kmpl_parse",
 ]
 
 [[package]]

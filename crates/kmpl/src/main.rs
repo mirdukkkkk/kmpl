@@ -6,13 +6,13 @@ use std::io::Write;
 use diagnostics::Sources;
 use kmpl_interp::Io;
 
-const USAGE: &str = "usage: kmpl [--ast] <file> [args...]";
+const USAGE: &str = "usage: kmpl [--ast | --ir] <file> [args...]";
 
 const HELP: &str = "\
 kmpl: the Kepler Math Programming Language
 
 Usage:
-    kmpl [--ast] <file> [args...]
+    kmpl [--ast | --ir] <file> [args...]
 
 Arguments:
     <file>       the program to run, a .kmpl file with `fn main()`
@@ -20,6 +20,7 @@ Arguments:
 
 Options:
     --ast        check the program and print its syntax tree, without running it
+    --ir         check the program and print its intermediate representation
     -h, --help   show this help
 
 Examples:
@@ -34,9 +35,9 @@ fn main() {
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();
 
-    let (print_ast, rest) = match args.as_slice() {
-        [flag, rest @ ..] if flag == "--ast" => (true, rest),
-        rest => (false, rest),
+    let (print_flag, rest) = match args.as_slice() {
+        [flag, rest @ ..] if flag == "--ast" || flag == "--ir" => (Some(flag.as_str()), rest),
+        rest => (None, rest),
     };
     if matches!(rest.first().map(String::as_str), Some("--help" | "-h")) {
         print!("{HELP}");
@@ -72,13 +73,21 @@ fn main() {
         Err(errors) => fail(&render_all(errors)),
     };
 
-    if let Err(errors) = kmpl_check::check(&mut program) {
-        fail(&render_all(errors));
-    }
+    let types = match kmpl_check::check(&mut program) {
+        Ok(types) => types,
+        Err(errors) => fail(&render_all(errors)),
+    };
 
-    if print_ast {
-        println!("{program:#?}");
-        return;
+    match print_flag {
+        Some("--ast") => {
+            println!("{program:#?}");
+            return;
+        }
+        Some(_) => {
+            print!("{}", kmpl_lower::lower(&program, &types));
+            return;
+        }
+        None => {}
     }
 
     let mut out = std::io::BufWriter::new(std::io::stdout());
