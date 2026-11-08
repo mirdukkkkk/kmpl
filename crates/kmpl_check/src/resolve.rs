@@ -133,6 +133,11 @@ impl<'a> Resolver<'a> {
                 self.error(format!("unknown type `{}`", name.name), name);
             }
             TypeExpr::Array(elem) => self.check_type(elem),
+            TypeExpr::Tuple(items) => {
+                for item in items {
+                    self.check_type(item);
+                }
+            }
             _ => {}
         }
     }
@@ -183,6 +188,12 @@ impl<'a> Resolver<'a> {
                     self.expr(init);
                 }
                 self.declare_local(name);
+            }
+            StmtKind::LetTuple { names, value } => {
+                self.expr(value);
+                for name in names.iter().filter(|n| n.name != "_") {
+                    self.declare_local(name);
+                }
             }
             StmtKind::Assign { name, value, .. } => {
                 self.expr(value);
@@ -306,7 +317,7 @@ impl<'a> Resolver<'a> {
                 }
             }
             ExprKind::Swizzle { base, .. } => self.expr(base),
-            ExprKind::Array(items) => {
+            ExprKind::Array(items) | ExprKind::Tuple(items) => {
                 for item in items {
                     self.expr(item);
                 }

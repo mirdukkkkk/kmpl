@@ -173,3 +173,76 @@ fn nested_arrays_and_resolution() {
     assert_eq!(u.describe(defaulted), "`[int]`");
     assert!(u.is_resolved(defaulted));
 }
+
+#[test]
+fn tuples_unify_element_by_element() {
+    let mut u = Unifier::default();
+    let int = u.new_var(TypeSet::single(Type::Int));
+    let literal = u.new_var(TypeSet::FLOAT);
+    let real = u.new_var(TypeSet::single(Type::Real));
+    let open = u.new_var(TypeSet::ANY);
+
+    let a = u.new_tuple(vec![int, literal]);
+    let b = u.new_tuple(vec![open, real]);
+    u.unify(a, b).unwrap();
+
+    assert_eq!(u.set(open), TypeSet::single(Type::Int));
+    assert_eq!(u.set(literal), TypeSet::single(Type::Real));
+    assert_eq!(u.describe(a), "`(int, real)`");
+    assert!(u.is_resolved(a));
+}
+
+#[test]
+fn tuples_of_different_lengths_do_not_unify() {
+    let mut u = Unifier::default();
+    let int = u.new_var(TypeSet::single(Type::Int));
+    let a = u.new_tuple(vec![int, int]);
+    let b = u.new_tuple(vec![int, int, int]);
+    assert_eq!(u.unify(a, b), Err(Mismatch));
+}
+
+#[test]
+fn failed_tuple_unification_changes_nothing() {
+    let mut u = Unifier::default();
+    let literal = u.new_var(TypeSet::NUMBER);
+    let real = u.new_var(TypeSet::single(Type::Real));
+    let boolean = u.new_var(TypeSet::single(Type::Bool));
+    let int = u.new_var(TypeSet::single(Type::Int));
+
+    // The first pair would succeed, the second cannot.
+    let a = u.new_tuple(vec![literal, boolean]);
+    let b = u.new_tuple(vec![real, int]);
+    assert_eq!(u.unify(a, b), Err(Mismatch));
+    assert_eq!(u.set(literal), TypeSet::NUMBER);
+}
+
+#[test]
+fn open_variable_becomes_a_tuple() {
+    let mut u = Unifier::default();
+    let int = u.new_var(TypeSet::single(Type::Int));
+    let tuple = u.new_tuple(vec![int, int]);
+    let open = u.new_var(TypeSet::ANY);
+    u.unify(open, tuple).unwrap();
+    assert_eq!(u.set(open), TypeSet::TUPLE);
+
+    let number = u.new_var(TypeSet::NUMBER);
+    assert_eq!(u.unify(number, tuple), Err(Mismatch));
+}
+
+#[test]
+fn tuple_is_not_an_array() {
+    let mut u = Unifier::default();
+    let int = u.new_var(TypeSet::single(Type::Int));
+    let tuple = u.new_tuple(vec![int, int]);
+    let array = u.new_array(int);
+    assert_eq!(u.unify(tuple, array), Err(Mismatch));
+}
+
+#[test]
+fn a_tuple_cannot_contain_itself() {
+    let mut u = Unifier::default();
+    let open = u.new_var(TypeSet::ANY);
+    let int = u.new_var(TypeSet::single(Type::Int));
+    let tuple = u.new_tuple(vec![open, int]);
+    assert_eq!(u.unify(open, tuple), Err(Mismatch));
+}

@@ -147,3 +147,10 @@ fn step_and_slices_read_variables() {
     assert_error("fn f() { let x: int; for i in 0..1 step x { } }", UNINIT_X);
     assert_error("fn f(a: [int]) { let x: int; a[x..]; }", UNINIT_X);
 }
+
+#[test]
+fn unpacking_initializes_and_reads() {
+    assert_ok("fn f(t: (int, int)) { let (a, b) = t; print(a); print(b); }");
+    assert_error("fn f() { let x: int; let (a, b) = (x, 1); }", UNINIT_X);
+    assert_error("fn f() { let x: int; let t = (x, 1); }", UNINIT_X);
+}

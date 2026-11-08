@@ -9,13 +9,14 @@
 //! The set only covers types from a fixed list. An array is a different
 //! kind of variable that points at the variable of its elements, so
 //! `[real]` and `[[real]]` need no entries in the list. A variable that may
-//! still become an array has the `ARRAY` bit in its set.
+//! still become an array has the `ARRAY` bit in its set. Tuples work the
+//! same way, with the `TUPLE` bit.
 
 use kmpl_ast::Type;
 
 /// A set of `Type`s, one bit per type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TypeSet(u8);
+pub struct TypeSet(u16);
 
 /// All types, in the order used for defaults and for messages.
 const ALL: [Type; 7] = [
@@ -29,10 +30,12 @@ const ALL: [Type; 7] = [
 ];
 
 impl TypeSet {
-    pub const ANY: TypeSet = TypeSet(0b1111_1111);
+    pub const ANY: TypeSet = TypeSet(0b1_1111_1111);
     /// The set of a variable known to be an array. The bit after the
     /// seven types in `ALL`.
     pub const ARRAY: TypeSet = TypeSet(1 << 7);
+    /// The set of a variable known to be a tuple.
+    pub const TUPLE: TypeSet = TypeSet(1 << 8);
     /// Type of an integer literal like `1`.
     pub const NUMBER: TypeSet = TypeSet::of(&[Type::Int, Type::Real, Type::Complex]);
     /// Type of a real literal like `1.0`.
@@ -43,7 +46,7 @@ impl TypeSet {
     /// Types that `+`, `-` and unary `-` work on.
     pub const LINEAR: TypeSet = TypeSet(TypeSet::NUMBER.0 | TypeSet::VECTOR.0);
 
-    const fn bit(ty: Type) -> u8 {
+    const fn bit(ty: Type) -> u16 {
         1 << ty as u8
     }
 
@@ -155,12 +158,17 @@ enum Slot {
     Root(TypeSet),
     /// A representative variable known to be an array of this element.
     Array(TyVar),
+    /// A representative variable known to be a tuple: an index into
+    /// `Unifier::tuples`. Keeps `Slot` small and `Copy`.
+    Tuple(usize),
 }
 
 /// Union-find over type variables.
 #[derive(Default)]
 pub struct Unifier {
     slots: Vec<Slot>,
+    /// The element variables of every tuple.
+    tuples: Vec<Vec<TyVar>>,
 }
 
 impl Unifier {
@@ -171,6 +179,12 @@ impl Unifier {
 
     pub fn new_array(&mut self, elem: TyVar) -> TyVar {
         self.slots.push(Slot::Array(elem));
+        TyVar(self.slots.len() - 1)
+    }
+
+    pub fn new_tuple(&mut self, elems: Vec<TyVar>) -> TyVar {
+        self.tuples.push(elems);
+        self.slots.push(Slot::Tuple(self.tuples.len() - 1));
         TyVar(self.slots.len() - 1)
     }
 
@@ -187,6 +201,7 @@ impl Unifier {
         match self.slots[self.root(var)] {
             Slot::Root(set) => set,
             Slot::Array(_) => TypeSet::ARRAY,
+            Slot::Tuple(_) => TypeSet::TUPLE,
             Slot::Link(_) => unreachable!("root() returns a root"),
         }
     }
@@ -220,36 +235,68 @@ impl Unifier {
                 self.unify(ea, eb)?;
                 self.slots[rb] = Slot::Link(ra);
             }
-            (Slot::Root(set), Slot::Array(elem)) => self.bind_array(ra, set, rb, elem)?,
-            (Slot::Array(elem), Slot::Root(set)) => self.bind_array(rb, set, ra, elem)?,
+            (Slot::Tuple(ta), Slot::Tuple(tb)) => {
+                self.unify_tuples(ta, tb)?;
+                self.slots[rb] = Slot::Link(ra);
+            }
+            (Slot::Root(set), Slot::Array(_)) => self.bind(ra, set, rb, TypeSet::ARRAY)?,
+            (Slot::Array(_), Slot::Root(set)) => self.bind(rb, set, ra, TypeSet::ARRAY)?,
+            (Slot::Root(set), Slot::Tuple(_)) => self.bind(ra, set, rb, TypeSet::TUPLE)?,
+            (Slot::Tuple(_), Slot::Root(set)) => self.bind(rb, set, ra, TypeSet::TUPLE)?,
+            (Slot::Array(_), Slot::Tuple(_)) | (Slot::Tuple(_), Slot::Array(_)) => {
+                return Err(Mismatch);
+            }
             (Slot::Link(_), _) | (_, Slot::Link(_)) => unreachable!("root() returns a root"),
         }
         Ok(())
     }
 
-    /// Makes the open variable at `root` the array at `array`. Refuses a
-    /// variable that would contain itself (`a = [a]`): no finite type fits.
-    fn bind_array(
+    /// Element by element. Earlier elements are already merged when a later
+    /// one fails, so the slots are put back to keep "nothing changes".
+    fn unify_tuples(&mut self, a: usize, b: usize) -> Result<(), Mismatch> {
+        if self.tuples[a].len() != self.tuples[b].len() {
+            return Err(Mismatch);
+        }
+
+        let saved = self.slots.clone();
+        let pairs: Vec<(TyVar, TyVar)> = (self.tuples[a].iter().copied())
+            .zip(self.tuples[b].iter().copied())
+            .collect();
+        for (x, y) in pairs {
+            if self.unify(x, y).is_err() {
+                self.slots = saved;
+                return Err(Mismatch);
+            }
+        }
+        Ok(())
+    }
+
+    /// Makes the open variable at `root` the array or tuple at `target`,
+    /// whose bit is `kind`. Refuses a variable that would contain itself
+    /// (`a = [a]`): no finite type fits.
+    fn bind(
         &mut self,
         root: usize,
         set: TypeSet,
-        array: usize,
-        elem: TyVar,
+        target: usize,
+        kind: TypeSet,
     ) -> Result<(), Mismatch> {
-        if set.intersect(TypeSet::ARRAY).is_empty() || self.occurs(root, elem) {
+        if set.intersect(kind).is_empty() || self.occurs(root, TyVar(target)) {
             return Err(Mismatch);
         }
-        self.slots[root] = Slot::Link(array);
+        self.slots[root] = Slot::Link(target);
         Ok(())
     }
 
     /// Is the variable at `root` part of `var`?
     fn occurs(&self, root: usize, var: TyVar) -> bool {
         let found = self.root(var);
-        match self.slots[found] {
-            Slot::Array(elem) => found == root || self.occurs(root, elem),
-            _ => found == root,
-        }
+        found == root
+            || match self.slots[found] {
+                Slot::Array(elem) => self.occurs(root, elem),
+                Slot::Tuple(t) => self.tuples[t].iter().any(|&e| self.occurs(root, e)),
+                _ => false,
+            }
     }
 
     /// Narrows `var` to the types in `allowed`. On failure nothing changes.
@@ -272,11 +319,13 @@ impl Unifier {
         match self.slots[self.root(var)] {
             Slot::Root(set) => set.default_type().is_some(),
             Slot::Array(elem) => self.is_resolved(elem),
+            Slot::Tuple(t) => self.tuples[t].iter().all(|&e| self.is_resolved(e)),
             Slot::Link(_) => unreachable!("root() returns a root"),
         }
     }
 
-    /// For messages: like `TypeSet`'s `Display`, plus arrays: "`[real]`".
+    /// For messages: like `TypeSet`'s `Display`, plus arrays and tuples:
+    /// "`[real]`", "`(int, real)`".
     pub fn describe(&self, var: TyVar) -> String {
         match self.slots[self.root(var)] {
             Slot::Root(set) => set.to_string(),
@@ -292,6 +341,10 @@ impl Unifier {
                 .default_type()
                 .map_or("_".to_owned(), |ty| type_name(ty).to_owned()),
             Slot::Array(elem) => format!("[{}]", self.name(elem)),
+            Slot::Tuple(t) => {
+                let names: Vec<String> = self.tuples[t].iter().map(|&e| self.name(e)).collect();
+                format!("({})", names.join(", "))
+            }
             Slot::Link(_) => unreachable!("root() returns a root"),
         }
     }

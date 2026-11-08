@@ -48,4 +48,6 @@ pub enum TypeExpr {
     Param(Ident),
     /// `[T]`: an array of `T`, of any length.
     Array(Box<TypeExpr>),
+    /// `(A, B)`: at least two types.
+    Tuple(Vec<TypeExpr>),
 }

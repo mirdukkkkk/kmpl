@@ -115,6 +115,11 @@ fn substitute(ty: &mut TypeExpr, mapping: &HashMap<&str, Type>) {
             }
         }
         TypeExpr::Array(elem) => substitute(elem, mapping),
+        TypeExpr::Tuple(items) => {
+            for item in items {
+                substitute(item, mapping);
+            }
+        }
         TypeExpr::Known(_) => {}
     }
 }

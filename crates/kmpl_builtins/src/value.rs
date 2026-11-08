@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use kmpl_ast::Type;
 
-/// A runtime value. One variant per `Type`, plus arrays.
+/// A runtime value. One variant per `Type`, plus arrays and tuples.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Int(i64),
@@ -20,11 +20,14 @@ pub enum Value {
     /// array is shared (`Arc::make_mut`). `Arc` rather than `Rc` because
     /// `Value` is stored in the `static` table of built-in constants.
     Array(Arc<Vec<Value>>),
+    /// Never changed after it is built, so it is simply shared.
+    Tuple(Arc<[Value]>),
 }
 
 impl Value {
-    /// The type of this value. Panics on an array, which has no `Type`:
-    /// only built-in constants and tests ask, and those are never arrays.
+    /// The type of this value. Panics on an array or tuple, which have no
+    /// `Type`: only built-in constants and tests ask, and those are never
+    /// arrays or tuples.
     pub fn ty(&self) -> Type {
         match self {
             Value::Int(_) => Type::Int,
@@ -35,6 +38,7 @@ impl Value {
             Value::Vec3(_) => Type::Vec3,
             Value::Vec4(_) => Type::Vec4,
             Value::Array(_) => panic!("an array has no `Type`"),
+            Value::Tuple(_) => panic!("a tuple has no `Type`"),
         }
     }
 
@@ -102,7 +106,7 @@ impl Value {
 }
 
 /// How `print` shows values: `42`, `1.0`, `true`, `2.0+3.0i`, `(1.0, 2.0)`,
-/// `[1, 2]`.
+/// `[1, 2]`, `(1, 2.0)`.
 impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -120,6 +124,10 @@ impl std::fmt::Display for Value {
             Value::Array(items) => {
                 let parts: Vec<String> = items.iter().map(Value::to_string).collect();
                 write!(f, "[{}]", parts.join(", "))
+            }
+            Value::Tuple(items) => {
+                let parts: Vec<String> = items.iter().map(Value::to_string).collect();
+                write!(f, "({})", parts.join(", "))
             }
         }
     }

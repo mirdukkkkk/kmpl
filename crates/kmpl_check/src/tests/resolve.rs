@@ -304,3 +304,20 @@ fn step_and_slices_resolve_their_names() {
     assert_error("fn f(a: [int]) { a[n..]; }", "undefined variable `n`");
     assert_error("fn f(a: [int]) { a[..n]; }", "undefined variable `n`");
 }
+
+#[test]
+fn unpacking_declares_names() {
+    assert_ok("fn f(t: (int, int)) { let (a, b) = t; print(a + b); }");
+    assert_ok("fn f(t: (int, int)) { let (_, _) = t; }");
+    assert_error(
+        "fn f(t: (int, int)) { let (a, a) = t; }",
+        "`a` is already defined in this scope",
+    );
+    assert_error(
+        "fn f(t: (int, int)) { let (a, _) = t; print(_); }",
+        "undefined variable `_`",
+    );
+    // The value is checked first, like `let x = x;`.
+    assert_error("fn f() { let (a, b) = (a, 1); }", "undefined variable `a`");
+    assert_error("fn f(t: (int, Foo)) { }", "unknown type `Foo`");
+}

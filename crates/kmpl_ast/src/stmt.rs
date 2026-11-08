@@ -15,6 +15,8 @@ pub enum StmtKind {
         ty: Option<TypeExpr>,
         init: Option<Expr>,
     },
+    /// `let (a, b) = value;`. A name `_` is an element nobody needs.
+    LetTuple { names: Vec<Ident>, value: Expr },
     /// `name = value`, or `name += value` when `op` is set.
     Assign {
         name: Ident,

@@ -1,0 +1,60 @@
+// Tuples: several values from one function.
+
+// The smallest and the largest element.
+fn min_max(a: [real]) -> (real, real) {
+    let lo = a[0];
+    let hi = a[0];
+    for x in a {
+        lo = min(lo, x);
+        hi = max(hi, x);
+    }
+    return (lo, hi);
+}
+
+// Quotient and remainder.
+fn div_rem(a: int, b: int) -> (int, int) {
+    let q = a / b;
+    return (q, a - q * b);
+}
+
+// Extended Euclid: (g, x, y) with a * x + b * y = g = gcd(a, b).
+fn gcd_ext(a: int, b: int) -> (int, int, int) {
+    if b == 0 {
+        return (a, 1, 0);
+    }
+    let (q, r) = div_rem(a, b);
+    let (g, x, y) = gcd_ext(b, r);
+    return (g, y, x - q * y);
+}
+
+fn swap<T: int | real>(p: (T, T)) -> (T, T) {
+    let (a, b) = p;
+    return (b, a);
+}
+
+fn main() {
+    let (lo, hi) = min_max([3.0, -1.0, 4.0, 1.5]);
+    print(lo);
+    print(hi);
+
+    let (g, x, y) = gcd_ext(240, 46);
+    print(g);
+    print(x);
+    print(y);
+    print(240 * x + 46 * y);
+
+    // `_` skips an element.
+    let (_, rem) = div_rem(17, 5);
+    print(rem);
+
+    print(swap((1, 2)));
+    print(div_rem(7, 2) == (3, 1));
+
+    // Tuples go inside arrays too.
+    let points = [(0, 1.5), (2, 2.5)];
+    for p in points {
+        let (i, v) = p;
+        print(real(i) + v);
+    }
+    print(points[1]);
+}

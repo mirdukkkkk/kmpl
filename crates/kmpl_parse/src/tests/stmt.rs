@@ -221,3 +221,33 @@ fn slices() {
     assert_eq!(body_error("a[..=];"), "expected expression, found `]`");
     assert_eq!(body_error("a[1..2] = 1;"), "expected `;`, found `=`");
 }
+
+#[test]
+fn tuples() {
+    assert_eq!(body("(1, 2);"), "[(tuple 1 2)]");
+    assert_eq!(body("(1, 2,);"), "[(tuple 1 2)]");
+    assert_eq!(body("(1, (2, 3));"), "[(tuple 1 (tuple 2 3))]");
+    assert_eq!(body("(1);"), "[1]");
+    assert_eq!(
+        body("let x: (int, [real]) = t;"),
+        "[(let x (int, [real]) t)]"
+    );
+    assert_eq!(body("return (a, b);"), "[(return (tuple a b))]");
+    assert_eq!(body("f((1, 2));"), "[(call f [(tuple 1 2)])]");
+}
+
+#[test]
+fn unpacking() {
+    assert_eq!(body("let (a, b) = f();"), "[(let-tuple [a b] (call f []))]");
+    assert_eq!(body("let (a, _, c,) = t;"), "[(let-tuple [a _ c] t)]");
+}
+
+#[test]
+fn tuple_errors() {
+    assert_eq!(body_error("(1,);"), "expected expression, found `)`");
+    assert_eq!(body_error("(1, 2;"), "expected `)`, found `;`");
+    assert_eq!(body_error("let (a) = t;"), "expected `,`, found `)`");
+    assert_eq!(body_error("let (a, b);"), "expected `=`, found `;`");
+    assert_eq!(body_error("let x: (int) = 1;"), "expected `,`, found `)`");
+    assert_eq!(body_error("(a, b) = (b, a);"), "expected `;`, found `=`");
+}

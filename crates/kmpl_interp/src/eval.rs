@@ -232,6 +232,16 @@ impl<'p, 'o> Interp<'p, 'o> {
                 };
                 self.declare(&name.name, value);
             }
+            StmtKind::LetTuple { names, value } => {
+                let Value::Tuple(items) = self.eval(value)? else {
+                    panic!("unpacking a non-tuple, the checker should have rejected it");
+                };
+                for (name, item) in names.iter().zip(items.iter()) {
+                    if name.name != "_" {
+                        self.declare(&name.name, Some(item.clone()));
+                    }
+                }
+            }
             StmtKind::Assign { name, op, value } => {
                 let mut value = self.eval(value)?;
                 if let Some(op) = op {
@@ -398,6 +408,13 @@ impl<'p, 'o> Interp<'p, 'o> {
                 let l = self.eval(lhs)?;
                 let r = self.eval(rhs)?;
                 ops::binary(*op, l, r).map_err(|m| error(m, e.span))?
+            }
+            ExprKind::Tuple(items) => {
+                let mut values = Vec::with_capacity(items.len());
+                for item in items {
+                    values.push(self.eval(item)?);
+                }
+                Value::Tuple(values.into())
             }
             ExprKind::Array(items) => {
                 let mut values = Vec::with_capacity(items.len());

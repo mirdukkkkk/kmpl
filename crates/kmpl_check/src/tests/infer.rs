@@ -583,3 +583,75 @@ fn matrix_product() {
         "mismatched types: expected `[[real]]`, found `[real]`",
     );
 }
+
+#[test]
+fn tuple_types() {
+    assert_ok("fn f() -> (int, real) { return (1, 2); }");
+    assert_ok("fn f(t: (int, real)) { let (a, b) = t; let x: int = a; let y: real = b; }");
+    assert_ok("fn f() { let t: (real, [int]) = (1, [2]); let (a, b) = t; let c: int = b[0]; }");
+    assert_ok(
+        "fn f(t: (int, (real, bool))) { let (a, inner) = t; let (b, c) = inner; let d: bool = c; }",
+    );
+    assert_ok("fn f(a: [(int, real)]) { for p in a { let (i, x) = p; let y: real = x; } }");
+    assert_ok("fn f(a: (int, int), b: (int, int)) { let same: bool = a == b; print(a); }");
+    assert_error(
+        "fn f(p: (int, real)) { } fn g() { f((1.5, 1.5)); }",
+        "mismatched types: expected `(int, real)`, found `(real, real)`",
+    );
+    assert_error(
+        "fn f() -> (int, int) { return (1, 2, 3); }",
+        "mismatched types: expected `(int, int)`, found `(int, int, int)`",
+    );
+}
+
+#[test]
+fn unpacking_checks_the_shape() {
+    assert_error(
+        "fn f() { let (a, b) = (1, 2, 3); }",
+        "expected a tuple of 2 elements, found `(int, int, int)`",
+    );
+    assert_error(
+        "fn f() { let (a, b) = 1; }",
+        "expected a tuple of 2 elements, found `int`, `real` or `complex`",
+    );
+    assert_error(
+        "fn f(a: [int]) { let (x, y) = a; }",
+        "expected a tuple of 2 elements, found `[int]`",
+    );
+}
+
+#[test]
+fn tuples_have_no_arithmetic_or_indexing() {
+    assert_error(
+        "fn f(t: (int, int)) { t + t; }",
+        "cannot apply `+` to `(int, int)`",
+    );
+    assert_error(
+        "fn f(t: (int, int)) { t * 2; }",
+        "cannot apply `*` to `(int, int)` and `int`, `real` or `complex`",
+    );
+    assert_error(
+        "fn f(t: (int, int)) { t < t; }",
+        "cannot apply `<` to `(int, int)`",
+    );
+    assert_error(
+        "fn f(t: (int, int)) { t[0]; }",
+        "expected an array, found `(int, int)`",
+    );
+    assert_error(
+        "fn f(t: (int, int)) { for x in t { } }",
+        "expected an array, found `(int, int)`",
+    );
+}
+
+#[test]
+fn tuple_element_types_must_be_known() {
+    assert_error(
+        "fn f() { let t = ([], 1); }",
+        "cannot infer the element type of `t`, add a type annotation",
+    );
+    assert_error(
+        "fn f() { let (a, b) = ([], 1); }",
+        "cannot infer the element type of `a`, add a type annotation",
+    );
+}

@@ -106,6 +106,13 @@ impl<'a> InitChecker<'a> {
                 self.declare(name, init.is_some());
                 false
             }
+            StmtKind::LetTuple { names, value } => {
+                self.expr(value);
+                for name in names.iter().filter(|n| n.name != "_") {
+                    self.declare(name, true);
+                }
+                false
+            }
             StmtKind::Assign { name, op, value } => {
                 self.expr(value);
                 if op.is_some() {
@@ -231,7 +238,7 @@ impl<'a> InitChecker<'a> {
                 }
             }
             ExprKind::Swizzle { base, .. } => self.expr(base),
-            ExprKind::Array(items) => {
+            ExprKind::Array(items) | ExprKind::Tuple(items) => {
                 for item in items {
                     self.expr(item);
                 }

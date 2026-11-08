@@ -208,3 +208,14 @@ fn a_generic_parameter_cannot_be_an_array() {
         "mismatched types: expected `int`, found `[int]`",
     );
 }
+
+#[test]
+fn tuples_of_generic_parameters() {
+    assert_ok(
+        "fn first<T: int | real>(p: (T, T)) -> T { let (a, _) = p; return a; } fn g() { let x: real = first((1.5, 2)); }",
+    );
+    assert_error(
+        "fn id<T>(x: T) -> T { return x; } fn g() { id((1, 2)); }",
+        "mismatched types: expected `int`, `real`, `complex`, `bool`, `vec2`, `vec3` or `vec4`, found `(int, int)`",
+    );
+}

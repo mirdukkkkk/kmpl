@@ -165,6 +165,10 @@ impl<'a> Infer<'a> {
                 let elem = self.type_var(elem, generics);
                 self.u.new_array(elem)
             }
+            TypeExpr::Tuple(items) => {
+                let elems = items.iter().map(|t| self.type_var(t, generics)).collect();
+                self.u.new_tuple(elems)
+            }
         }
     }
 
@@ -240,6 +244,7 @@ impl<'a> Infer<'a> {
                     .insert(&name.name, var);
                 self.locals.push((name, var));
             }
+            StmtKind::LetTuple { names, value } => self.let_tuple(names, value),
             StmtKind::Assign { name, op, value } => {
                 let value_ty = self.expr(value);
                 // Constants and functions are rejected by `resolve`.
@@ -309,6 +314,33 @@ impl<'a> Infer<'a> {
                     self.expr(e);
                 }
             },
+        }
+    }
+
+    /// `let (a, b) = value;`
+    fn let_tuple(&mut self, names: &'a [Ident], value: &'a Expr) {
+        let value_ty = self.expr(value);
+        let vars: Vec<TyVar> = names.iter().map(|_| self.u.new_var(TypeSet::ANY)).collect();
+        let tuple = self.u.new_tuple(vars.clone());
+        if self.u.unify(value_ty, tuple).is_err() {
+            let found = self.u.describe(value_ty);
+            self.error(
+                format!(
+                    "expected a tuple of {} elements, found {found}",
+                    names.len()
+                ),
+                value.span,
+            );
+        }
+
+        for (name, var) in names.iter().zip(vars) {
+            if name.name != "_" {
+                self.scopes
+                    .last_mut()
+                    .expect("inside a block")
+                    .insert(&name.name, var);
+                self.locals.push((name, var));
+            }
         }
     }
 
@@ -402,6 +434,10 @@ impl<'a> Infer<'a> {
                 }
             },
             ExprKind::Swizzle { base, mask } => self.swizzle(base, mask),
+            ExprKind::Tuple(items) => {
+                let elems = items.iter().map(|item| self.expr(item)).collect();
+                self.u.new_tuple(elems)
+            }
             ExprKind::Array(items) => {
                 let elem = self.u.new_var(TypeSet::ANY);
                 for item in items {
@@ -748,7 +784,7 @@ impl<'a> Infer<'a> {
                         "cannot infer the type of `{}`, add a type annotation",
                         name.name
                     )
-                } else if self.u.set(var) == TypeSet::ARRAY {
+                } else if [TypeSet::ARRAY, TypeSet::TUPLE].contains(&self.u.set(var)) {
                     format!(
                         "cannot infer the element type of `{}`, add a type annotation",
                         name.name

@@ -1,7 +1,7 @@
 //! Expressions. One function per precedence level, weakest first,
 //! exactly as in `grammar.ebnf`.
 
-use kmpl_ast::{BinOp, Expr, ExprKind, UnOp};
+use kmpl_ast::{BinOp, Expr, ExprKind, Span, UnOp};
 use kmpl_lexer::Token;
 
 use crate::error::PResult;
@@ -185,15 +185,35 @@ fn primary(ts: &mut TokenStream) -> PResult<Expr> {
         Some(Token::LBracket) => return array(ts),
         Some(Token::LParen) => {
             ts.next();
-            let inner = expr(ts)?;
+            let first = expr(ts)?;
+            if ts.peek() == Some(&Token::Comma) {
+                return tuple(ts, start, first);
+            }
             ts.expect(Token::RParen)?;
-            return Ok(inner);
+            return Ok(first);
         }
         _ => return Err(ts.error_expected("expression")),
     };
 
     ts.next();
     Ok(Expr { kind, span: start })
+}
+
+/// The rest of `'(' expr (',' expr)+ ','? ')'`, after the first element.
+fn tuple(ts: &mut TokenStream, open: Span, first: Expr) -> PResult<Expr> {
+    let mut items = vec![first];
+    while ts.eat(&Token::Comma).is_some() && ts.peek() != Some(&Token::RParen) {
+        items.push(expr(ts)?);
+    }
+    if items.len() < 2 {
+        return Err(ts.error_expected("expression"));
+    }
+
+    let close = ts.expect(Token::RParen)?;
+    Ok(Expr {
+        kind: ExprKind::Tuple(items),
+        span: open.to(close),
+    })
 }
 
 /// `'[' (expr (',' expr)* ','?)? ']'` or `'[' expr ';' expr ']'`

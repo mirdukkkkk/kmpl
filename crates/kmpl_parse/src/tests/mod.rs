@@ -81,6 +81,10 @@ fn sexp_stmt(s: &Stmt) -> String {
             let init = init.as_ref().map_or("_".to_owned(), sexp);
             format!("(let {} {ty} {init})", name.name)
         }
+        StmtKind::LetTuple { names, value } => {
+            let names: Vec<&str> = names.iter().map(|n| n.name.as_str()).collect();
+            format!("(let-tuple [{}] {})", names.join(" "), sexp(value))
+        }
         StmtKind::Assign { name, op, value } => {
             format!("({}= {} {})", assign_prefix(*op), name.name, sexp(value))
         }
@@ -173,6 +177,10 @@ fn sexp_ty(ty: &TypeExpr) -> String {
         TypeExpr::Known(ty) => type_name(*ty),
         TypeExpr::Param(name) => name.name.clone(),
         TypeExpr::Array(elem) => format!("[{}]", sexp_ty(elem)),
+        TypeExpr::Tuple(items) => {
+            let items: Vec<String> = items.iter().map(sexp_ty).collect();
+            format!("({})", items.join(", "))
+        }
     }
 }
 
@@ -217,6 +225,10 @@ fn sexp(e: &Expr) -> String {
         ExprKind::Call { name, args } => {
             let args: Vec<String> = args.iter().map(sexp).collect();
             format!("(call {} [{}])", name.name, args.join(" "))
+        }
+        ExprKind::Tuple(items) => {
+            let items: Vec<String> = items.iter().map(sexp).collect();
+            format!("(tuple {})", items.join(" "))
         }
         ExprKind::Array(items) => {
             let items: Vec<String> = items.iter().map(sexp).collect();

@@ -19,6 +19,8 @@ pub enum ExprKind {
     Binary { op: BinOp, lhs: Box<Expr>, rhs: Box<Expr> },
     Call { name: Ident, args: Vec<Expr> },
     Swizzle { base: Box<Expr>, mask: Ident },
+    /// `(a, b)`: at least two elements. `(a)` is just `a`.
+    Tuple(Vec<Expr>),
     /// `[a, b, c]`
     Array(Vec<Expr>),
     /// `[value; len]`: `len` copies of `value`. `len` is known at run time.

@@ -37,9 +37,21 @@ pub fn stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     }
 }
 
-/// `'let' IDENT (':' type)? ('=' expr)? ';'`
+/// `'let' IDENT (':' type)? ('=' expr)? ';'`, or a tuple to unpack:
+/// `'let' '(' IDENT (',' IDENT)+ ','? ')' '=' expr ';'`.
 fn let_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     let start = ts.expect(Token::Let)?;
+    if ts.peek() == Some(&Token::LParen) {
+        let names = two_or_more(ts, |ts| ts.expect_ident())?;
+        ts.expect(Token::Assign)?;
+        let value = expr(ts)?;
+        let end = ts.expect(Token::Semi)?;
+        return Ok(Stmt {
+            kind: StmtKind::LetTuple { names, value },
+            span: start.to(end),
+        });
+    }
+
     let name = ts.expect_ident()?;
 
     let ty = match ts.eat(&Token::Colon) {
@@ -270,8 +282,26 @@ fn split_target(e: Expr, indices: &mut Vec<Expr>) -> Ident {
     }
 }
 
-/// `type ::= IDENT | '[' type ']'`. The lexer gives type names as plain
-/// identifiers.
+/// `'(' item (',' item)+ ','? ')'`
+fn two_or_more<T>(
+    ts: &mut TokenStream,
+    item: fn(&mut TokenStream) -> PResult<T>,
+) -> PResult<Vec<T>> {
+    ts.expect(Token::LParen)?;
+    let mut items = vec![item(ts)?];
+    ts.expect(Token::Comma)?;
+    loop {
+        items.push(item(ts)?);
+        if ts.eat(&Token::Comma).is_none() || ts.peek() == Some(&Token::RParen) {
+            break;
+        }
+    }
+    ts.expect(Token::RParen)?;
+    Ok(items)
+}
+
+/// `type ::= IDENT | '[' type ']' | '(' type (',' type)+ ','? ')'`. The
+/// lexer gives type names as plain identifiers.
 /// A built-in name becomes `Known`; any other name becomes `Param` (a
 /// generic parameter or a typo), and the checker decides which.
 pub fn ty(ts: &mut TokenStream) -> PResult<TypeExpr> {
@@ -279,6 +309,9 @@ pub fn ty(ts: &mut TokenStream) -> PResult<TypeExpr> {
         let elem = ty(ts)?;
         ts.expect(Token::RBracket)?;
         return Ok(TypeExpr::Array(Box::new(elem)));
+    }
+    if ts.peek() == Some(&Token::LParen) {
+        return Ok(TypeExpr::Tuple(two_or_more(ts, ty)?));
     }
 
     let name = ts.expect_ident()?;

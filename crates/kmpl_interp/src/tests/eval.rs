@@ -771,3 +771,69 @@ fn matrix_product_with_an_empty_left_side() {
         "[]\n"
     );
 }
+
+#[test]
+fn tuples_print_and_compare() {
+    assert_eq!(output("print((1, 2.5));"), "(1, 2.5)\n");
+    assert_eq!(output("print((1, (true, [2])));"), "(1, (true, [2]))\n");
+    assert_eq!(
+        output("print((1, 2) == (1, 2)); print((1, 2) != (1, 2));"),
+        "true\nfalse\n"
+    );
+}
+
+#[test]
+fn functions_return_tuples() {
+    let src = "fn div_rem(a: int, b: int) -> (int, int) { return (a / b, a - a / b * b); }
+               fn main() { let (q, r) = div_rem(17, 5); print(q); print(r); }";
+    assert_eq!(run(src).unwrap(), "3\n2\n");
+}
+
+#[test]
+fn unpacking_skips_underscores() {
+    assert_eq!(output("let (_, b, _) = (1, 2, 3); print(b);"), "2\n");
+}
+
+#[test]
+fn unpacked_variables_can_be_changed() {
+    assert_eq!(
+        output("let t = (1, 2); let (a, b) = t; a += 10; print(a); print(t);"),
+        "11\n(1, 2)\n"
+    );
+}
+
+#[test]
+fn literals_inside_tuples_get_their_type() {
+    assert_eq!(
+        output("let t: (real, complex) = (1, 2); print(t);"),
+        "(1.0, 2.0+0.0i)\n"
+    );
+    assert_eq!(
+        output("let (a, b) = (1, 2.5); print(a); print(b);"),
+        "1\n2.5\n"
+    );
+}
+
+#[test]
+fn tuples_and_arrays_nest() {
+    assert_eq!(
+        output(
+            "let a = [(1, 2.0), (3, 4.0)]; a[0] = (9, 9.0); let (x, y) = a[1]; print(a); print(x); print(y);"
+        ),
+        "[(9, 9.0), (3, 4.0)]\n3\n4.0\n"
+    );
+}
+
+#[test]
+fn generic_tuples() {
+    let src = "fn swap<T: int | real>(p: (T, T)) -> (T, T) { let (a, b) = p; return (b, a); }
+               fn main() { print(swap((1, 2))); print(swap((1.5, 2))); }";
+    assert_eq!(run(src).unwrap(), "(2, 1)\n(2.0, 1.5)\n");
+}
+
+#[test]
+fn tuple_constants() {
+    let src = "const P: (int, real) = (1, sqrt(4.0));
+               fn main() { let (a, b) = P; print(a); print(b); }";
+    assert_eq!(run(src).unwrap(), "1\n2.0\n");
+}

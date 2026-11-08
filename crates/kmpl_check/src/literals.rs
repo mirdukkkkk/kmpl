@@ -44,7 +44,9 @@ impl Rewriter<'_> {
                         self.expr(init);
                     }
                 }
-                StmtKind::Assign { value, .. } => self.expr(value),
+                StmtKind::LetTuple { value, .. } | StmtKind::Assign { value, .. } => {
+                    self.expr(value)
+                }
                 StmtKind::IndexAssign { indices, value, .. } => {
                     for index in indices {
                         self.expr(index);
@@ -128,7 +130,7 @@ impl Rewriter<'_> {
                 }
             }
             ExprKind::Swizzle { base, .. } => self.expr(base),
-            ExprKind::Array(items) => {
+            ExprKind::Array(items) | ExprKind::Tuple(items) => {
                 for item in items {
                     self.expr(item);
                 }
