@@ -36,6 +36,8 @@ struct Infer<'a> {
     scopes: Vec<HashMap<&'a str, TyVar>>,
     /// Every `let` variable, to check at the end that its type is known.
     locals: Vec<(&'a Ident, TyVar)>,
+    /// The function being checked: its name and return type.
+    current_fn: Option<(&'a str, Option<Type>)>,
     errors: Vec<CheckError>,
 }
 
@@ -49,6 +51,7 @@ pub fn infer(program: &Program, report_unknown: bool) -> Vec<CheckError> {
         consts: HashMap::new(),
         scopes: Vec::new(),
         locals: Vec::new(),
+        current_fn: None,
         errors: Vec::new(),
     };
 
@@ -124,7 +127,9 @@ impl<'a> Infer<'a> {
             scope.insert(param.name.name.as_str(), var);
         }
         self.scopes.push(scope);
+        self.current_fn = Some((&f.name.name, f.ret));
         self.block(&f.body);
+        self.current_fn = None;
         self.scopes.pop();
     }
 
@@ -183,11 +188,7 @@ impl<'a> Infer<'a> {
                 self.block(body);
             }
             StmtKind::Break | StmtKind::Continue => {}
-            StmtKind::Return(value) => {
-                if let Some(value) = value {
-                    self.expr(value);
-                }
-            }
+            StmtKind::Return(value) => self.return_stmt(value.as_ref(), stmt.span),
             StmtKind::Expr(e) => match &e.kind {
                 // A call to a function that returns nothing is fine here.
                 ExprKind::Call { name, args } => {
@@ -197,6 +198,30 @@ impl<'a> Infer<'a> {
                     self.expr(e);
                 }
             },
+        }
+    }
+
+    /// `return x;` must match the function's `-> type`; `return;` is only
+    /// allowed in functions without one.
+    fn return_stmt(&mut self, value: Option<&'a Expr>, span: Span) {
+        let (name, ret) = self.current_fn.expect("return inside a function");
+        match (value, ret) {
+            (Some(value), Some(ret)) => {
+                let ty = self.expr(value);
+                self.expect(ty, ret, value.span);
+            }
+            (Some(value), None) => {
+                self.expr(value);
+                self.error(
+                    format!("`{name}` returns nothing, but `return` has a value"),
+                    value.span,
+                );
+            }
+            (None, Some(ret)) => {
+                let ret = TypeSet::single(ret);
+                self.error(format!("`{name}` must return a value of type {ret}"), span);
+            }
+            (None, None) => {}
         }
     }
 

@@ -4,6 +4,7 @@ mod infer;
 mod init;
 mod main_fn;
 mod resolve;
+mod returns;
 mod types;
 
 use crate::check;

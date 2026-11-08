@@ -3,6 +3,7 @@ mod infer;
 mod init;
 mod main_fn;
 mod resolve;
+mod returns;
 mod types;
 
 #[cfg(test)]
@@ -23,6 +24,7 @@ pub fn check(program: &Program) -> Result<(), Vec<CheckError>> {
         let earlier_ok = errors.is_empty();
         errors.extend(infer::infer(program, earlier_ok));
     }
+    errors.extend(returns::check_returns(program));
     errors.extend(main_fn::check_main(program));
 
     if errors.is_empty() {
