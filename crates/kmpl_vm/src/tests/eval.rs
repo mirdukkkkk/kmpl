@@ -1237,3 +1237,30 @@ fn floats_keep_their_exact_value() {
     assert_eq!(output("print(0.0 / 0.0 == 0.0 / 0.0);"), "false\n");
     assert_eq!(output("print(-0.0);"), "-0.0\n");
 }
+
+#[test]
+fn loops_with_constant_conditions() {
+    assert_eq!(
+        output("let i = 0; while true { i += 1; if i > 2 { break; } } print(i);"),
+        "3\n"
+    );
+    assert_eq!(output("while false { print(1); } print(2);"), "2\n");
+    assert_eq!(output("if true { print(1); } else { print(2); }"), "1\n");
+    assert_eq!(output("if false { print(1); } else { print(2); }"), "2\n");
+}
+
+#[test]
+fn swapping_values_in_a_while_loop() {
+    assert_eq!(
+        output(
+            "let a = 1; let b = 2; let i = 0; while i < 3 { let t = a; a = b; b = t; i += 1; } print(a); print(b);"
+        ),
+        "2\n1\n"
+    );
+    assert_eq!(
+        output(
+            r#"let a = "x"; let b = "y"; let i = 0; while i < 3 { let t = a; a = b; b = t; i += 1; } print(a + b);"#
+        ),
+        "yx\n"
+    );
+}

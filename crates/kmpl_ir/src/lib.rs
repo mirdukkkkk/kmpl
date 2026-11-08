@@ -327,7 +327,18 @@ impl Op {
 }
 
 impl Terminator {
-    /// The jump targets, to read or change them.
+    /// The jump targets.
+    pub fn targets(&self) -> Vec<&Target> {
+        match self {
+            Terminator::Jump(target) => vec![target],
+            Terminator::Branch {
+                then, otherwise, ..
+            } => vec![then, otherwise],
+            Terminator::Return(_) | Terminator::Unreachable => Vec::new(),
+        }
+    }
+
+    /// The jump targets, to change them.
     pub fn targets_mut(&mut self) -> Vec<&mut Target> {
         match self {
             Terminator::Jump(target) => vec![target],

@@ -6,6 +6,7 @@
 //! - calls and built-ins keep their order;
 //! - `real` arithmetic is never rearranged: floats are not associative.
 
+mod cfg;
 mod fold;
 
 use crate::{Function, Module};
@@ -21,7 +22,9 @@ pub fn optimize(module: &mut Module) {
 
 fn optimize_function(f: &mut Function) {
     for _ in 0..MAX_ROUNDS {
-        if !fold::fold(f) {
+        let mut changed = fold::fold(f);
+        changed |= cfg::simplify(f);
+        if !changed {
             break;
         }
     }

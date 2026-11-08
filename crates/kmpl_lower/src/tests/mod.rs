@@ -304,3 +304,38 @@ fn a_range_with_a_known_step_is_a_comparison() {
     let src = "fn f(n: int) { for i in n..=0 step -2 { print(i); } } fn main() { }";
     assert!(optimized_text(src, "f").contains("ge"));
 }
+
+#[test]
+fn known_branches_disappear() {
+    let src = "fn f() -> int { if 1 < 2 { return 1; } return 2; } fn main() { }";
+    let text = optimized_text(src, "f");
+    assert!(!text.contains("br "), "{text}");
+    assert_eq!(text.matches("ret").count(), 1, "{text}");
+}
+
+#[test]
+fn unchanged_parameters_disappear() {
+    let src = "fn f(n: int) -> int {
+                   let x = 1;
+                   let i = 0;
+                   while i < n { x = x; i += 1; }
+                   return x;
+               }
+               fn main() { }";
+    let m = optimized(src);
+    let params: usize = m.functions[0]
+        .blocks
+        .iter()
+        .skip(1)
+        .map(|b| b.params.len())
+        .sum();
+    // Only `i` still changes around the loop.
+    assert_eq!(params, 1, "{m}");
+}
+
+#[test]
+fn straight_code_is_one_block() {
+    let src = "fn f(c: bool) -> int { let x = 1; if true { x = 2; } return x; } fn main() { }";
+    let m = optimized(src);
+    assert_eq!(m.functions[0].blocks.len(), 1, "{m}");
+}
