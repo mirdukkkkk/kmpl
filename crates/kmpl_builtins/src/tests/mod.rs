@@ -31,6 +31,27 @@ fn names_are_unique() {
     for b in BUILTINS {
         assert!(seen.insert(b.name), "duplicate built-in `{}`", b.name);
     }
+    // Functions and constants share one namespace.
+    for c in crate::CONSTANTS {
+        assert!(seen.insert(c.name), "duplicate built-in `{}`", c.name);
+    }
+}
+
+#[test]
+fn constants() {
+    assert_eq!(
+        crate::lookup_const("PI").unwrap().value,
+        Value::Real(std::f64::consts::PI)
+    );
+    assert_eq!(
+        crate::lookup_const("TAU").unwrap().value,
+        Value::Real(2.0 * std::f64::consts::PI)
+    );
+    assert_eq!(
+        crate::lookup_const("E").unwrap().value,
+        Value::Real(1f64.exp())
+    );
+    assert!(crate::lookup_const("sqrt").is_none());
 }
 
 /// Every built-in accepts arguments of its declared `params` and returns

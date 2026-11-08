@@ -360,6 +360,31 @@ pub fn lookup(name: &str) -> Option<&'static Builtin> {
     BUILTINS.iter().find(|b| b.name == name)
 }
 
+/// A named value every program can use, like a `const` it did not write.
+pub struct BuiltinConst {
+    pub name: &'static str,
+    pub value: Value,
+}
+
+pub static CONSTANTS: &[BuiltinConst] = &[
+    BuiltinConst {
+        name: "PI",
+        value: Value::Real(std::f64::consts::PI),
+    },
+    BuiltinConst {
+        name: "TAU",
+        value: Value::Real(std::f64::consts::TAU),
+    },
+    BuiltinConst {
+        name: "E",
+        value: Value::Real(std::f64::consts::E),
+    },
+];
+
+pub fn lookup_const(name: &str) -> Option<&'static BuiltinConst> {
+    CONSTANTS.iter().find(|c| c.name == name)
+}
+
 /// `Ok(Some(value))`, the result of a built-in that cannot fail.
 fn ok(value: Value) -> Result<Option<Value>, String> {
     Ok(Some(value))

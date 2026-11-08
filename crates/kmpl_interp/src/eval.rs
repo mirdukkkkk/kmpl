@@ -101,7 +101,13 @@ impl<'p, 'o> Interp<'p, 'o> {
                 }
             }
         }
-        self.consts[name.name.as_str()]
+        match self.consts.get(name.name.as_str()) {
+            Some(value) => *value,
+            None => {
+                let builtin = kmpl_builtins::lookup_const(&name.name);
+                builtin.expect("checker ensures the name exists").value
+            }
+        }
     }
 
     fn assign(&mut self, name: &Ident, value: Value) {

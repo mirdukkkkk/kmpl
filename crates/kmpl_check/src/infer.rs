@@ -261,7 +261,13 @@ impl<'a> Infer<'a> {
             ExprKind::Var(name) => match self.lookup(&name.name) {
                 Some(var) => var,
                 None => {
-                    let ty = self.consts[name.name.as_str()];
+                    let ty = match self.consts.get(name.name.as_str()) {
+                        Some(ty) => *ty,
+                        None => {
+                            let builtin = kmpl_builtins::lookup_const(&name.name);
+                            builtin.expect("checked by resolve").value.ty()
+                        }
+                    };
                     self.known(ty)
                 }
             },

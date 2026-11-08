@@ -217,3 +217,13 @@ fn vector_builtins() {
         "(0.0, 0.0, 1.0)\n0.0\n5.0\n(0.5, 0.5, 0.0)\n10\n2.5\n"
     );
 }
+
+#[test]
+fn builtin_constants() {
+    assert_eq!(
+        output("print(PI); print(TAU / 2 == PI); print(log(E)); print(cos(PI));"),
+        "3.141592653589793\ntrue\n1.0\n-1.0\n"
+    );
+    // A local may shadow a built-in constant.
+    assert_eq!(output("let PI = 3; print(PI);"), "3\n");
+}

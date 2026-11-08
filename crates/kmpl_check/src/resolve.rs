@@ -82,6 +82,8 @@ impl<'a> Resolver<'a> {
 
             if kmpl_builtins::lookup(&name.name).is_some() {
                 self.error(format!("`{}` is a built-in function", name.name), name);
+            } else if kmpl_builtins::lookup_const(&name.name).is_some() {
+                self.error(format!("`{}` is a built-in constant", name.name), name);
             } else if self.globals.contains_key(name.name.as_str()) {
                 self.error(format!("`{}` is already defined", name.name), name);
             } else {
@@ -193,6 +195,9 @@ impl<'a> Resolver<'a> {
 
         let message = match self.globals.get(n) {
             Some(Global::Const { .. }) => format!("cannot assign to constant `{n}`"),
+            _ if kmpl_builtins::lookup_const(n).is_some() => {
+                format!("cannot assign to constant `{n}`")
+            }
             _ if self.is_function(n) => format!("cannot assign to function `{n}`"),
             _ => format!("undefined variable `{n}`"),
         };
@@ -232,6 +237,7 @@ impl<'a> Resolver<'a> {
                 }
                 _ => return,
             },
+            _ if kmpl_builtins::lookup_const(n).is_some() => return,
             _ if self.is_function(n) => {
                 format!("`{n}` is a function, call it with `{n}(...)`")
             }
@@ -256,7 +262,10 @@ impl<'a> Resolver<'a> {
                 },
                 if given == 1 { "was" } else { "were" },
             )
-        } else if self.is_local(n) || self.globals.contains_key(n) {
+        } else if self.is_local(n)
+            || self.globals.contains_key(n)
+            || kmpl_builtins::lookup_const(n).is_some()
+        {
             format!("`{n}` is not a function")
         } else {
             format!("undefined function `{n}`")

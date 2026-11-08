@@ -1,7 +1,6 @@
 // kmpl demo: uses every construct of grammar v0.1.
 
 const N: int = 10;
-const TAU: real = 6.283185307179586;
 const I: complex = 1.0i;
 
 // Sum of 1..=n, skipping multiples of 3, stopping above 20.

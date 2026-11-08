@@ -159,3 +159,14 @@ fn argument_counts() {
     );
     assert_ok("fn g(a: int, b: real) { } fn f() { g(1, 2.0); }");
 }
+
+#[test]
+fn builtin_constants() {
+    assert_ok("fn f() { let x = PI * 2; let y = E + TAU; }");
+    assert_ok("const HALF_PI: real = PI / 2; fn f() { }");
+    assert_ok("fn f() { let PI = 3; }");
+    assert_error("const PI: real = 3.0;", "`PI` is a built-in constant");
+    assert_error("fn E() { }", "`E` is a built-in constant");
+    assert_error("fn f() { PI = 3.0; }", "cannot assign to constant `PI`");
+    assert_error("fn f() { PI(); }", "`PI` is not a function");
+}
