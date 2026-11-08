@@ -8,11 +8,12 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
-kmpl_ast    = { path = "crates/kmpl_ast" }
-kmpl_lexer  = { path = "crates/kmpl_lexer" }
-kmpl_parse  = { path = "crates/kmpl_parse" }
-kmpl_check  = { path = "crates/kmpl_check" }
-kmpl_interp = { path = "crates/kmpl_interp" }
+kmpl_ast      = { path = "crates/kmpl_ast" }
+kmpl_builtins = { path = "crates/kmpl_builtins" }
+kmpl_lexer    = { path = "crates/kmpl_lexer" }
+kmpl_parse    = { path = "crates/kmpl_parse" }
+kmpl_check    = { path = "crates/kmpl_check" }
+kmpl_interp   = { path = "crates/kmpl_interp" }
 
 logos = "0.16.1"
 

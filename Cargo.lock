@@ -30,6 +30,13 @@ name = "kmpl_ast"
 version = "0.1.0"
 
 [[package]]
+name = "kmpl_builtins"
+version = "0.1.0"
+dependencies = [
+ "kmpl_ast",
+]
+
+[[package]]
 name = "kmpl_check"
 version = "0.1.0"
 
