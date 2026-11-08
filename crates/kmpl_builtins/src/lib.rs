@@ -14,12 +14,22 @@ use kmpl_ast::Type;
 
 pub struct Builtin {
     pub name: &'static str,
-    pub params: &'static [Type],
+    pub params: &'static [ParamType],
     /// `None` for functions that return nothing.
     pub ret: Option<Type>,
     /// Called with arguments whose types already match `params`.
     pub func: fn(&[Value]) -> Option<Value>,
 }
+
+/// What a built-in accepts in one argument position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParamType {
+    Exact(Type),
+    /// Any type. Used by `print`.
+    Any,
+}
+
+const REAL: ParamType = ParamType::Exact(Type::Real);
 
 pub static BUILTINS: &[Builtin] = &[
     real_to_real("sqrt", |a| real_math(a, f64::sqrt)),
@@ -30,13 +40,13 @@ pub static BUILTINS: &[Builtin] = &[
     real_to_real("abs", |a| real_math(a, f64::abs)),
     Builtin {
         name: "vec2",
-        params: &[Type::Real, Type::Real],
+        params: &[REAL, REAL],
         ret: Some(Type::Vec2),
         func: |a| Some(Value::Vec2([a[0].as_real(), a[1].as_real()])),
     },
     Builtin {
         name: "vec3",
-        params: &[Type::Real, Type::Real, Type::Real],
+        params: &[REAL, REAL, REAL],
         ret: Some(Type::Vec3),
         func: |a| {
             Some(Value::Vec3([
@@ -48,7 +58,7 @@ pub static BUILTINS: &[Builtin] = &[
     },
     Builtin {
         name: "vec4",
-        params: &[Type::Real, Type::Real, Type::Real, Type::Real],
+        params: &[REAL, REAL, REAL, REAL],
         ret: Some(Type::Vec4),
         func: |a| {
             Some(Value::Vec4([
@@ -57,6 +67,15 @@ pub static BUILTINS: &[Builtin] = &[
                 a[2].as_real(),
                 a[3].as_real(),
             ]))
+        },
+    },
+    Builtin {
+        name: "print",
+        params: &[ParamType::Any],
+        ret: None,
+        func: |a| {
+            println!("{}", a[0]);
+            None
         },
     },
 ];
@@ -69,7 +88,7 @@ pub fn lookup(name: &str) -> Option<&'static Builtin> {
 const fn real_to_real(name: &'static str, func: fn(&[Value]) -> Option<Value>) -> Builtin {
     Builtin {
         name,
-        params: &[Type::Real],
+        params: &[REAL],
         ret: Some(Type::Real),
         func,
     }

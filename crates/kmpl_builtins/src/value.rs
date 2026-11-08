@@ -37,3 +37,27 @@ impl Value {
         }
     }
 }
+
+/// How `print` shows values: `42`, `1.0`, `true`, `2.0+3.0i`, `(1.0, 2.0)`.
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Int(v) => write!(f, "{v}"),
+            // `{:?}` keeps the `.0` on whole numbers: `1.0`, not `1`.
+            Value::Real(v) => write!(f, "{v:?}"),
+            Value::Bool(v) => write!(f, "{v}"),
+            Value::Complex { re, im } => {
+                let sign = if im.is_sign_negative() { '-' } else { '+' };
+                write!(f, "{re:?}{sign}{:?}i", im.abs())
+            }
+            Value::Vec2(v) => write_components(f, v),
+            Value::Vec3(v) => write_components(f, v),
+            Value::Vec4(v) => write_components(f, v),
+        }
+    }
+}
+
+fn write_components(f: &mut std::fmt::Formatter<'_>, v: &[f64]) -> std::fmt::Result {
+    let parts: Vec<String> = v.iter().map(|c| format!("{c:?}")).collect();
+    write!(f, "({})", parts.join(", "))
+}
