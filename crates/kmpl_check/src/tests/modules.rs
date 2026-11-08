@@ -34,7 +34,7 @@ fn errors(modules: Vec<Module>) -> Vec<String> {
         Err(errors) => return errors.into_iter().map(|e| e.message).collect(),
     };
     match check(&mut program) {
-        Ok(()) => Vec::new(),
+        Ok(_) => Vec::new(),
         Err(errors) => errors.into_iter().map(|e| e.message).collect(),
     }
 }

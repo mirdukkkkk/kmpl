@@ -18,7 +18,7 @@ use std::collections::{HashMap, HashSet};
 
 use kmpl_ast::{
     BinOp, Block, Expr, ExprKind, Function, Ident, Item, PathStep, Program, Span, Stmt, StmtKind,
-    StructDef, Type, TypeExpr, UnOp,
+    StructDef, Ty, Type, TypeExpr, UnOp,
 };
 use kmpl_builtins::{ParamType, RetType};
 
@@ -53,6 +53,8 @@ struct Infer<'a> {
     /// type at the end. Copies of a generic function share spans, so the
     /// span alone is not unique.
     literals: Vec<(usize, Span, TyVar)>,
+    /// Every expression, to record its final type at the end.
+    expr_vars: Vec<(usize, Span, TyVar)>,
     generic_calls: Vec<GenericCall<'a>>,
     /// Index of the item being checked.
     item: usize,
@@ -71,6 +73,8 @@ pub struct Inference {
     /// The copy each call to a generic function uses, like `lerp<vec2>`,
     /// by item index and span of the call.
     pub call_targets: HashMap<(usize, Span), String>,
+    /// Final type of every expression, by item index and span.
+    pub expr_types: HashMap<(usize, Span), Ty>,
 }
 
 /// `report_unknown`: report `let` variables whose type stays unknown.
@@ -88,6 +92,7 @@ pub fn infer(program: &Program, report_unknown: bool) -> Inference {
         array_literals: Vec::new(),
         current_fn: None,
         literals: Vec::new(),
+        expr_vars: Vec::new(),
         generic_calls: Vec::new(),
         item: 0,
         reported: HashSet::new(),
@@ -135,10 +140,17 @@ pub fn infer(program: &Program, report_unknown: bool) -> Inference {
         .filter_map(|&(item, span, var)| Some(((item, span), inf.u.set(var).default_type()?)))
         .collect();
 
+    let expr_types = inf
+        .expr_vars
+        .iter()
+        .filter_map(|&(item, span, var)| Some(((item, span), inf.u.resolve(var)?)))
+        .collect();
+
     Inference {
         errors: inf.errors,
         literal_types,
         call_targets,
+        expr_types,
     }
 }
 
@@ -423,6 +435,12 @@ impl<'a> Infer<'a> {
     // ----- expressions -----
 
     fn expr(&mut self, e: &'a Expr) -> TyVar {
+        let var = self.expr_kind(e);
+        self.expr_vars.push((self.item, e.span, var));
+        var
+    }
+
+    fn expr_kind(&mut self, e: &'a Expr) -> TyVar {
         match &e.kind {
             ExprKind::Int(_) => self.literal(TypeSet::NUMBER, e.span),
             ExprKind::Real(_) => self.literal(TypeSet::FLOAT, e.span),
