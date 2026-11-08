@@ -139,3 +139,17 @@ fn lex_messages() {
         "unexpected character `ж`"
     );
 }
+
+#[test]
+fn bad_string_messages() {
+    let unknown = r#"unknown escape in string, use `\n`, `\t`, `\"` or `\\`"#;
+    for src in [r#"x = "a\qb";"#, r#""\q""#] {
+        let span = kmpl_lexer::lex(src).unwrap_err();
+        assert_eq!(lex_error_message(src, span), unknown, "{src}");
+    }
+
+    for src in [r#"x = "abc"#, "x = \"abc\ny\";", r#""trailing\""#] {
+        let span = kmpl_lexer::lex(src).unwrap_err();
+        assert_eq!(lex_error_message(src, span), "unterminated string", "{src}");
+    }
+}

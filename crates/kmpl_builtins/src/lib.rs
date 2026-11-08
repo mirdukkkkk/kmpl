@@ -6,6 +6,7 @@
 
 mod complex;
 mod math;
+mod plot;
 mod value;
 
 #[cfg(test)]
@@ -42,8 +43,10 @@ pub enum ParamType {
     T,
     /// Any type. Used by `print`.
     Any,
-    /// An array of any element type. Used by `len`.
-    AnyArray,
+    /// An array of any element type, or a string. Used by `len`.
+    Collection,
+    /// An array of exactly this element type.
+    ArrayOf(Type),
     /// The element type `E`: any type, arrays included. All `E` positions
     /// in one call are the same type. Used by `push`.
     Elem,
@@ -80,6 +83,7 @@ const FLOAT_OR_VECTOR: &[Type] = &[
     Type::Vec4,
 ];
 const VEC3: ParamType = ParamType::Exact(Type::Vec3);
+const REAL_ARRAY: ParamType = ParamType::ArrayOf(Type::Real);
 
 pub static BUILTINS: &[Builtin] = &[
     // ----- `T -> T` with `T` in `real, complex` -----
@@ -359,9 +363,13 @@ pub static BUILTINS: &[Builtin] = &[
     Builtin {
         name: "len",
         generic: &[],
-        params: &[ParamType::AnyArray],
+        params: &[ParamType::Collection],
         ret: RetType::Exact(Type::Int),
-        func: |a, _| ok(Value::Int(a[0].as_array().len() as i64)),
+        func: |a, _| match &a[0] {
+            // Characters, not bytes: `len("привет")` is 6.
+            Value::Str(text) => ok(Value::Int(text.chars().count() as i64)),
+            array => ok(Value::Int(array.as_array().len() as i64)),
+        },
     },
     // Arrays are values, so these return a new array and leave the
     // argument alone: `a = push(a, x);`.
@@ -386,7 +394,25 @@ pub static BUILTINS: &[Builtin] = &[
             ok(Value::Array(Arc::new(items)))
         },
     },
+    // ----- strings -----
+    Builtin {
+        name: "string",
+        generic: &[],
+        params: &[ParamType::Any],
+        ret: RetType::Exact(Type::Str),
+        func: |a, _| ok(Value::Str(a[0].to_string().into())),
+    },
     // ----- output -----
+    Builtin {
+        name: "plot",
+        generic: &[],
+        params: &[REAL_ARRAY, REAL_ARRAY, ParamType::Exact(Type::Str)],
+        ret: RetType::Nothing,
+        func: |a, _| {
+            plot::plot(a[0].as_array(), a[1].as_array(), a[2].as_str())?;
+            Ok(None)
+        },
+    },
     Builtin {
         name: "print",
         generic: &[],

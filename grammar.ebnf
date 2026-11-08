@@ -45,7 +45,7 @@ mul         ::= unary (('*' | '/') unary)*
 unary       ::= ('!' | '-') unary | postfix
 postfix     ::= primary ('[' (expr | slice) ']')* (':' swizzle)?
 slice       ::= expr? '..' expr? | expr? '..=' expr
-primary     ::= INT | REAL | IMAG | 'true' | 'false' | IDENT | call | array | tuple | '(' expr ')'
+primary     ::= INT | REAL | IMAG | STRING | 'true' | 'false' | IDENT | call | array | tuple | '(' expr ')'
 tuple       ::= '(' expr (',' expr)+ ','? ')'
 array       ::= '[' (expr (',' expr)* ','?)? ']' | '[' expr ';' expr ']'
 call        ::= IDENT '(' (expr (',' expr)* ','?)? ')'
@@ -61,4 +61,5 @@ INT         ::= [0-9]+
 REAL        ::= [0-9]* '.' [0-9]+ EXP? | [0-9]+ EXP   (* 1.5, .5, 1.5e-3, 1e6 *)
 EXP         ::= [eE] [+-]? [0-9]+
 IMAG        ::= REAL 'i'
+STRING      ::= '"' ([^"\\\n] | '\\' [nt"\\])* '"'   (* on one line *)
 comment     ::= '//' [^\n]*

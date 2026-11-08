@@ -655,3 +655,81 @@ fn tuple_element_types_must_be_known() {
         "cannot infer the element type of `a`, add a type annotation",
     );
 }
+
+#[test]
+fn string_types() {
+    assert_ok(r#"fn f() -> string { let s = "a"; let t: string = s + "b"; s += t; return s; }"#);
+    assert_ok(
+        r#"fn f(a: string, b: string) { let same: bool = a == b; let other: bool = a != b; }"#,
+    );
+    assert_ok(r#"fn f(a: [string]) { let b: [string] = a + a; let c: string = a[0]; }"#);
+    assert_ok(r#"const S: string = "a" + "b";"#);
+    assert_ok(r#"fn f() { let (a, b) = ("x", 1); let c: string = a; }"#);
+    assert_error(
+        r#"fn f() { let x = "a" + 1; }"#,
+        "mismatched types: expected `string`, found `int`, `real` or `complex`",
+    );
+    assert_error(
+        r#"fn f() { let x: int = "a"; }"#,
+        "mismatched types: expected `int`, found `string`",
+    );
+    assert_error(
+        r#"fn f() { if "a" { } }"#,
+        "mismatched types: expected `bool`, found `string`",
+    );
+}
+
+#[test]
+fn strings_have_only_joining_and_equality() {
+    assert_error(
+        r#"fn f(a: string) { a - a; }"#,
+        "cannot apply `-` to `string`",
+    );
+    assert_error(r#"fn f(a: string) { -a; }"#, "cannot apply `-` to `string`");
+    assert_error(
+        r#"fn f(a: string) { a * 2; }"#,
+        "cannot apply `*` to `string` and `int`, `real` or `complex`",
+    );
+    assert_error(
+        r#"fn f(a: string) { a < a; }"#,
+        "cannot apply `<` to `string`",
+    );
+    assert_error(
+        r#"fn f(a: string) { a[0]; }"#,
+        "expected an array, found `string`",
+    );
+    assert_error(
+        r#"fn f(a: string) { for c in a { } }"#,
+        "expected an array, found `string`",
+    );
+}
+
+#[test]
+fn string_built_ins() {
+    assert_ok(r#"fn f(s: string, a: [int]) { let n: int = len(s) + len(a) + len("x"); }"#);
+    assert_ok(
+        r#"fn f() { let s: string = string(1) + string(1.5) + string(true) + string([1]) + string("x"); }"#,
+    );
+    assert_error(
+        "fn f(x: real) { len(x); }",
+        "expected an array, found `real`",
+    );
+}
+
+#[test]
+fn plot_signature() {
+    assert_ok(r#"fn f(a: [real]) { plot(a, a, "out.svg"); plot([1, 2], [3, 4], "out.svg"); }"#);
+    assert_error(
+        r#"fn f(a: [int]) { plot(a, [1.0], "x"); }"#,
+        "mismatched types: expected `[real]`, found `[int]`",
+    );
+    assert_error(
+        "fn f(a: [real]) { plot(a, a, 1); }",
+        "mismatched types: expected `string`, found `int`, `real` or `complex`",
+    );
+    // Writes a file and returns nothing, so a constant cannot use it.
+    assert_error(
+        r#"const A: real = plot([1.0], [1.0], "x");"#,
+        "`plot` returns no value",
+    );
+}

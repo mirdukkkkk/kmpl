@@ -52,6 +52,10 @@ pub enum Token {
     #[token("..")] DotDot,
     #[token("..=")] DotDotEq,
 
+    // Any characters except a line break, with `\` escaping the next one.
+    #[regex(r#""([^"\\\n]|\\.)*""#, |l| unescape(l.slice()))]
+    Str(String),
+
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*", |l| l.slice().to_owned())]
     Ident(String),
 
@@ -74,6 +78,28 @@ pub enum Token {
 /// instead of silently becoming `inf`. Too small ones round to `0.0`.
 fn parse_real(text: &str) -> Option<f64> {
     text.parse::<f64>().ok().filter(|v| v.is_finite())
+}
+
+/// The text of a string literal, quotes included. `None` (a lex error)
+/// for an unknown escape.
+fn unescape(literal: &str) -> Option<String> {
+    let inner = &literal[1..literal.len() - 1];
+    let mut text = String::with_capacity(inner.len());
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            text.push(c);
+            continue;
+        }
+        text.push(match chars.next()? {
+            'n' => '\n',
+            't' => '\t',
+            '"' => '"',
+            '\\' => '\\',
+            _ => return None,
+        });
+    }
+    Some(text)
 }
 
 impl std::fmt::Display for Token {
@@ -123,6 +149,7 @@ impl std::fmt::Display for Token {
             Token::Colon => ":",
             Token::DotDot => "..",
             Token::DotDotEq => "..=",
+            Token::Str(text) => return write!(f, "string {text:?}"),
             Token::Ident(name) => return write!(f, "identifier `{name}`"),
             Token::Imag(v) => return write!(f, "number `{v:?}i`"),
             Token::Real(v) => return write!(f, "number `{v:?}`"),

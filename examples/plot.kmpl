@@ -1,0 +1,17 @@
+// A chart of a damped sine, written to damped_sine.svg in the current
+// directory. Open the file in a browser.
+
+fn main() {
+    let n = 400;
+    let xs = [0.0; n];
+    let ys = [0.0; n];
+    for i in 0..n {
+        let x = real(i) * 0.05;
+        xs[i] = x;
+        ys[i] = exp(-x / 5) * sin(x);
+    }
+
+    let path = "damped_sine.svg";
+    plot(xs, ys, path);
+    print("wrote " + path);
+}

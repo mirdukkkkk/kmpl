@@ -837,3 +837,85 @@ fn tuple_constants() {
                fn main() { let (a, b) = P; print(a); print(b); }";
     assert_eq!(run(src).unwrap(), "1\n2.0\n");
 }
+
+#[test]
+fn strings_print_without_quotes() {
+    assert_eq!(output(r#"print("hi");"#), "hi\n");
+    assert_eq!(output(r#"print("a\tb\n\"c\"\\");"#), "a\tb\n\"c\"\\\n");
+    assert_eq!(output(r#"print("");"#), "\n");
+}
+
+#[test]
+fn strings_join_and_compare() {
+    assert_eq!(output(r#"print("a" + "b" + "c");"#), "abc\n");
+    assert_eq!(output(r#"let s = "a"; s += "b"; print(s);"#), "ab\n");
+    assert_eq!(
+        output(r#"let a = "x"; let b = a; b += "y"; print(a); print(b);"#),
+        "x\nxy\n"
+    );
+    assert_eq!(
+        output(r#"print("a" == "a"); print("a" != "a");"#),
+        "true\nfalse\n"
+    );
+    assert_eq!(output(r#"print(["a"] + ["b"]);"#), "[ab]\n");
+}
+
+#[test]
+fn string_length_counts_characters() {
+    assert_eq!(output(r#"print(len("")); print(len("abc"));"#), "0\n3\n");
+    assert_eq!(output(r#"print(len("привет"));"#), "6\n");
+    assert_eq!(output(r#"print(len("a\n"));"#), "2\n");
+}
+
+#[test]
+fn string_conversion() {
+    assert_eq!(
+        output(r#"print(string(1) + "|" + string(1.5));"#),
+        "1|1.5\n"
+    );
+    assert_eq!(
+        output(r#"print(string(true) + "|" + string(2.0i));"#),
+        "true|0.0+2.0i\n"
+    );
+    assert_eq!(output(r#"print(string(vec2(1, 2)));"#), "(1.0, 2.0)\n");
+    assert_eq!(
+        output(r#"print(string([1, 2]) + string((1, 2)));"#),
+        "[1, 2](1, 2)\n"
+    );
+    assert_eq!(output(r#"print(string("x"));"#), "x\n");
+}
+
+#[test]
+fn strings_in_generics_and_constants() {
+    let src = r#"const GREETING: string = "hi" + "!";
+                 fn twice<T: int | string>(x: T) -> T { return x + x; }
+                 fn main() { print(twice(GREETING)); print(twice(2)); }"#;
+    assert_eq!(run(src).unwrap(), "hi!hi!\n4\n");
+}
+
+#[test]
+fn plot_writes_a_file() {
+    let path = std::env::temp_dir().join(format!("kmpl_plot_{}.svg", std::process::id()));
+    let path_text = path.to_str().unwrap();
+    let src =
+        format!(r#"fn main() {{ plot([0, 1, 2], [1, 3, 2], "{path_text}"); print("done"); }}"#);
+    assert_eq!(run(&src).unwrap(), "done\n");
+
+    let image = std::fs::read_to_string(&path).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    assert!(image.starts_with("<svg"), "{image}");
+    assert!(image.contains("<polyline"), "{image}");
+}
+
+#[test]
+fn plot_errors() {
+    assert_eq!(
+        runtime_error(r#"fn main() { plot([1.0, 2.0], [1.0], "x.svg"); }"#),
+        "`plot` needs as many x values as y values, got 2 and 1"
+    );
+    let message = runtime_error(r#"fn main() { plot([1.0], [1.0], "/nonexistent-dir/x.svg"); }"#);
+    assert!(
+        message.starts_with("cannot write `/nonexistent-dir/x.svg`: "),
+        "{message}"
+    );
+}

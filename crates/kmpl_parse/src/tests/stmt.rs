@@ -251,3 +251,16 @@ fn tuple_errors() {
     assert_eq!(body_error("let x: (int) = 1;"), "expected `,`, found `)`");
     assert_eq!(body_error("(a, b) = (b, a);"), "expected `;`, found `=`");
 }
+
+#[test]
+fn strings() {
+    assert_eq!(body(r#"print("hi");"#), r#"[(call print ["hi"])]"#);
+    assert_eq!(
+        body(r#"let s: string = "a" + "b";"#),
+        r#"[(let s str (+ "a" "b"))]"#
+    );
+    assert_eq!(
+        body_error(r#""a" "b";"#),
+        r#"expected `;`, found string "b""#
+    );
+}

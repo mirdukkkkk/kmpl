@@ -1,5 +1,6 @@
 mod complex;
 mod math;
+mod plot;
 mod vector;
 
 use std::collections::HashSet;
@@ -18,6 +19,7 @@ fn sample(ty: Type) -> Value {
         Type::Vec2 => Value::Vec2([1.0, 2.0]),
         Type::Vec3 => Value::Vec3([1.0, 2.0, 3.0]),
         Type::Vec4 => Value::Vec4([1.0, 2.0, 3.0, 4.0]),
+        Type::Str => Value::Str("text".into()),
     }
 }
 
@@ -59,6 +61,11 @@ fn constants() {
 #[test]
 fn signatures_match_implementations() {
     for b in BUILTINS {
+        // Writes a file; `tests/plot.rs` covers it.
+        if b.name == "plot" {
+            continue;
+        }
+
         // Non-generic built-ins are called once; `T` is unused then.
         let choices: &[Type] = if b.generic.is_empty() {
             &[Type::Int]
@@ -75,7 +82,8 @@ fn signatures_match_implementations() {
                     ParamType::T => sample(t),
                     ParamType::Any => sample(Type::Int),
                     ParamType::Elem => sample(t),
-                    ParamType::AnyArray | ParamType::ArrayOfElem => {
+                    ParamType::ArrayOf(ty) => Value::Array(std::sync::Arc::new(vec![sample(*ty)])),
+                    ParamType::Collection | ParamType::ArrayOfElem => {
                         Value::Array(std::sync::Arc::new(vec![sample(t)]))
                     }
                 })

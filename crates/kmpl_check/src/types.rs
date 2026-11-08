@@ -19,7 +19,7 @@ use kmpl_ast::Type;
 pub struct TypeSet(u16);
 
 /// All types, in the order used for defaults and for messages.
-const ALL: [Type; 7] = [
+const ALL: [Type; 8] = [
     Type::Int,
     Type::Real,
     Type::Complex,
@@ -27,15 +27,16 @@ const ALL: [Type; 7] = [
     Type::Vec2,
     Type::Vec3,
     Type::Vec4,
+    Type::Str,
 ];
 
 impl TypeSet {
-    pub const ANY: TypeSet = TypeSet(0b1_1111_1111);
+    pub const ANY: TypeSet = TypeSet(0b11_1111_1111);
     /// The set of a variable known to be an array. The bit after the
-    /// seven types in `ALL`.
-    pub const ARRAY: TypeSet = TypeSet(1 << 7);
+    /// eight types in `ALL`.
+    pub const ARRAY: TypeSet = TypeSet(1 << 8);
     /// The set of a variable known to be a tuple.
-    pub const TUPLE: TypeSet = TypeSet(1 << 8);
+    pub const TUPLE: TypeSet = TypeSet(1 << 9);
     /// Type of an integer literal like `1`.
     pub const NUMBER: TypeSet = TypeSet::of(&[Type::Int, Type::Real, Type::Complex]);
     /// Type of a real literal like `1.0`.
@@ -45,6 +46,8 @@ impl TypeSet {
     pub const VECTOR: TypeSet = TypeSet::of(&[Type::Vec2, Type::Vec3, Type::Vec4]);
     /// Types that `+`, `-` and unary `-` work on.
     pub const LINEAR: TypeSet = TypeSet(TypeSet::NUMBER.0 | TypeSet::VECTOR.0);
+    /// Types that `+` works on: strings join.
+    pub const ADDABLE: TypeSet = TypeSet(TypeSet::LINEAR.0 | TypeSet::bit(Type::Str));
 
     const fn bit(ty: Type) -> u16 {
         1 << ty as u8
@@ -138,6 +141,7 @@ pub fn type_name(ty: Type) -> &'static str {
         Type::Vec2 => "vec2",
         Type::Vec3 => "vec3",
         Type::Vec4 => "vec4",
+        Type::Str => "string",
     }
 }
 

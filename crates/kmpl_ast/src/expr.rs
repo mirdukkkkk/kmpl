@@ -14,6 +14,8 @@ pub enum ExprKind {
     /// rewrites `1` or `1.0` into this when they are used as `complex`.
     Complex { re: f64, im: f64 },
     Bool(bool),
+    /// `"text"`, with escapes already replaced.
+    Str(String),
     Var(Ident),
     Unary { op: UnOp, operand: Box<Expr> },
     Binary { op: BinOp, lhs: Box<Expr>, rhs: Box<Expr> },

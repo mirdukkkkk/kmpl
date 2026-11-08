@@ -115,7 +115,7 @@ impl Rewriter<'_> {
                     e.kind = ExprKind::Complex { re: *v, im: 0.0 };
                 }
             }
-            ExprKind::Complex { .. } | ExprKind::Bool(_) | ExprKind::Var(_) => {}
+            ExprKind::Complex { .. } | ExprKind::Bool(_) | ExprKind::Str(_) | ExprKind::Var(_) => {}
             ExprKind::Unary { operand, .. } => self.expr(operand),
             ExprKind::Binary { lhs, rhs, .. } => {
                 self.expr(lhs);

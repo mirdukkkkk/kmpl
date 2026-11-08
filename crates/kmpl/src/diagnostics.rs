@@ -56,13 +56,17 @@ fn floor_char_boundary(s: &str, i: usize) -> usize {
     i
 }
 
-/// Message for a lexer error at `span`: a too-large number or a character
-/// that starts no token. A number that failed to lex was out of range,
-/// since the lexer accepts every other digit sequence.
+/// Message for a lexer error at `span`: a too-large number, a bad string or
+/// a character that starts no token. A number that failed to lex was out of
+/// range, since the lexer accepts every other digit sequence.
 pub fn lex_error_message(src: &str, span: Span) -> String {
     let start = floor_char_boundary(src, span.start);
     let end = floor_char_boundary(src, span.end.max(start));
     let text = &src[start..end];
+
+    if text.starts_with('"') {
+        return string_error_message(&src[start..]);
+    }
 
     let starts_like_number = text.starts_with(|c: char| c.is_ascii_digit() || c == '.');
     if !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()) {
@@ -73,4 +77,21 @@ pub fn lex_error_message(src: &str, span: Span) -> String {
         let shown = text.chars().next().unwrap_or(' ');
         format!("unexpected character `{shown}`")
     }
+}
+
+/// `rest` starts at the opening quote of a string that failed to lex. If
+/// the closing quote is on the same line, an escape was the problem.
+fn string_error_message(rest: &str) -> String {
+    let mut chars = rest.chars().skip(1);
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => return r#"unknown escape in string, use `\n`, `\t`, `\"` or `\\`"#.to_owned(),
+            '\n' => break,
+            '\\' => {
+                chars.next();
+            }
+            _ => {}
+        }
+    }
+    "unterminated string".to_owned()
 }

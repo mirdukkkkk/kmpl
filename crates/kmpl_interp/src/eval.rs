@@ -389,6 +389,7 @@ impl<'p, 'o> Interp<'p, 'o> {
             ExprKind::Real(v) => Value::Real(*v),
             ExprKind::Complex { re, im } => Value::Complex { re: *re, im: *im },
             ExprKind::Bool(v) => Value::Bool(*v),
+            ExprKind::Str(text) => Value::Str(text.as_str().into()),
             ExprKind::Var(name) => self.read(name),
             ExprKind::Unary { op, operand } => {
                 let v = self.eval(operand)?;

@@ -15,6 +15,8 @@ pub enum Value {
     Vec2([f64; 2]),
     Vec3([f64; 3]),
     Vec4([f64; 4]),
+    /// Strings cannot be changed in place, so copies just share the text.
+    Str(Arc<str>),
     /// Arrays behave like values: `let b = a;` gives an independent array.
     /// Copying only shares the `Arc`; a write copies the elements if the
     /// array is shared (`Arc::make_mut`). `Arc` rather than `Rc` because
@@ -37,6 +39,7 @@ impl Value {
             Value::Vec2(_) => Type::Vec2,
             Value::Vec3(_) => Type::Vec3,
             Value::Vec4(_) => Type::Vec4,
+            Value::Str(_) => Type::Str,
             Value::Array(_) => panic!("an array has no `Type`"),
             Value::Tuple(_) => panic!("a tuple has no `Type`"),
         }
@@ -51,6 +54,14 @@ impl Value {
         match self {
             Value::Real(v) => *v,
             other => panic!("expected real, got {other:?}"),
+        }
+    }
+
+    /// Text of a string. Panics on other variants, like `as_real`.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Value::Str(text) => text,
+            other => panic!("expected a string, got {other:?}"),
         }
     }
 
@@ -118,6 +129,7 @@ impl std::fmt::Display for Value {
                 let sign = if im.is_sign_negative() { '-' } else { '+' };
                 write!(f, "{re:?}{sign}{:?}i", im.abs())
             }
+            Value::Str(text) => write!(f, "{text}"),
             Value::Vec2(v) => write_components(f, v),
             Value::Vec3(v) => write_components(f, v),
             Value::Vec4(v) => write_components(f, v),

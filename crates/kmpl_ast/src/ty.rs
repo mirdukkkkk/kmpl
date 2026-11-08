@@ -9,11 +9,12 @@ pub enum Type {
     Vec2,
     Vec3,
     Vec4,
+    Str,
 }
 
 impl Type {
     /// Every type, in a fixed order.
-    pub const ALL: [Type; 7] = [
+    pub const ALL: [Type; 8] = [
         Type::Int,
         Type::Real,
         Type::Bool,
@@ -21,6 +22,7 @@ impl Type {
         Type::Vec2,
         Type::Vec3,
         Type::Vec4,
+        Type::Str,
     ];
 
     /// The type with this name in kmpl source, like `real` or `vec3`.
@@ -33,6 +35,7 @@ impl Type {
             "vec2" => Type::Vec2,
             "vec3" => Type::Vec3,
             "vec4" => Type::Vec4,
+            "string" => Type::Str,
             _ => return None,
         };
         Some(ty)

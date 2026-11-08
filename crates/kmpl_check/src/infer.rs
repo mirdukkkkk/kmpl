@@ -407,6 +407,7 @@ impl<'a> Infer<'a> {
             ExprKind::Real(_) => self.literal(TypeSet::FLOAT, e.span),
             ExprKind::Complex { .. } => self.known(Type::Complex),
             ExprKind::Bool(_) => self.known(Type::Bool),
+            ExprKind::Str(_) => self.known(Type::Str),
             ExprKind::Var(name) => match self.lookup(&name.name) {
                 Some(var) => var,
                 None => match self.consts.get(name.name.as_str()).copied() {
@@ -420,7 +421,7 @@ impl<'a> Infer<'a> {
             ExprKind::Unary { op, operand } => {
                 let ty = self.expr(operand);
                 match op {
-                    UnOp::Neg => self.restrict_linear(ty, "-", e.span),
+                    UnOp::Neg => self.restrict_inner(ty, TypeSet::LINEAR, "-", e.span),
                     UnOp::Not => self.expect(ty, Type::Bool, operand.span),
                 }
                 ty
@@ -514,7 +515,11 @@ impl<'a> Infer<'a> {
         match op {
             BinOp::Add | BinOp::Sub => {
                 self.unify(r, l, rhs_span);
-                self.restrict_linear(l, sym, span);
+                let allowed = match op {
+                    BinOp::Add => TypeSet::ADDABLE,
+                    _ => TypeSet::LINEAR,
+                };
+                self.restrict_inner(l, allowed, sym, span);
                 l
             }
             BinOp::Mul | BinOp::Div => self.mul_div(op, l, r, rhs_span, span),
@@ -535,14 +540,14 @@ impl<'a> Infer<'a> {
         }
     }
 
-    /// `+`, `-` and unary `-` work on numbers, vectors and arrays of them,
-    /// at any depth.
-    fn restrict_linear(&mut self, var: TyVar, op: &str, span: Span) {
+    /// `+`, `-` and unary `-` work on the types in `allowed` and on arrays
+    /// of them, at any depth.
+    fn restrict_inner(&mut self, var: TyVar, allowed: TypeSet, op: &str, span: Span) {
         let mut inner = var;
         while let Some(elem) = self.u.element(inner) {
             inner = elem;
         }
-        if self.u.restrict(inner, TypeSet::LINEAR).is_err() {
+        if self.u.restrict(inner, allowed).is_err() {
             let found = self.u.describe(var);
             self.error(format!("cannot apply `{op}` to {found}"), span);
         }
@@ -663,8 +668,15 @@ impl<'a> Infer<'a> {
                 ParamType::Exact(ty) => self.expect(arg_ty, *ty, arg.span),
                 ParamType::T => self.unify(arg_ty, t, arg.span),
                 ParamType::Any => {}
-                ParamType::AnyArray => {
-                    self.array_elem(arg_ty, arg.span);
+                ParamType::Collection => {
+                    if self.u.set(arg_ty) != TypeSet::single(Type::Str) {
+                        self.array_elem(arg_ty, arg.span);
+                    }
+                }
+                ParamType::ArrayOf(ty) => {
+                    let elem = self.known(*ty);
+                    let array = self.u.new_array(elem);
+                    self.unify(arg_ty, array, arg.span);
                 }
                 ParamType::Elem => self.unify(arg_ty, elem, arg.span),
                 ParamType::ArrayOfElem => {

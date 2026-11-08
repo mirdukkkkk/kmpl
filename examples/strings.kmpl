@@ -1,0 +1,37 @@
+// Strings: joining, length, conversion from other types.
+
+fn repeat(s: string, n: int) -> string {
+    let out = "";
+    for i in 0..n {
+        out += s;
+    }
+    return out;
+}
+
+fn main() {
+    let name = "kmpl";
+    print("Hello, " + name + "!");
+
+    // `len` counts characters, not bytes.
+    print(len("привет"));
+    print(repeat("ab", 3));
+
+    print("tab\there");
+    print("quote: \"x\", backslash: \\");
+    print(name == "kmpl");
+
+    // `string` turns any value into text, the same text `print` shows.
+    print(string(1.5) + " and " + string(42) + " and " + string(true));
+    print("z = " + string(2.0 + 3.0i));
+    print("v = " + string(vec2(1, 2)));
+    print("a = " + string([1, 2]));
+
+    let all = "";
+    for word in ["one", "two"] {
+        all += word;
+    }
+    print(all);
+
+    let (label, value) = ("pi", PI);
+    print(label + " = " + string(value));
+}

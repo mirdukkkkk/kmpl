@@ -1,0 +1,12 @@
+Hello, kmpl!
+6
+ababab
+tab	here
+quote: "x", backslash: \
+true
+1.5 and 42 and true
+z = 2.0+3.0i
+v = (1.0, 2.0)
+a = [1, 2]
+onetwo
+pi = 3.141592653589793

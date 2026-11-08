@@ -181,6 +181,7 @@ fn primary(ts: &mut TokenStream) -> PResult<Expr> {
         Some(Token::Imag(v)) => ExprKind::Complex { re: 0.0, im: *v },
         Some(Token::True) => ExprKind::Bool(true),
         Some(Token::False) => ExprKind::Bool(false),
+        Some(Token::Str(text)) => ExprKind::Str(text.clone()),
         Some(Token::Ident(_)) => return var_or_call(ts),
         Some(Token::LBracket) => return array(ts),
         Some(Token::LParen) => {

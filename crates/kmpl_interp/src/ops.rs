@@ -40,7 +40,7 @@ pub fn unary(op: UnOp, v: Value) -> Result<Value, String> {
 }
 
 pub fn binary(op: BinOp, l: Value, r: Value) -> Result<Value, String> {
-    use Value::{Array, Bool, Complex, Int, Real};
+    use Value::{Array, Bool, Complex, Int, Real, Str};
 
     let result = match (op, &l, &r) {
         (BinOp::Eq, ..) => Bool(l == r),
@@ -50,6 +50,7 @@ pub fn binary(op: BinOp, l: Value, r: Value) -> Result<Value, String> {
         (_, Array(a), _) => map_array(a, |x| binary(op, x.clone(), r.clone()))?,
         (_, _, Array(b)) => map_array(b, |x| binary(op, l.clone(), x.clone()))?,
 
+        (BinOp::Add, Str(a), Str(b)) => Str(format!("{a}{b}").into()),
         (_, Int(a), Int(b)) => int_op(op, *a, *b)?,
         (_, Real(a), Real(b)) => real_op(op, *a, *b).unwrap_or_else(|| bug(op, &l, &r)),
         (_, Complex { re: a, im: b }, Complex { re: c, im: d }) => {

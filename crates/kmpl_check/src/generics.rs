@@ -16,7 +16,7 @@ use crate::error::CheckError;
 use crate::types::type_name;
 
 /// Upper limit of copies per generic function, so a few unbounded
-/// parameters (`<A, B, C, D>`: 7^4 = 2401 copies) do not blow up.
+/// parameters (`<A, B, C, D>`: 8^4 = 4096 copies) do not blow up.
 pub const MAX_INSTANCES: usize = 256;
 
 /// The name of the copy for these types: `lerp<vec2>`, `f<int, real>`.

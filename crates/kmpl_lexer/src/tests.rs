@@ -449,3 +449,28 @@ fn ranges_next_to_numbers() {
     );
     assert_eq!(tokens("..5"), vec![Token::DotDot, Token::Int(5)]);
 }
+
+#[test]
+fn strings() {
+    assert_eq!(tokens(r#""abc""#), vec![Token::Str("abc".into())]);
+    assert_eq!(tokens(r#""""#), vec![Token::Str("".into())]);
+    assert_eq!(tokens(r#""привет""#), vec![Token::Str("привет".into())]);
+    assert_eq!(
+        tokens(r#""a\nb\tc\"d\\e""#),
+        vec![Token::Str("a\nb\tc\"d\\e".into())]
+    );
+    // Not a comment inside a string.
+    assert_eq!(tokens(r#""// no""#), vec![Token::Str("// no".into())]);
+    assert_eq!(
+        tokens(r#""a" + "b""#),
+        vec![Token::Str("a".into()), Token::Plus, Token::Str("b".into())]
+    );
+}
+
+#[test]
+fn bad_strings() {
+    assert!(lex(r#""abc"#).is_err());
+    assert!(lex("\"a\nb\"").is_err());
+    assert!(lex(r#""a\q""#).is_err());
+    assert!(lex(r#""ends with backslash\""#).is_err());
+}

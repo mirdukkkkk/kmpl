@@ -211,6 +211,7 @@ fn sexp(e: &Expr) -> String {
         ExprKind::Complex { re, im } if *re == 0.0 => format!("{im:?}i"),
         ExprKind::Complex { re, im } => format!("({re:?}+{im:?}i)"),
         ExprKind::Bool(v) => v.to_string(),
+        ExprKind::Str(text) => format!("{text:?}"),
         ExprKind::Var(id) => id.name.clone(),
         ExprKind::Unary { op, operand } => {
             let op = match op {
