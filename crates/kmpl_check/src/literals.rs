@@ -1,84 +1,109 @@
-//! Rewrites number literals to the type inference picked for them,
-//! so later stages can evaluate literals without knowing about types:
-//! `let x: real = 1;` stores `Real(1.0)`, `let z: complex = 2.0;` stores
-//! `Complex { re: 2.0, im: 0.0 }`.
+//! After a successful check, rewrites the program so later stages need no
+//! type information:
+//! - number literals get the type inference picked for them:
+//!   `let x: real = 1;` stores `Real(1.0)`, `let z: complex = 2.0;` stores
+//!   `Complex { re: 2.0, im: 0.0 }`;
+//! - calls to generic functions are renamed to the copy they use
+//!   (`lerp(...)` becomes `lerp<vec2>(...)`).
+//!
+//! Both are keyed by item index and span, because copies of a generic
+//! function share the spans of the original.
 
 use std::collections::HashMap;
 
 use kmpl_ast::{Block, Expr, ExprKind, Item, Program, Span, StmtKind, Type};
 
-pub fn rewrite(program: &mut Program, types: &HashMap<Span, Type>) {
-    for item in &mut program.items {
+use crate::infer::Inference;
+
+struct Rewriter<'i> {
+    item: usize,
+    literal_types: &'i HashMap<(usize, Span), Type>,
+    call_targets: &'i HashMap<(usize, Span), String>,
+}
+
+pub fn rewrite(program: &mut Program, inference: &Inference) {
+    for (index, item) in program.items.iter_mut().enumerate() {
+        let r = Rewriter {
+            item: index,
+            literal_types: &inference.literal_types,
+            call_targets: &inference.call_targets,
+        };
         match item {
-            Item::Const(c) => expr(&mut c.value, types),
-            Item::Function(f) => block(&mut f.body, types),
+            Item::Const(c) => r.expr(&mut c.value),
+            Item::Function(f) => r.block(&mut f.body),
         }
     }
 }
 
-fn block(block: &mut Block, types: &HashMap<Span, Type>) {
-    for stmt in block {
-        match &mut stmt.kind {
-            StmtKind::Let { init, .. } => {
-                if let Some(init) = init {
-                    expr(init, types);
+impl Rewriter<'_> {
+    fn block(&self, block: &mut Block) {
+        for stmt in block {
+            match &mut stmt.kind {
+                StmtKind::Let { init, .. } => {
+                    if let Some(init) = init {
+                        self.expr(init);
+                    }
                 }
-            }
-            StmtKind::Assign { value, .. } => expr(value, types),
-            StmtKind::If {
-                cond,
-                then,
-                otherwise,
-            } => {
-                expr(cond, types);
-                self::block(then, types);
-                if let Some(otherwise) = otherwise {
-                    self::block(otherwise, types);
+                StmtKind::Assign { value, .. } => self.expr(value),
+                StmtKind::If {
+                    cond,
+                    then,
+                    otherwise,
+                } => {
+                    self.expr(cond);
+                    self.block(then);
+                    if let Some(otherwise) = otherwise {
+                        self.block(otherwise);
+                    }
                 }
-            }
-            StmtKind::While { cond, body } => {
-                expr(cond, types);
-                self::block(body, types);
-            }
-            StmtKind::Break | StmtKind::Continue => {}
-            StmtKind::Return(value) => {
-                if let Some(value) = value {
-                    expr(value, types);
+                StmtKind::While { cond, body } => {
+                    self.expr(cond);
+                    self.block(body);
                 }
+                StmtKind::Break | StmtKind::Continue => {}
+                StmtKind::Return(value) => {
+                    if let Some(value) = value {
+                        self.expr(value);
+                    }
+                }
+                StmtKind::Expr(e) => self.expr(e),
             }
-            StmtKind::Expr(e) => expr(e, types),
         }
     }
-}
 
-fn expr(e: &mut Expr, types: &HashMap<Span, Type>) {
-    match &mut e.kind {
-        ExprKind::Int(v) => match types.get(&e.span) {
-            Some(Type::Real) => e.kind = ExprKind::Real(*v as f64),
-            Some(Type::Complex) => {
-                e.kind = ExprKind::Complex {
-                    re: *v as f64,
-                    im: 0.0,
+    fn expr(&self, e: &mut Expr) {
+        let key = (self.item, e.span);
+        match &mut e.kind {
+            ExprKind::Int(v) => match self.literal_types.get(&key) {
+                Some(Type::Real) => e.kind = ExprKind::Real(*v as f64),
+                Some(Type::Complex) => {
+                    e.kind = ExprKind::Complex {
+                        re: *v as f64,
+                        im: 0.0,
+                    }
+                }
+                _ => {}
+            },
+            ExprKind::Real(v) => {
+                if self.literal_types.get(&key) == Some(&Type::Complex) {
+                    e.kind = ExprKind::Complex { re: *v, im: 0.0 };
                 }
             }
-            _ => {}
-        },
-        ExprKind::Real(v) => {
-            if types.get(&e.span) == Some(&Type::Complex) {
-                e.kind = ExprKind::Complex { re: *v, im: 0.0 };
+            ExprKind::Complex { .. } | ExprKind::Bool(_) | ExprKind::Var(_) => {}
+            ExprKind::Unary { operand, .. } => self.expr(operand),
+            ExprKind::Binary { lhs, rhs, .. } => {
+                self.expr(lhs);
+                self.expr(rhs);
             }
-        }
-        ExprKind::Complex { .. } | ExprKind::Bool(_) | ExprKind::Var(_) => {}
-        ExprKind::Unary { operand, .. } => expr(operand, types),
-        ExprKind::Binary { lhs, rhs, .. } => {
-            expr(lhs, types);
-            expr(rhs, types);
-        }
-        ExprKind::Call { args, .. } => {
-            for arg in args {
-                expr(arg, types);
+            ExprKind::Call { name, args } => {
+                if let Some(target) = self.call_targets.get(&key) {
+                    name.name = target.clone();
+                }
+                for arg in args {
+                    self.expr(arg);
+                }
             }
+            ExprKind::Swizzle { base, .. } => self.expr(base),
         }
-        ExprKind::Swizzle { base, .. } => expr(base, types),
     }
 }

@@ -54,5 +54,54 @@ fn errors() {
     assert_eq!(error("const N = 1;"), "expected `:`, found `=`");
     assert_eq!(error("fn f(a) { }"), "expected `:`, found `)`");
     assert_eq!(error("fn f() -> { }"), "expected identifier, found `{`");
-    assert_eq!(error("fn f() -> str { }"), "unknown type `str`");
+    assert_eq!(
+        error("fn f<T U>() { }"),
+        "expected `>`, found identifier `U`"
+    );
+    assert_eq!(error("fn f<>() { }"), "expected identifier, found `>`");
+    assert_eq!(
+        error("fn f<real>() { }"),
+        "`real` is a built-in type, choose another name for the generic parameter"
+    );
+    assert_eq!(
+        error("fn f<T: text>() { }"),
+        "unknown type `text` in bound, use a type or `number`, `float`, `vector`"
+    );
+    assert_eq!(
+        error("fn f<T: int |>() { }"),
+        "expected identifier, found `>`"
+    );
+}
+
+#[test]
+fn generic_functions() {
+    assert_eq!(
+        tree("fn id<T>(x: T) -> T { return x; }"),
+        "(fn id<T: int|real|bool|complex|vec2|vec3|vec4> [(x T)] T [(return x)])"
+    );
+    assert_eq!(
+        tree("fn lerp<T: float | vector>(a: T, b: T, t: real) -> T { }"),
+        "(fn lerp<T: real|complex|vec2|vec3|vec4> [(a T) (b T) (t real)] T [])"
+    );
+    assert_eq!(
+        tree("fn f<A: int | real, B: vec3,>() { }"),
+        "(fn f<A: int|real, B: vec3> [] _ [])"
+    );
+}
+
+#[test]
+fn bounds_merge_duplicates() {
+    assert_eq!(
+        tree("fn f<T: number | float | int>() { }"),
+        "(fn f<T: int|real|complex> [] _ [])"
+    );
+}
+
+#[test]
+fn generic_call_is_an_ordinary_call() {
+    // No turbofish: `T` is inferred from the arguments.
+    assert_eq!(
+        tree("fn main() { lerp(a, b, 0.5); }"),
+        "(fn main [] _ [(call lerp [a b 0.5])])"
+    );
 }

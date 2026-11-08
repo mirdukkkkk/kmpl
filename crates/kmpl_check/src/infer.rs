@@ -10,34 +10,56 @@
 //! variable cannot be read before it is assigned.
 //!
 //! Runs only on programs without name errors, so every name exists and
-//! every call has the right number of arguments.
+//! every call has the right number of arguments. Generic functions are
+//! skipped: their monomorphized copies (`generics.rs`) are checked instead,
+//! and a call to a generic function picks its copy from the inferred types.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use kmpl_ast::{
-    BinOp, Block, Expr, ExprKind, Function, Ident, Item, Program, Span, Stmt, StmtKind, Type, UnOp,
+    BinOp, Block, Expr, ExprKind, Function, Ident, Item, Program, Span, Stmt, StmtKind, Type,
+    TypeExpr, UnOp,
 };
 use kmpl_builtins::{ParamType, RetType};
 
 use crate::error::CheckError;
+use crate::generics::instance_name;
 use crate::types::{TyVar, TypeSet, Unifier};
 
-/// Signature of a user function.
-struct Signature {
-    params: Vec<Type>,
-    ret: Option<Type>,
+/// A call to a generic function, resolved to a copy at the end.
+struct GenericCall<'a> {
+    item: usize,
+    span: Span,
+    name: &'a str,
+    /// One variable per generic parameter, in declaration order.
+    vars: Vec<TyVar>,
+}
+
+/// A type in a signature or annotation. Generic parameters were replaced
+/// in the checked copies, and `resolve` rejected unknown names.
+fn known(ty: &TypeExpr) -> Type {
+    ty.known()
+        .expect("generic names are replaced before inference")
 }
 
 struct Infer<'a> {
     u: Unifier,
-    functions: HashMap<&'a str, Signature>,
+    functions: HashMap<&'a str, &'a Function>,
     consts: HashMap<&'a str, Type>,
     /// Name -> type of a local. Innermost scope is last.
     scopes: Vec<HashMap<&'a str, TyVar>>,
     /// Every `let` variable, to check at the end that its type is known.
     locals: Vec<(&'a Ident, TyVar)>,
-    /// Every `1` and `1.0` literal, to pick its final type at the end.
-    literals: Vec<(Span, TyVar)>,
+    /// Every `1` and `1.0` literal with its item index, to pick its final
+    /// type at the end. Copies of a generic function share spans, so the
+    /// span alone is not unique.
+    literals: Vec<(usize, Span, TyVar)>,
+    generic_calls: Vec<GenericCall<'a>>,
+    /// Index of the item being checked.
+    item: usize,
+    /// Errors already reported, so one mistake in a generic body is not
+    /// repeated for every copy.
+    reported: HashSet<(Span, String)>,
     /// The function being checked: its name and return type.
     current_fn: Option<(&'a str, Option<Type>)>,
     errors: Vec<CheckError>,
@@ -45,8 +67,11 @@ struct Infer<'a> {
 
 pub struct Inference {
     pub errors: Vec<CheckError>,
-    /// Final type of every integer and real literal, by its span.
-    pub literal_types: HashMap<Span, Type>,
+    /// Final type of every integer and real literal, by item index and span.
+    pub literal_types: HashMap<(usize, Span), Type>,
+    /// The copy each call to a generic function uses, like `lerp<vec2>`,
+    /// by item index and span of the call.
+    pub call_targets: HashMap<(usize, Span), String>,
 }
 
 /// `report_unknown`: report `let` variables whose type stays unknown.
@@ -61,53 +86,64 @@ pub fn infer(program: &Program, report_unknown: bool) -> Inference {
         locals: Vec::new(),
         current_fn: None,
         literals: Vec::new(),
+        generic_calls: Vec::new(),
+        item: 0,
+        reported: HashSet::new(),
         errors: Vec::new(),
     };
 
     for item in &program.items {
         match item {
             Item::Const(c) => {
-                inf.consts.insert(&c.name.name, c.ty);
+                inf.consts.insert(&c.name.name, known(&c.ty));
             }
             Item::Function(f) => {
-                let sig = Signature {
-                    params: f.params.iter().map(|p| p.ty).collect(),
-                    ret: f.ret,
-                };
-                inf.functions.insert(&f.name.name, sig);
+                inf.functions.insert(&f.name.name, f);
             }
         }
     }
 
-    for item in &program.items {
+    for (index, item) in program.items.iter().enumerate() {
+        inf.item = index;
         match item {
             Item::Const(c) => {
                 let value = inf.expr(&c.value);
-                inf.expect(value, c.ty, c.value.span);
+                inf.expect(value, known(&c.ty), c.value.span);
             }
-            Item::Function(f) => inf.function(f),
+            Item::Function(f) if f.generics.is_empty() => inf.function(f),
+            Item::Function(_) => {}
         }
     }
 
     if report_unknown {
         inf.finish();
     }
+    let call_targets = inf.resolve_generic_calls();
 
     // Literals always have a default: their sets are subsets of NUMBER.
     let literal_types = inf
         .literals
         .iter()
-        .filter_map(|&(span, var)| Some((span, inf.u.set(var).default_type()?)))
+        .filter_map(|&(item, span, var)| Some(((item, span), inf.u.set(var).default_type()?)))
         .collect();
 
     Inference {
         errors: inf.errors,
         literal_types,
+        call_targets,
     }
 }
 
 impl<'a> Infer<'a> {
     fn error(&mut self, message: String, span: Span) {
+        if !self.reported.insert((span, message.clone())) {
+            return;
+        }
+        // In a copy of a generic function, say which copy failed.
+        let message = match self.current_fn {
+            Some((name, _)) if name.contains('<') => format!("in `{name}`: {message}"),
+            _ => message,
+        };
         self.errors.push(CheckError::new(message, span));
     }
 
@@ -143,11 +179,11 @@ impl<'a> Infer<'a> {
     fn function(&mut self, f: &'a Function) {
         let mut scope = HashMap::new();
         for param in &f.params {
-            let var = self.known(param.ty);
+            let var = self.known(known(&param.ty));
             scope.insert(param.name.name.as_str(), var);
         }
         self.scopes.push(scope);
-        self.current_fn = Some((&f.name.name, f.ret));
+        self.current_fn = Some((&f.name.name, f.ret.as_ref().map(known)));
         self.block(&f.body);
         self.current_fn = None;
         self.scopes.pop();
@@ -172,7 +208,7 @@ impl<'a> Infer<'a> {
         match &stmt.kind {
             StmtKind::Let { name, ty, init } => {
                 let var = match ty {
-                    Some(ty) => self.known(*ty),
+                    Some(ty) => self.known(known(ty)),
                     None => self.u.new_var(TypeSet::ANY),
                 };
                 if let Some(init) = init {
@@ -212,7 +248,7 @@ impl<'a> Infer<'a> {
             StmtKind::Expr(e) => match &e.kind {
                 // A call to a function that returns nothing is fine here.
                 ExprKind::Call { name, args } => {
-                    self.call(name, args);
+                    self.call(name, args, e.span);
                 }
                 _ => {
                     self.expr(e);
@@ -280,7 +316,7 @@ impl<'a> Infer<'a> {
                 ty
             }
             ExprKind::Binary { op, lhs, rhs } => self.binary(*op, lhs, rhs, e.span),
-            ExprKind::Call { name, args } => match self.call(name, args) {
+            ExprKind::Call { name, args } => match self.call(name, args, e.span) {
                 Some(ty) => ty,
                 None => {
                     self.error(format!("`{}` returns no value", name.name), e.span);
@@ -293,7 +329,7 @@ impl<'a> Infer<'a> {
 
     fn literal(&mut self, set: TypeSet, span: Span) -> TyVar {
         let var = self.u.new_var(set);
-        self.literals.push((span, var));
+        self.literals.push((self.item, span, var));
         var
     }
 
@@ -365,15 +401,9 @@ impl<'a> Infer<'a> {
 
     /// Checks a call and returns the type of its value, or `None` if the
     /// function returns nothing.
-    fn call(&mut self, name: &'a Ident, args: &'a [Expr]) -> Option<TyVar> {
-        if let Some(sig) = self.functions.get(name.name.as_str()) {
-            let params = sig.params.clone();
-            let ret = sig.ret;
-            for (arg, ty) in args.iter().zip(params) {
-                let arg_ty = self.expr(arg);
-                self.expect(arg_ty, ty, arg.span);
-            }
-            return ret.map(|ty| self.known(ty));
+    fn call(&mut self, name: &'a Ident, args: &'a [Expr], span: Span) -> Option<TyVar> {
+        if let Some(&f) = self.functions.get(name.name.as_str()) {
+            return self.call_user(f, args, span);
         }
 
         let builtin = kmpl_builtins::lookup(&name.name).expect("checked by resolve");
@@ -404,6 +434,43 @@ impl<'a> Infer<'a> {
                 }
             }
         }
+    }
+
+    /// A call to a user function. For a generic one, each parameter gets a
+    /// fresh variable narrowed to its bound; the call is resolved to a copy
+    /// once inference is done.
+    fn call_user(&mut self, f: &'a Function, args: &'a [Expr], span: Span) -> Option<TyVar> {
+        let mut vars = HashMap::new();
+        for generic in &f.generics {
+            let var = self.u.new_var(TypeSet::of(&generic.bound));
+            vars.insert(generic.name.name.as_str(), var);
+        }
+        let var_of = |inf: &mut Self, ty: &TypeExpr| match ty {
+            TypeExpr::Known(ty) => inf.known(*ty),
+            TypeExpr::Param(name) => vars[name.name.as_str()],
+        };
+
+        for (arg, param) in args.iter().zip(&f.params) {
+            let arg_ty = self.expr(arg);
+            let param_ty = var_of(self, &param.ty);
+            self.unify(arg_ty, param_ty, arg.span);
+        }
+        let ret = f.ret.as_ref().map(|ty| var_of(self, ty));
+
+        if !f.generics.is_empty() {
+            let vars = f
+                .generics
+                .iter()
+                .map(|g| vars[g.name.name.as_str()])
+                .collect();
+            self.generic_calls.push(GenericCall {
+                item: self.item,
+                span,
+                name: &f.name.name,
+                vars,
+            });
+        }
+        ret
     }
 
     fn swizzle(&mut self, base: &'a Expr, mask: &Ident) -> TyVar {
@@ -473,6 +540,37 @@ impl<'a> Infer<'a> {
                 self.error(message, name.span);
             }
         }
+    }
+
+    /// The copy each generic call uses, from the final types of its
+    /// parameters.
+    fn resolve_generic_calls(&mut self) -> HashMap<(usize, Span), String> {
+        let mut targets = HashMap::new();
+        for call in std::mem::take(&mut self.generic_calls) {
+            let types: Option<Vec<Type>> = call
+                .vars
+                .iter()
+                .map(|&var| self.u.set(var).default_type())
+                .collect();
+            match types {
+                Some(types) => {
+                    targets.insert((call.item, call.span), instance_name(call.name, &types));
+                }
+                // Skipped after other errors, which usually cause this one.
+                None if !self.errors.is_empty() => {}
+                None => {
+                    self.current_fn = None;
+                    self.error(
+                        format!(
+                            "cannot infer the generic parameters of `{}` here, add a type annotation",
+                            call.name
+                        ),
+                        call.span,
+                    );
+                }
+            }
+        }
+        targets
     }
 }
 

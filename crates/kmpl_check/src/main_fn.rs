@@ -19,6 +19,9 @@ pub fn check_main(program: &Program) -> Vec<CheckError> {
         )),
         Some(Err(c)) => errors.push(CheckError::new("`main` must be a function", c.name.span)),
         Some(Ok(f)) => {
+            if !f.generics.is_empty() {
+                errors.push(CheckError::new("`main` must not be generic", f.name.span));
+            }
             if !f.params.is_empty() {
                 errors.push(CheckError::new(
                     "`main` must not take parameters",

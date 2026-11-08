@@ -23,6 +23,8 @@ pub enum Token {
     #[token("!")] Bang,
     #[token("&&")] And,
     #[token("||")] Or,
+    /// Separates types in a generic bound: `T: int | real`.
+    #[token("|")] Pipe,
     #[token("==")] EqEq,
     #[token("!=")] NotEq,
     #[token("<")] Lt,
@@ -85,6 +87,7 @@ impl std::fmt::Display for Token {
             Token::Bang => "!",
             Token::And => "&&",
             Token::Or => "||",
+            Token::Pipe => "|",
             Token::EqEq => "==",
             Token::NotEq => "!=",
             Token::Lt => "<",

@@ -92,9 +92,22 @@ fn logical_operators() {
 }
 
 #[test]
-fn single_ampersand_and_pipe_are_errors() {
+fn single_ampersand_is_an_error() {
     assert_eq!(lex("a & b"), Err(Span::new(2, 3)));
-    assert_eq!(lex("a | b"), Err(Span::new(2, 3)));
+}
+
+#[test]
+fn single_pipe_for_bounds() {
+    assert_eq!(
+        tokens("int | real || x"),
+        vec![
+            Token::Ident("int".into()),
+            Token::Pipe,
+            Token::Ident("real".into()),
+            Token::Or,
+            Token::Ident("x".into()),
+        ]
+    );
 }
 
 #[test]
@@ -300,7 +313,7 @@ fn error_span_after_valid_tokens() {
 #[test]
 fn display_round_trips_for_fixed_tokens() {
     let src = "const fn let if else while break continue return true false \
-               + - * / ! && || == != < <= > >= = -> ( ) { } , ; :";
+               + - * / ! && || | == != < <= > >= = -> ( ) { } , ; :";
     for tok in tokens(src) {
         let text = tok.to_string();
         let bare = text.trim_matches('`');

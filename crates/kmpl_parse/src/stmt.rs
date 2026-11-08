@@ -1,9 +1,9 @@
 //! Statements and blocks.
 
-use kmpl_ast::{Block, Span, Stmt, StmtKind, Type};
+use kmpl_ast::{Block, Span, Stmt, StmtKind, Type, TypeExpr};
 use kmpl_lexer::Token;
 
-use crate::error::{PResult, ParseError};
+use crate::error::PResult;
 use crate::expr::expr;
 use crate::token_stream::TokenStream;
 
@@ -155,26 +155,13 @@ fn expr_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     })
 }
 
-/// `type ::= IDENT`. The lexer gives type names as plain identifiers,
-/// so the parser checks the name here.
-pub fn ty(ts: &mut TokenStream) -> PResult<Type> {
+/// `type ::= IDENT`. The lexer gives type names as plain identifiers.
+/// A built-in name becomes `Known`; any other name becomes `Param` (a
+/// generic parameter or a typo), and the checker decides which.
+pub fn ty(ts: &mut TokenStream) -> PResult<TypeExpr> {
     let name = ts.expect_ident()?;
-
-    let ty = match name.name.as_str() {
-        "int" => Type::Int,
-        "real" => Type::Real,
-        "bool" => Type::Bool,
-        "complex" => Type::Complex,
-        "vec2" => Type::Vec2,
-        "vec3" => Type::Vec3,
-        "vec4" => Type::Vec4,
-        other => {
-            return Err(ParseError::new(
-                format!("unknown type `{other}`"),
-                name.span,
-            ));
-        }
-    };
-
-    Ok(ty)
+    Ok(match Type::from_name(&name.name) {
+        Some(ty) => TypeExpr::Known(ty),
+        None => TypeExpr::Param(name),
+    })
 }

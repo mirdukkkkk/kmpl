@@ -5,7 +5,7 @@ mod expr;
 mod item;
 mod stmt;
 
-use kmpl_ast::{BinOp, Block, Expr, ExprKind, Item, Program, Stmt, StmtKind, Type, UnOp};
+use kmpl_ast::{BinOp, Block, Expr, ExprKind, Item, Program, Stmt, StmtKind, Type, TypeExpr, UnOp};
 
 use crate::ParseError;
 
@@ -47,19 +47,20 @@ fn sexp_item(item: &Item) -> String {
         Item::Const(c) => format!(
             "(const {} {} {})",
             c.name.name,
-            sexp_ty(c.ty),
+            sexp_ty(&c.ty),
             sexp(&c.value)
         ),
         Item::Function(f) => {
             let params: Vec<String> = f
                 .params
                 .iter()
-                .map(|p| format!("({} {})", p.name.name, sexp_ty(p.ty)))
+                .map(|p| format!("({} {})", p.name.name, sexp_ty(&p.ty)))
                 .collect();
-            let ret = f.ret.map_or("_".to_owned(), sexp_ty);
+            let ret = f.ret.as_ref().map_or("_".to_owned(), sexp_ty);
             format!(
-                "(fn {} [{}] {} {})",
+                "(fn {}{} [{}] {} {})",
                 f.name.name,
+                sexp_generics(f),
                 params.join(" "),
                 ret,
                 sexp_block(&f.body)
@@ -76,7 +77,7 @@ fn sexp_block(block: &Block) -> String {
 fn sexp_stmt(s: &Stmt) -> String {
     match &s.kind {
         StmtKind::Let { name, ty, init } => {
-            let ty = ty.map_or("_".to_owned(), sexp_ty);
+            let ty = ty.as_ref().map_or("_".to_owned(), sexp_ty);
             let init = init.as_ref().map_or("_".to_owned(), sexp);
             format!("(let {} {ty} {init})", name.name)
         }
@@ -103,8 +104,31 @@ fn sexp_stmt(s: &Stmt) -> String {
     }
 }
 
-fn sexp_ty(ty: Type) -> String {
+fn sexp_ty(ty: &TypeExpr) -> String {
+    match ty {
+        TypeExpr::Known(ty) => type_name(*ty),
+        TypeExpr::Param(name) => name.name.clone(),
+    }
+}
+
+fn type_name(ty: Type) -> String {
     format!("{ty:?}").to_lowercase()
+}
+
+/// `<T: real|complex, U: int>`, or nothing for an ordinary function.
+fn sexp_generics(f: &kmpl_ast::Function) -> String {
+    if f.generics.is_empty() {
+        return String::new();
+    }
+    let parts: Vec<String> = f
+        .generics
+        .iter()
+        .map(|g| {
+            let bound: Vec<String> = g.bound.iter().map(|t| type_name(*t)).collect();
+            format!("{}: {}", g.name.name, bound.join("|"))
+        })
+        .collect();
+    format!("<{}>", parts.join(", "))
 }
 
 fn sexp(e: &Expr) -> String {

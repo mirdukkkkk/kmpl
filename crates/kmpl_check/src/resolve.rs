@@ -8,12 +8,14 @@
 //!   a built-in's name.
 //! - Functions can be called before their definition.
 //! - A constant can only use constants defined above it (no cycles).
+//! - A type name that is not built in must be a generic parameter of the
+//!   enclosing function (`fn f<T>(x: T)`); generic names are unique.
 //! - Parameters and `let` live in scopes. An inner block may shadow
 //!   an outer name; the same block may not declare a name twice.
 
 use std::collections::{HashMap, HashSet};
 
-use kmpl_ast::{Block, Expr, ExprKind, Function, Ident, Item, Program, Stmt, StmtKind};
+use kmpl_ast::{Block, Expr, ExprKind, Function, Ident, Item, Program, Stmt, StmtKind, TypeExpr};
 
 use crate::error::CheckError;
 
@@ -35,6 +37,8 @@ struct Resolver<'a> {
     current_const: Option<usize>,
     /// How many `while` loops enclose the current statement.
     loop_depth: usize,
+    /// Generic parameter names of the function being checked.
+    type_params: Vec<&'a str>,
     errors: Vec<CheckError>,
 }
 
@@ -44,6 +48,7 @@ pub fn resolve(program: &Program) -> Vec<CheckError> {
         scopes: Vec::new(),
         current_const: None,
         loop_depth: 0,
+        type_params: Vec::new(),
         errors: Vec::new(),
     };
 
@@ -52,6 +57,7 @@ pub fn resolve(program: &Program) -> Vec<CheckError> {
     for (index, item) in program.items.iter().enumerate() {
         match item {
             Item::Const(c) => {
+                r.check_type(&c.ty);
                 r.current_const = Some(index);
                 r.expr(&c.value);
                 r.current_const = None;
@@ -93,12 +99,36 @@ impl<'a> Resolver<'a> {
     }
 
     fn function(&mut self, f: &'a Function) {
+        self.type_params.clear();
+        for generic in &f.generics {
+            let name = generic.name.name.as_str();
+            if self.type_params.contains(&name) {
+                self.error(format!("`{name}` is already defined"), &generic.name);
+            } else {
+                self.type_params.push(name);
+            }
+        }
+
         self.scopes.push(HashSet::new());
         for param in &f.params {
+            self.check_type(&param.ty);
             self.declare_local(&param.name);
+        }
+        if let Some(ret) = &f.ret {
+            self.check_type(ret);
         }
         self.block(&f.body);
         self.scopes.pop();
+        self.type_params.clear();
+    }
+
+    /// A non-built-in type name must be a generic parameter in scope.
+    fn check_type(&mut self, ty: &TypeExpr) {
+        if let TypeExpr::Param(name) = ty
+            && !self.type_params.contains(&name.name.as_str())
+        {
+            self.error(format!("unknown type `{}`", name.name), name);
+        }
     }
 
     fn block(&mut self, block: &'a Block) {
@@ -137,7 +167,10 @@ impl<'a> Resolver<'a> {
 
     fn stmt(&mut self, stmt: &'a Stmt) {
         match &stmt.kind {
-            StmtKind::Let { name, init, .. } => {
+            StmtKind::Let { name, ty, init } => {
+                if let Some(ty) = ty {
+                    self.check_type(ty);
+                }
                 // The initializer is checked first, so `let x = x;`
                 // refers to an outer `x`.
                 if let Some(init) = init {

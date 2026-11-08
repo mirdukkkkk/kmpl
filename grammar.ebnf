@@ -5,11 +5,15 @@ program     ::= item*
 (* items *)
 item        ::= const | function
 const       ::= 'const' IDENT ':' type '=' expr ';'
-function    ::= 'fn' IDENT '(' params? ')' ('->' type)? block
+function    ::= 'fn' IDENT generics? '(' params? ')' ('->' type)? block
+generics    ::= '<' generic (',' generic)* ','? '>'
+generic     ::= IDENT (':' bound)?          (* no bound: any type *)
+bound       ::= bound_item ('|' bound_item)*
+bound_item  ::= IDENT                       (* a type, or number | float | vector *)
 params      ::= param (',' param)* ','?
 param       ::= IDENT ':' type
 
-type        ::= IDENT
+type        ::= IDENT                       (* a built-in type or a generic parameter *)
 
 (* statements *)
 block       ::= '{' stmt* '}'

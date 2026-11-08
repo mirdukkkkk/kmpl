@@ -227,3 +227,22 @@ fn builtin_constants() {
     // A local may shadow a built-in constant.
     assert_eq!(output("let PI = 3; print(PI);"), "3\n");
 }
+
+#[test]
+fn generic_functions() {
+    let src = "fn mix<T: real | vector>(a: T, b: T, t: real) -> T { return a + (b - a) * t; }
+               fn half<T: real | complex>(x: T) -> T { return x / 2; }
+               fn fact<T: int | real>(n: T) -> T { if n <= 1 { return 1; } return n * fact(n - 1); }
+               fn main() {
+                   print(mix(0, 10, 0.25));
+                   print(mix(vec2(0, 0), vec2(2, 4), 0.5));
+                   print(half(3.0));
+                   print(half(3.0 + 1.0i));
+                   print(fact(10));
+                   print(fact(10.0));
+               }";
+    assert_eq!(
+        run(src).unwrap(),
+        "2.5\n(1.0, 2.0)\n1.5\n1.5+0.5i\n3628800\n3628800.0\n"
+    );
+}

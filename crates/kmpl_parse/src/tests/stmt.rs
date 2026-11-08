@@ -3,6 +3,12 @@ use kmpl_ast::{Item, Span};
 use super::{body, body_error, parse_program};
 
 #[test]
+fn unknown_type_names_parse_as_params() {
+    // Could be a generic parameter; the checker reports unknown ones.
+    assert_eq!(body("let x: T;"), "[(let x T _)]");
+}
+
+#[test]
 fn let_forms() {
     assert_eq!(body("let x: real = 1.0;"), "[(let x real 1.0)]");
     assert_eq!(body("let x = 1;"), "[(let x _ 1)]");
@@ -72,7 +78,6 @@ fn errors() {
         body_error("let 1 = x;"),
         "expected identifier, found number `1`"
     );
-    assert_eq!(body_error("let x: foo;"), "unknown type `foo`");
     assert_eq!(body_error("if a b;"), "expected `{`, found identifier `b`");
     assert_eq!(body_error("break"), "expected `;`, found `}`");
     assert_eq!(body_error("x = ;"), "expected expression, found `;`");

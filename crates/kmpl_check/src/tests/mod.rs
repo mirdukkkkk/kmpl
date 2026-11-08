@@ -1,5 +1,6 @@
 //! Test helpers shared by the per-module test files.
 
+mod generics;
 mod infer;
 mod init;
 mod literals;

@@ -1,4 +1,4 @@
-use crate::{Expr, Ident, Span, Type};
+use crate::{Expr, Ident, Span, TypeExpr};
 
 pub type Block = Vec<Stmt>;
 
@@ -10,7 +10,11 @@ pub struct Stmt {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtKind {
-    Let { name: Ident, ty: Option<Type>, init: Option<Expr> },
+    Let {
+        name: Ident,
+        ty: Option<TypeExpr>,
+        init: Option<Expr>,
+    },
     Assign { name: Ident, value: Expr },
     If { cond: Expr, then: Block, otherwise: Option<Block> },
     While { cond: Expr, body: Block },

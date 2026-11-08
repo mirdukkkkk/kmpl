@@ -1,0 +1,38 @@
+// Generic functions: one definition, checked for every type in its bound,
+// with `T` inferred from the arguments at each call.
+
+// `T: real | vector` means real, vec2, vec3 or vec4. `complex` is not in
+// the bound: `(b - a) * t` would be `complex * real`, which kmpl rejects.
+fn mix<T: real | vector>(a: T, b: T, t: real) -> T {
+    return a + (b - a) * t;
+}
+
+// `number` is int, real or complex. The literal `1` takes the type of T.
+fn power<T: number>(x: T, n: int) -> T {
+    let result: T = 1;
+    let i = 0;
+    while i < n {
+        result = result * x;
+        i = i + 1;
+    }
+    return result;
+}
+
+// Generic functions can call each other and themselves.
+fn sum_of_powers<T: number>(x: T, n: int) -> T {
+    if n == 0 {
+        return 1;
+    }
+    return power(x, n) + sum_of_powers(x, n - 1);
+}
+
+fn main() {
+    print(mix(0, 10, 0.3));
+    print(mix(vec3(1, 0, 0), vec3(0, 0, 1), 0.5));
+
+    print(power(2, 10));          // int
+    print(power(1.5, 2));         // real
+    print(power(1.0i, 2));        // complex: i^2 = -1
+
+    print(sum_of_powers(2, 3));   // 1 + 2 + 4 + 8
+}
