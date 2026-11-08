@@ -1,0 +1,82 @@
+// Arrays: `[real]` holds any number of reals, the length is known at run
+// time. They behave like values: assigning or passing an array gives an
+// independent copy, so a function cannot change its caller's array.
+
+fn mean(xs: [real]) -> real {
+    let sum = 0.0;
+    for x in xs {
+        sum = sum + x;
+    }
+    return sum / real(len(xs));
+}
+
+// Insertion sort. `xs` is this function's own copy.
+fn sorted(xs: [real]) -> [real] {
+    for i in 1..len(xs) {
+        let x = xs[i];
+        let j = i - 1;
+        while j >= 0 && xs[j] > x {
+            xs[j + 1] = xs[j];
+            j = j - 1;
+        }
+        xs[j + 1] = x;
+    }
+    return xs;
+}
+
+// Sieve of Eratosthenes: how many primes are below n?
+fn count_primes(n: int) -> int {
+    let composite = [false; n];
+    let count = 0;
+    for i in 2..n {
+        if composite[i] {
+            continue;
+        }
+        count = count + 1;
+        let j = i * i;
+        while j < n {
+            composite[j] = true;
+            j = j + i;
+        }
+    }
+    return count;
+}
+
+fn multiply(a: [[real]], b: [[real]]) -> [[real]] {
+    let rows = len(a);
+    let cols = len(b[0]);
+    let result = [[0.0; cols]; rows];
+    for i in 0..rows {
+        for j in 0..cols {
+            for k in 0..len(b) {
+                result[i][j] = result[i][j] + a[i][k] * b[k][j];
+            }
+        }
+    }
+    return result;
+}
+
+// A generic parameter can be the element type.
+fn last<T: int | real>(xs: [T]) -> T {
+    return xs[len(xs) - 1];
+}
+
+fn main() {
+    let data = [3.0, 1.0, 4.0, 1.5, 9.0, 2.5];
+    print(mean(data));
+    print(sorted(data));
+    print(data); // unchanged
+
+    print(count_primes(100));
+
+    // Fibonacci matrix: its n-th power holds F(n + 1), F(n) and F(n - 1).
+    let fib = [[1.0, 1.0], [1.0, 0.0]];
+    let power = fib;
+    for i in 1..10 {
+        power = multiply(power, fib);
+    }
+    print(power);
+
+    print(last([1, 2, 3]));
+    print(last([0.5, 0.25]));
+}

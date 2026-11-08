@@ -41,6 +41,8 @@ pub enum ParamType {
     T,
     /// Any type. Used by `print`.
     Any,
+    /// An array of any element type. Used by `len`.
+    AnyArray,
 }
 
 /// What a built-in returns.
@@ -91,7 +93,7 @@ pub static BUILTINS: &[Builtin] = &[
         generic: NUMBER,
         params: &[ParamType::T],
         ret: RetType::Magnitude,
-        func: |a, _| match a[0] {
+        func: |a, _| match a[0].clone() {
             Value::Int(n) => math::int_abs(n).map(|n| Some(Value::Int(n))),
             Value::Complex { re, im } => ok(Value::Real(re.hypot(im))),
             other => ok(Value::Real(other.as_real().abs())),
@@ -102,7 +104,7 @@ pub static BUILTINS: &[Builtin] = &[
         generic: NUMBER,
         params: &[ParamType::T, ParamType::T],
         ret: RetType::T,
-        func: |a, _| match (a[0], a[1]) {
+        func: |a, _| match (a[0].clone(), a[1].clone()) {
             (Value::Int(b), Value::Int(e)) => math::int_pow(b, e).map(|n| Some(Value::Int(n))),
             (Value::Complex { re, im }, Value::Complex { re: yr, im: yi }) => {
                 let (re, im) = complex::pow((re, im), (yr, yi));
@@ -149,7 +151,7 @@ pub static BUILTINS: &[Builtin] = &[
         generic: INT_OR_REAL,
         params: &[ParamType::T, ParamType::T],
         ret: RetType::T,
-        func: |a, _| match (a[0], a[1]) {
+        func: |a, _| match (a[0].clone(), a[1].clone()) {
             (Value::Int(x), Value::Int(y)) => ok(Value::Int(x.min(y))),
             // `f64::min` ignores a NaN argument and returns the other one.
             (x, y) => ok(Value::Real(x.as_real().min(y.as_real()))),
@@ -160,7 +162,7 @@ pub static BUILTINS: &[Builtin] = &[
         generic: INT_OR_REAL,
         params: &[ParamType::T, ParamType::T],
         ret: RetType::T,
-        func: |a, _| match (a[0], a[1]) {
+        func: |a, _| match (a[0].clone(), a[1].clone()) {
             (Value::Int(x), Value::Int(y)) => ok(Value::Int(x.max(y))),
             (x, y) => ok(Value::Real(x.as_real().max(y.as_real()))),
         },
@@ -170,14 +172,14 @@ pub static BUILTINS: &[Builtin] = &[
         generic: INT_OR_REAL,
         params: &[ParamType::T, ParamType::T, ParamType::T],
         ret: RetType::T,
-        func: |a, _| math::clamp(a[0], a[1], a[2]).map(Some),
+        func: |a, _| math::clamp(a[0].clone(), a[1].clone(), a[2].clone()).map(Some),
     },
     Builtin {
         name: "lerp",
         generic: FLOAT_OR_VECTOR,
         params: &[ParamType::T, ParamType::T, REAL],
         ret: RetType::T,
-        func: |a, _| ok(math::lerp(a[0], a[1], a[2].as_real())),
+        func: |a, _| ok(math::lerp(a[0].clone(), a[1].clone(), a[2].as_real())),
     },
     Builtin {
         name: "smoothstep",
@@ -195,7 +197,7 @@ pub static BUILTINS: &[Builtin] = &[
         generic: INT_OR_REAL,
         params: &[ParamType::T],
         ret: RetType::Exact(Type::Real),
-        func: |a, _| match a[0] {
+        func: |a, _| match a[0].clone() {
             Value::Int(n) => ok(Value::Real(n as f64)),
             other => ok(Value::Real(other.as_real())),
         },
@@ -205,7 +207,7 @@ pub static BUILTINS: &[Builtin] = &[
         generic: INT_OR_REAL,
         params: &[ParamType::T],
         ret: RetType::Exact(Type::Int),
-        func: |a, _| match a[0] {
+        func: |a, _| match a[0].clone() {
             Value::Int(n) => ok(Value::Int(n)),
             other => math::real_to_int(other.as_real()).map(|n| Some(Value::Int(n))),
         },
@@ -310,10 +312,12 @@ pub static BUILTINS: &[Builtin] = &[
         generic: REAL_OR_VECTOR,
         params: &[ParamType::T, ParamType::T],
         ret: RetType::Exact(Type::Real),
-        func: |a, _| match (a[0], a[1]) {
+        func: |a, _| match (a[0].clone(), a[1].clone()) {
             (Value::Real(x), Value::Real(y)) => ok(Value::Real((x - y).abs())),
             (u, v) => {
-                let d = u.zip_components(v, |x, y| x - y).expect("same vector type");
+                let d = u
+                    .zip_components(&v, |x, y| x - y)
+                    .expect("same vector type");
                 ok(Value::Real(math::dot(&d, &d).sqrt()))
             }
         },
@@ -341,6 +345,17 @@ pub static BUILTINS: &[Builtin] = &[
                 u[2] * v[0] - u[0] * v[2],
                 u[0] * v[1] - u[1] * v[0],
             ]))
+        },
+    },
+    // ----- arrays -----
+    Builtin {
+        name: "len",
+        generic: &[],
+        params: &[ParamType::AnyArray],
+        ret: RetType::Exact(Type::Int),
+        func: |a, _| match &a[0] {
+            Value::Array(items) => ok(Value::Int(items.len() as i64)),
+            other => panic!("expected an array, got {other:?}"),
         },
     },
     // ----- output -----
@@ -418,7 +433,7 @@ fn float_math(
     real: fn(f64) -> f64,
     complex: fn(complex::C) -> complex::C,
 ) -> Result<Option<Value>, String> {
-    match args[0] {
+    match args[0].clone() {
         Value::Complex { re, im } => {
             let (re, im) = complex((re, im));
             ok(Value::Complex { re, im })

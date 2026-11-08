@@ -108,6 +108,27 @@ fn sexp_stmt(s: &Stmt) -> String {
             sexp(end),
             sexp_block(body)
         ),
+        StmtKind::IndexAssign {
+            name,
+            indices,
+            value,
+        } => {
+            let indices: Vec<String> = indices.iter().map(sexp).collect();
+            format!(
+                "(index= {} [{}] {})",
+                name.name,
+                indices.join(" "),
+                sexp(value)
+            )
+        }
+        StmtKind::ForEach { var, array, body } => {
+            format!(
+                "(foreach {} {} {})",
+                var.name,
+                sexp(array),
+                sexp_block(body)
+            )
+        }
         StmtKind::Break => "break".to_owned(),
         StmtKind::Continue => "continue".to_owned(),
         StmtKind::Return(Some(e)) => format!("(return {})", sexp(e)),
@@ -120,6 +141,7 @@ fn sexp_ty(ty: &TypeExpr) -> String {
     match ty {
         TypeExpr::Known(ty) => type_name(*ty),
         TypeExpr::Param(name) => name.name.clone(),
+        TypeExpr::Array(elem) => format!("[{}]", sexp_ty(elem)),
     }
 }
 
@@ -179,6 +201,12 @@ fn sexp(e: &Expr) -> String {
             let args: Vec<String> = args.iter().map(sexp).collect();
             format!("(call {} [{}])", name.name, args.join(" "))
         }
+        ExprKind::Array(items) => {
+            let items: Vec<String> = items.iter().map(sexp).collect();
+            format!("(array {})", items.join(" "))
+        }
+        ExprKind::ArrayFill { value, len } => format!("(fill {} {})", sexp(value), sexp(len)),
+        ExprKind::Index { base, index } => format!("(index {} {})", sexp(base), sexp(index)),
         ExprKind::Swizzle { base, mask } => format!("(: {} {})", sexp(base), mask.name),
     }
 }

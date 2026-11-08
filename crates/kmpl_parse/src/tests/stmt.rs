@@ -114,9 +114,58 @@ fn for_errors() {
         body_error("for i 0..3 { }"),
         "expected `in`, found number `0`"
     );
-    assert_eq!(body_error("for i in 0 { }"), "expected `..`, found `{`");
     assert_eq!(
         body_error("for i in 0..3 x;"),
         "expected `{`, found identifier `x`"
     );
+}
+
+#[test]
+fn array_types() {
+    assert_eq!(body("let a: [real];"), "[(let a [real] _)]");
+    assert_eq!(body("let m: [[int]];"), "[(let m [[int]] _)]");
+    assert_eq!(body("let a: [T];"), "[(let a [T] _)]");
+}
+
+#[test]
+fn array_literals() {
+    assert_eq!(body("[];"), "[(array )]");
+    assert_eq!(body("[1, 2];"), "[(array 1 2)]");
+    assert_eq!(body("[1, 2,];"), "[(array 1 2)]");
+    assert_eq!(body("[0.0; n + 1];"), "[(fill 0.0 (+ n 1))]");
+    assert_eq!(body("[[1], [2]];"), "[(array (array 1) (array 2))]");
+}
+
+#[test]
+fn indexing() {
+    assert_eq!(body("a[0];"), "[(index a 0)]");
+    assert_eq!(body("m[i][j + 1];"), "[(index (index m i) (+ j 1))]");
+    assert_eq!(body("f(x)[0];"), "[(index (call f [x]) 0)]");
+    assert_eq!(body("[1, 2][0];"), "[(index (array 1 2) 0)]");
+    // Indexing binds tighter than a swizzle and than unary minus.
+    assert_eq!(body("a[0]:xy;"), "[(: (index a 0) xy)]");
+    assert_eq!(body("-a[0];"), "[(- (index a 0))]");
+}
+
+#[test]
+fn index_assignment() {
+    assert_eq!(body("a[0] = 1;"), "[(index= a [0] 1)]");
+    assert_eq!(body("m[i][j] = x + 1;"), "[(index= m [i j] (+ x 1))]");
+    assert_eq!(body("a[0] == 1;"), "[(== (index a 0) 1)]");
+}
+
+#[test]
+fn for_each_loop() {
+    assert_eq!(body("for x in a { x; }"), "[(foreach x a [x])]");
+    assert_eq!(body("for x in [1, 2] { }"), "[(foreach x (array 1 2) [])]");
+}
+
+#[test]
+fn array_errors() {
+    assert_eq!(body_error("[1, 2;"), "expected `]`, found `;`");
+    assert_eq!(body_error("a[0;"), "expected `]`, found `;`");
+    assert_eq!(body_error("a[] ;"), "expected expression, found `]`");
+    assert_eq!(body_error("let a: [real;"), "expected `]`, found `;`");
+    assert_eq!(body_error("f()[0] = 1;"), "expected `;`, found `=`");
+    assert_eq!(body_error("[1][0] = 1;"), "expected `;`, found `=`");
 }

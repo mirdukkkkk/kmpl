@@ -105,7 +105,20 @@ fn unary(ts: &mut TokenStream) -> PResult<Expr> {
 }
 
 fn postfix(ts: &mut TokenStream) -> PResult<Expr> {
-    let base = primary(ts)?;
+    let mut base = primary(ts)?;
+
+    while ts.eat(&Token::LBracket).is_some() {
+        let index = expr(ts)?;
+        let close = ts.expect(Token::RBracket)?;
+        let span = base.span.to(close);
+        base = Expr {
+            kind: ExprKind::Index {
+                base: Box::new(base),
+                index: Box::new(index),
+            },
+            span,
+        };
+    }
 
     if ts.eat(&Token::Colon).is_none() {
         return Ok(base);
@@ -133,6 +146,7 @@ fn primary(ts: &mut TokenStream) -> PResult<Expr> {
         Some(Token::True) => ExprKind::Bool(true),
         Some(Token::False) => ExprKind::Bool(false),
         Some(Token::Ident(_)) => return var_or_call(ts),
+        Some(Token::LBracket) => return array(ts),
         Some(Token::LParen) => {
             ts.next();
             let inner = expr(ts)?;
@@ -144,6 +158,37 @@ fn primary(ts: &mut TokenStream) -> PResult<Expr> {
 
     ts.next();
     Ok(Expr { kind, span: start })
+}
+
+/// `'[' (expr (',' expr)* ','?)? ']'` or `'[' expr ';' expr ']'`
+fn array(ts: &mut TokenStream) -> PResult<Expr> {
+    let open = ts.expect(Token::LBracket)?;
+
+    let mut items = Vec::new();
+    while ts.peek() != Some(&Token::RBracket) {
+        items.push(expr(ts)?);
+        if items.len() == 1 && ts.eat(&Token::Semi).is_some() {
+            let len = expr(ts)?;
+            let close = ts.expect(Token::RBracket)?;
+            let value = items.pop().expect("just pushed");
+            return Ok(Expr {
+                kind: ExprKind::ArrayFill {
+                    value: Box::new(value),
+                    len: Box::new(len),
+                },
+                span: open.to(close),
+            });
+        }
+        if ts.eat(&Token::Comma).is_none() {
+            break;
+        }
+    }
+
+    let close = ts.expect(Token::RBracket)?;
+    Ok(Expr {
+        kind: ExprKind::Array(items),
+        span: open.to(close),
+    })
 }
 
 fn var_or_call(ts: &mut TokenStream) -> PResult<Expr> {

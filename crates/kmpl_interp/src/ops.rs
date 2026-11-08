@@ -12,7 +12,7 @@ use kmpl_ast::{BinOp, UnOp};
 use kmpl_builtins::Value;
 
 pub fn unary(op: UnOp, v: Value) -> Result<Value, String> {
-    let result = match (op, v) {
+    let result = match (op, &v) {
         (UnOp::Not, Value::Bool(b)) => Value::Bool(!b),
         (UnOp::Neg, Value::Int(n)) => Value::Int(n.checked_neg().ok_or(OVERFLOW)?),
         (UnOp::Neg, Value::Real(x)) => Value::Real(-x),
@@ -23,8 +23,10 @@ pub fn unary(op: UnOp, v: Value) -> Result<Value, String> {
             re: 0.0 - re,
             im: 0.0 - im,
         },
-        (UnOp::Neg, v) => v.map_components(|c| -c).unwrap_or_else(|| bug_unary(op, v)),
-        (UnOp::Not, v) => bug_unary(op, v),
+        (UnOp::Neg, _) => v
+            .map_components(|c| -c)
+            .unwrap_or_else(|| bug_unary(op, &v)),
+        (UnOp::Not, _) => bug_unary(op, &v),
     };
     Ok(result)
 }
@@ -32,32 +34,34 @@ pub fn unary(op: UnOp, v: Value) -> Result<Value, String> {
 pub fn binary(op: BinOp, l: Value, r: Value) -> Result<Value, String> {
     use Value::{Bool, Complex, Int, Real};
 
-    let result = match (op, l, r) {
-        (BinOp::Eq, l, r) => Bool(l == r),
-        (BinOp::Ne, l, r) => Bool(l != r),
+    let result = match (op, &l, &r) {
+        (BinOp::Eq, ..) => Bool(l == r),
+        (BinOp::Ne, ..) => Bool(l != r),
 
-        (_, Int(a), Int(b)) => int_op(op, a, b)?,
-        (_, Real(a), Real(b)) => real_op(op, a, b).unwrap_or_else(|| bug(op, l, r)),
+        (_, Int(a), Int(b)) => int_op(op, *a, *b)?,
+        (_, Real(a), Real(b)) => real_op(op, *a, *b).unwrap_or_else(|| bug(op, &l, &r)),
         (_, Complex { re: a, im: b }, Complex { re: c, im: d }) => {
-            let (re, im) = complex_op(op, (a, b), (c, d)).unwrap_or_else(|| bug(op, l, r));
+            let (re, im) = complex_op(op, (*a, *b), (*c, *d)).unwrap_or_else(|| bug(op, &l, &r));
             Complex { re, im }
         }
 
         // vector + vector, vector - vector
-        (BinOp::Add, l, r) => l
-            .zip_components(r, |a, b| a + b)
-            .unwrap_or_else(|| bug(op, l, r)),
-        (BinOp::Sub, l, r) => l
-            .zip_components(r, |a, b| a - b)
-            .unwrap_or_else(|| bug(op, l, r)),
+        (BinOp::Add, ..) => l
+            .zip_components(&r, |a, b| a + b)
+            .unwrap_or_else(|| bug(op, &l, &r)),
+        (BinOp::Sub, ..) => l
+            .zip_components(&r, |a, b| a - b)
+            .unwrap_or_else(|| bug(op, &l, &r)),
 
         // scaling
-        (BinOp::Mul, v, Real(k)) | (BinOp::Mul, Real(k), v) => {
-            v.map_components(|c| c * k).unwrap_or_else(|| bug(op, l, r))
-        }
-        (BinOp::Div, v, Real(k)) => v.map_components(|c| c / k).unwrap_or_else(|| bug(op, l, r)),
+        (BinOp::Mul, v, Real(k)) | (BinOp::Mul, Real(k), v) => v
+            .map_components(|c| c * k)
+            .unwrap_or_else(|| bug(op, &l, &r)),
+        (BinOp::Div, v, Real(k)) => v
+            .map_components(|c| c / k)
+            .unwrap_or_else(|| bug(op, &l, &r)),
 
-        _ => bug(op, l, r),
+        _ => bug(op, &l, &r),
     };
     Ok(result)
 }
@@ -136,17 +140,10 @@ pub fn swizzle(v: Value, mask: &str) -> Value {
     }
 }
 
-fn bug(op: BinOp, l: Value, r: Value) -> ! {
-    panic!(
-        "operator {op:?} on {:?} and {:?}, the checker should have rejected it",
-        l.ty(),
-        r.ty()
-    )
+fn bug(op: BinOp, l: &Value, r: &Value) -> ! {
+    panic!("operator {op:?} on {l:?} and {r:?}, the checker should have rejected it")
 }
 
-fn bug_unary(op: UnOp, v: Value) -> ! {
-    panic!(
-        "operator {op:?} on {:?}, the checker should have rejected it",
-        v.ty()
-    )
+fn bug_unary(op: UnOp, v: &Value) -> ! {
+    panic!("operator {op:?} on {v:?}, the checker should have rejected it")
 }

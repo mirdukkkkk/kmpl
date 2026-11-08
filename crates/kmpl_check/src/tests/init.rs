@@ -108,3 +108,29 @@ fn for_bounds_and_variable() {
     assert_error("fn f() { let x: int; for i in x..3 { } }", UNINIT_X);
     assert_ok("fn f() { for i in 0..3 { print(i); } }");
 }
+
+#[test]
+fn index_assignment_reads_the_array() {
+    assert_error(
+        "fn f() { let a: [int]; a[0] = 1; }",
+        "`a` is used before being assigned",
+    );
+    assert_ok("fn f() { let a: [int]; a = [1]; a[0] = 2; }");
+}
+
+#[test]
+fn reads_inside_arrays() {
+    assert_error("fn f() { let x: int; print([x]); }", UNINIT_X);
+    assert_error("fn f() { let x: int; print([0; x]); }", UNINIT_X);
+    assert_error("fn f(a: [int]) { let x: int; print(a[x]); }", UNINIT_X);
+    assert_error("fn f(a: [int]) { let x: int; a[x] = 1; }", UNINIT_X);
+    assert_error("fn f(a: [int]) { let x: int; a[0] = x; }", UNINIT_X);
+}
+
+#[test]
+fn for_each_body_may_not_run() {
+    assert_error(
+        "fn f(a: [int]) { let x; for y in a { x = y; } print(x); }",
+        UNINIT_X,
+    );
+}

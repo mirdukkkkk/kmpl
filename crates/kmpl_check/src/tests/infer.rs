@@ -290,3 +290,172 @@ fn for_bound_narrows_a_flexible_variable() {
         "mismatched types: expected `real`, found `int`",
     );
 }
+
+#[test]
+fn array_literals_have_one_element_type() {
+    assert_ok("fn f() { let a = [1.0, 2.0]; let x: real = a[0]; }");
+    assert_ok("fn f() { let a: [real] = [1, 2.0]; }");
+    assert_ok("fn f() { let a = [1, 2]; let x: int = a[0]; }");
+    assert_error(
+        "fn f() { let a = [1, true]; }",
+        "mismatched types: expected `int`, `real` or `complex`, found `bool`",
+    );
+    assert_error(
+        "fn f() { let a: [int] = [1.5]; }",
+        "mismatched types: expected `[int]`, found `[real]`",
+    );
+    assert_error(
+        "fn f() { let a: [real] = 1.0; }",
+        "mismatched types: expected `[real]`, found `real` or `complex`",
+    );
+}
+
+#[test]
+fn array_fill() {
+    assert_ok("fn f(n: int) { let a: [real] = [0; n]; }");
+    assert_error(
+        "fn f() { let a = [0.0; 1.5]; }",
+        "mismatched types: expected `int`, found `real` or `complex`",
+    );
+}
+
+#[test]
+fn indexing_needs_an_array_and_an_int() {
+    assert_error("fn f(x: real) { x[0]; }", "expected an array, found `real`");
+    assert_error("fn f(v: vec3) { v[0]; }", "expected an array, found `vec3`");
+    assert_error(
+        "fn f(a: [int]) { a[1.5]; }",
+        "mismatched types: expected `int`, found `real` or `complex`",
+    );
+    assert_error(
+        "fn f(a: [int], x: real) { a[x] = 1; }",
+        "mismatched types: expected `int`, found `real`",
+    );
+}
+
+#[test]
+fn index_assignment_types() {
+    assert_ok("fn f(a: [real]) { a[0] = 1; }");
+    assert_error(
+        "fn f(a: [real]) { a[0] = true; }",
+        "mismatched types: expected `real`, found `bool`",
+    );
+    assert_error(
+        "fn f(x: real) { x[0] = 1.0; }",
+        "expected an array, found `real`",
+    );
+    // Too many indices: an element is not an array.
+    assert_error(
+        "fn f(a: [real]) { a[0][1] = 1.0; }",
+        "expected an array, found `real`",
+    );
+}
+
+#[test]
+fn nested_arrays() {
+    assert_ok(
+        "fn f() { let m = [[1.0], [2.0]]; let x: real = m[0][0]; m[1][0] = 3.0; m[0] = [4.0]; }",
+    );
+    assert_error(
+        "fn f() { let m = [[1.0], 2.0]; }",
+        "mismatched types: expected `[real]`, found `real` or `complex`",
+    );
+    assert_error(
+        "fn f(m: [[real]]) { let a: [real] = m; }",
+        "mismatched types: expected `[real]`, found `[[real]]`",
+    );
+}
+
+#[test]
+fn operators_on_arrays() {
+    assert_ok("fn f(a: [real], b: [real]) { let same: bool = a == b; }");
+    assert_error(
+        "fn f(a: [real]) { let b = a + a; }",
+        "cannot apply `+` to `[real]`",
+    );
+    assert_error(
+        "fn f(a: [real]) { let b = -a; }",
+        "cannot apply `-` to `[real]`",
+    );
+    assert_error(
+        "fn f(a: [real], b: real) { let c = a * b; }",
+        "cannot apply `*` to `[real]` and `real`",
+    );
+    assert_error(
+        "fn f(a: [real], b: [real]) { let c = a < b; }",
+        "cannot apply `<` to `[real]`",
+    );
+    assert_error(
+        "fn f(a: [real]) { a:x; }",
+        "swizzle needs a vector, found `[real]`",
+    );
+}
+
+#[test]
+fn empty_arrays_need_an_element_type() {
+    assert_ok("fn f() { let a: [real] = []; }");
+    assert_ok("fn f() { let a = []; a = [1.0]; }");
+    assert_ok("fn g(a: [real]) { } fn f() { g([]); }");
+    assert_error(
+        "fn f() { let a = []; }",
+        "cannot infer the element type of `a`, add a type annotation",
+    );
+    assert_error(
+        "fn f() { print([]); }",
+        "cannot infer the element type of this array",
+    );
+}
+
+#[test]
+fn a_type_cannot_contain_itself() {
+    assert_error(
+        "fn f() { let a = []; a = [a]; }",
+        "mismatched types: expected `[_]`, found `[[_]]`",
+    );
+}
+
+#[test]
+fn arrays_in_signatures() {
+    assert_ok("fn g(a: [real]) -> [real] { return a; } fn f() { let b: [real] = g([1, 2]); }");
+    assert_error(
+        "fn g(a: [real]) { } fn f() { g([true]); }",
+        "mismatched types: expected `[real]`, found `[bool]`",
+    );
+    assert_error(
+        "fn g() -> [real] { return [true]; }",
+        "mismatched types: expected `[real]`, found `[bool]`",
+    );
+    assert_error(
+        "fn g() -> [real] { return; }",
+        "`g` must return a value of type `[real]`",
+    );
+    assert_ok("const A: [real] = [1, 2]; fn f() { let x: real = A[0]; }");
+}
+
+#[test]
+fn len_takes_any_array() {
+    assert_ok("fn f(a: [real], m: [[int]]) { let n: int = len(a) + len(m) + len(m[0]); }");
+    assert_error(
+        "fn f(x: real) { len(x); }",
+        "expected an array, found `real`",
+    );
+}
+
+#[test]
+fn print_takes_arrays() {
+    assert_ok("fn f(a: [real]) { print(a); print([1, 2]); }");
+}
+
+#[test]
+fn for_each_variable_has_the_element_type() {
+    assert_ok("fn f(a: [real]) { for x in a { let y: real = x; } }");
+    assert_ok("fn f(m: [[int]]) { for row in m { for x in row { let y: int = x; } } }");
+    assert_error(
+        "fn f(a: [real]) { for x in a { let y: int = x; } }",
+        "mismatched types: expected `int`, found `real`",
+    );
+    assert_error(
+        "fn f() { for x in 1.5 { } }",
+        "expected an array, found `real` or `complex`",
+    );
+}

@@ -41,7 +41,10 @@ fn normalize() {
 fn cross_product() {
     let x = Vec3([1.0, 0.0, 0.0]);
     let y = Vec3([0.0, 1.0, 0.0]);
-    assert_eq!(call("cross", &[x, y]), Some(Vec3([0.0, 0.0, 1.0])));
+    assert_eq!(
+        call("cross", &[x.clone(), y.clone()]),
+        Some(Vec3([0.0, 0.0, 1.0]))
+    );
     assert_eq!(call("cross", &[y, x]), Some(Vec3([0.0, 0.0, -1.0])));
 }
 

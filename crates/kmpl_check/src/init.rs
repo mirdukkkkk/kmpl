@@ -2,7 +2,8 @@
 //! after it has been assigned on every path that reaches the read.
 //!
 //! Rules:
-//! - `x = ...` initializes `x`.
+//! - `x = ...` initializes `x`. `x[i] = ...` reads `x`, so `x` must already
+//!   be assigned.
 //! - After `if`/`else`, `x` is initialized only if both branches initialize it.
 //!   An `if` without `else` initializes nothing.
 //! - Assignments inside `while` and `for` do not count after the loop: the
@@ -112,6 +113,18 @@ impl<'a> InitChecker<'a> {
                 }
                 false
             }
+            StmtKind::IndexAssign {
+                name,
+                indices,
+                value,
+            } => {
+                self.expr(value);
+                for index in indices {
+                    self.expr(index);
+                }
+                self.read(name);
+                false
+            }
             StmtKind::If {
                 cond,
                 then,
@@ -135,12 +148,12 @@ impl<'a> InitChecker<'a> {
             } => {
                 self.expr(start);
                 self.expr(end);
-                let before = self.init.clone();
-                self.scopes.push(HashMap::new());
-                self.declare(var, true);
-                self.block(body);
-                self.scopes.pop();
-                self.init = before;
+                self.for_body(var, body);
+                false
+            }
+            StmtKind::ForEach { var, array, body } => {
+                self.expr(array);
+                self.for_body(var, body);
                 false
             }
             StmtKind::Break | StmtKind::Continue => true,
@@ -155,6 +168,16 @@ impl<'a> InitChecker<'a> {
                 false
             }
         }
+    }
+
+    /// The body may run zero times, so its assignments do not count after.
+    fn for_body(&mut self, var: &'a Ident, body: &'a Block) {
+        let before = self.init.clone();
+        self.scopes.push(HashMap::new());
+        self.declare(var, true);
+        self.block(body);
+        self.scopes.pop();
+        self.init = before;
     }
 
     /// Runs both branches from the same starting state and merges the
@@ -199,6 +222,19 @@ impl<'a> InitChecker<'a> {
                 }
             }
             ExprKind::Swizzle { base, .. } => self.expr(base),
+            ExprKind::Array(items) => {
+                for item in items {
+                    self.expr(item);
+                }
+            }
+            ExprKind::ArrayFill { value, len } => {
+                self.expr(value);
+                self.expr(len);
+            }
+            ExprKind::Index { base, index } => {
+                self.expr(base);
+                self.expr(index);
+            }
         }
     }
 

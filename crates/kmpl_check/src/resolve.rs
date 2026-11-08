@@ -126,10 +126,12 @@ impl<'a> Resolver<'a> {
 
     /// A non-built-in type name must be a generic parameter in scope.
     fn check_type(&mut self, ty: &TypeExpr) {
-        if let TypeExpr::Param(name) = ty
-            && !self.type_params.contains(&name.name.as_str())
-        {
-            self.error(format!("unknown type `{}`", name.name), name);
+        match ty {
+            TypeExpr::Param(name) if !self.type_params.contains(&name.name.as_str()) => {
+                self.error(format!("unknown type `{}`", name.name), name);
+            }
+            TypeExpr::Array(elem) => self.check_type(elem),
+            _ => {}
         }
     }
 
@@ -184,6 +186,17 @@ impl<'a> Resolver<'a> {
                 self.expr(value);
                 self.assign_target(name);
             }
+            StmtKind::IndexAssign {
+                name,
+                indices,
+                value,
+            } => {
+                self.expr(value);
+                for index in indices {
+                    self.expr(index);
+                }
+                self.assign_target(name);
+            }
             StmtKind::If {
                 cond,
                 then,
@@ -210,11 +223,11 @@ impl<'a> Resolver<'a> {
                 // The bounds come first, so `for i in 0..i` uses an outer `i`.
                 self.expr(start);
                 self.expr(end);
-                self.scopes.push(HashMap::from([(var.name.as_str(), true)]));
-                self.loop_depth += 1;
-                self.block(body);
-                self.loop_depth -= 1;
-                self.scopes.pop();
+                self.for_body(var, body);
+            }
+            StmtKind::ForEach { var, array, body } => {
+                self.expr(array);
+                self.for_body(var, body);
             }
             StmtKind::Break | StmtKind::Continue => {
                 if self.loop_depth == 0 {
@@ -235,6 +248,14 @@ impl<'a> Resolver<'a> {
             }
             StmtKind::Expr(e) => self.expr(e),
         }
+    }
+
+    fn for_body(&mut self, var: &'a Ident, body: &'a Block) {
+        self.scopes.push(HashMap::from([(var.name.as_str(), true)]));
+        self.loop_depth += 1;
+        self.block(body);
+        self.loop_depth -= 1;
+        self.scopes.pop();
     }
 
     fn assign_target(&mut self, name: &Ident) {
@@ -277,6 +298,19 @@ impl<'a> Resolver<'a> {
                 }
             }
             ExprKind::Swizzle { base, .. } => self.expr(base),
+            ExprKind::Array(items) => {
+                for item in items {
+                    self.expr(item);
+                }
+            }
+            ExprKind::ArrayFill { value, len } => {
+                self.expr(value);
+                self.expr(len);
+            }
+            ExprKind::Index { base, index } => {
+                self.expr(base);
+                self.expr(index);
+            }
         }
     }
 

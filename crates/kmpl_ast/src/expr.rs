@@ -19,6 +19,12 @@ pub enum ExprKind {
     Binary { op: BinOp, lhs: Box<Expr>, rhs: Box<Expr> },
     Call { name: Ident, args: Vec<Expr> },
     Swizzle { base: Box<Expr>, mask: Ident },
+    /// `[a, b, c]`
+    Array(Vec<Expr>),
+    /// `[value; len]`: `len` copies of `value`. `len` is known at run time.
+    ArrayFill { value: Box<Expr>, len: Box<Expr> },
+    /// `base[index]`
+    Index { base: Box<Expr>, index: Box<Expr> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

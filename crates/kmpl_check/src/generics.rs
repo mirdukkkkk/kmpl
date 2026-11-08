@@ -108,10 +108,14 @@ fn instantiate(f: &Function, types: &[Type]) -> Function {
 }
 
 fn substitute(ty: &mut TypeExpr, mapping: &HashMap<&str, Type>) {
-    if let TypeExpr::Param(name) = ty
-        && let Some(known) = mapping.get(name.name.as_str())
-    {
-        *ty = TypeExpr::Known(*known);
+    match ty {
+        TypeExpr::Param(name) => {
+            if let Some(known) = mapping.get(name.name.as_str()) {
+                *ty = TypeExpr::Known(*known);
+            }
+        }
+        TypeExpr::Array(elem) => substitute(elem, mapping),
+        TypeExpr::Known(_) => {}
     }
 }
 
@@ -128,9 +132,9 @@ fn substitute_block(block: &mut Block, mapping: &HashMap<&str, Type>) {
                     substitute_block(otherwise, mapping);
                 }
             }
-            StmtKind::While { body, .. } | StmtKind::For { body, .. } => {
-                substitute_block(body, mapping)
-            }
+            StmtKind::While { body, .. }
+            | StmtKind::For { body, .. }
+            | StmtKind::ForEach { body, .. } => substitute_block(body, mapping),
             _ => {}
         }
     }

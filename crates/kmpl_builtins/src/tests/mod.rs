@@ -74,6 +74,7 @@ fn signatures_match_implementations() {
                     ParamType::Exact(ty) => sample(*ty),
                     ParamType::T => sample(t),
                     ParamType::Any => sample(Type::Int),
+                    ParamType::AnyArray => Value::Array(std::sync::Arc::new(vec![sample(t)])),
                 })
                 .collect();
 

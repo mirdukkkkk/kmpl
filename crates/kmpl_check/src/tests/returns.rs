@@ -90,3 +90,11 @@ fn for_does_not_count_as_returning() {
     );
     assert_ok("fn f() -> int { for i in 0..3 { return i; } return 0; }");
 }
+
+#[test]
+fn for_each_does_not_count_as_returning() {
+    assert_error(
+        "fn f(a: [int]) -> int { for x in a { return x; } }",
+        "`f` may finish without returning a value",
+    );
+}

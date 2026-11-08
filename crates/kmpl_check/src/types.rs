@@ -5,6 +5,11 @@
 //! `{int, real, complex}`, an annotation `real` is `{real}`.
 //! Unifying two variables intersects their sets and merges them into one;
 //! an empty intersection is a type error.
+//!
+//! The set only covers types from a fixed list. An array is a different
+//! kind of variable that points at the variable of its elements, so
+//! `[real]` and `[[real]]` need no entries in the list. A variable that may
+//! still become an array has the `ARRAY` bit in its set.
 
 use kmpl_ast::Type;
 
@@ -24,7 +29,10 @@ const ALL: [Type; 7] = [
 ];
 
 impl TypeSet {
-    pub const ANY: TypeSet = TypeSet(0b111_1111);
+    pub const ANY: TypeSet = TypeSet(0b1111_1111);
+    /// The set of a variable known to be an array. The bit after the
+    /// seven types in `ALL`.
+    pub const ARRAY: TypeSet = TypeSet(1 << 7);
     /// Type of an integer literal like `1`.
     pub const NUMBER: TypeSet = TypeSet::of(&[Type::Int, Type::Real, Type::Complex]);
     /// Type of a real literal like `1.0`.
@@ -134,11 +142,19 @@ pub fn type_name(ty: Type) -> &'static str {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TyVar(usize);
 
+/// Two types cannot be made equal. The variables are left unchanged, so
+/// the caller can still describe them in the message.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Mismatch;
+
+#[derive(Clone, Copy)]
 enum Slot {
     /// Merged into another variable.
     Link(usize),
     /// A representative variable with its set of possible types.
     Root(TypeSet),
+    /// A representative variable known to be an array of this element.
+    Array(TyVar),
 }
 
 /// Union-find over type variables.
@@ -150,6 +166,11 @@ pub struct Unifier {
 impl Unifier {
     pub fn new_var(&mut self, set: TypeSet) -> TyVar {
         self.slots.push(Slot::Root(set));
+        TyVar(self.slots.len() - 1)
+    }
+
+    pub fn new_array(&mut self, elem: TyVar) -> TyVar {
+        self.slots.push(Slot::Array(elem));
         TyVar(self.slots.len() - 1)
     }
 
@@ -165,40 +186,105 @@ impl Unifier {
     pub fn set(&self, var: TyVar) -> TypeSet {
         match self.slots[self.root(var)] {
             Slot::Root(set) => set,
+            Slot::Array(_) => TypeSet::ARRAY,
             Slot::Link(_) => unreachable!("root() returns a root"),
         }
     }
 
-    /// Makes `a` and `b` the same type. On failure nothing changes and
-    /// the two sets are returned for the error message.
-    pub fn unify(&mut self, a: TyVar, b: TyVar) -> Result<(), (TypeSet, TypeSet)> {
+    /// Makes `a` and `b` the same type. On failure nothing changes.
+    pub fn unify(&mut self, a: TyVar, b: TyVar) -> Result<(), Mismatch> {
         let (ra, rb) = (self.root(a), self.root(b));
         if ra == rb {
             return Ok(());
         }
 
-        let (sa, sb) = (self.set(a), self.set(b));
-        let both = sa.intersect(sb);
-        if both.is_empty() {
-            return Err((sa, sb));
+        match (self.slots[ra], self.slots[rb]) {
+            (Slot::Root(sa), Slot::Root(sb)) => {
+                let both = sa.intersect(sb);
+                if both.is_empty() {
+                    return Err(Mismatch);
+                }
+                self.slots[ra] = Slot::Root(both);
+                self.slots[rb] = Slot::Link(ra);
+            }
+            // Elements first: if they fail, nothing has changed yet.
+            (Slot::Array(ea), Slot::Array(eb)) => {
+                self.unify(ea, eb)?;
+                self.slots[rb] = Slot::Link(ra);
+            }
+            (Slot::Root(set), Slot::Array(elem)) => self.bind_array(ra, set, rb, elem)?,
+            (Slot::Array(elem), Slot::Root(set)) => self.bind_array(rb, set, ra, elem)?,
+            (Slot::Link(_), _) | (_, Slot::Link(_)) => unreachable!("root() returns a root"),
         }
-
-        self.slots[ra] = Slot::Root(both);
-        self.slots[rb] = Slot::Link(ra);
         Ok(())
     }
 
-    /// Narrows `var` to the types in `allowed`. On failure nothing changes
-    /// and the current set of `var` is returned.
-    pub fn restrict(&mut self, var: TyVar, allowed: TypeSet) -> Result<(), TypeSet> {
-        let current = self.set(var);
-        let narrowed = current.intersect(allowed);
+    /// Makes the open variable at `root` the array at `array`. Refuses a
+    /// variable that would contain itself (`a = [a]`): no finite type fits.
+    fn bind_array(
+        &mut self,
+        root: usize,
+        set: TypeSet,
+        array: usize,
+        elem: TyVar,
+    ) -> Result<(), Mismatch> {
+        if set.intersect(TypeSet::ARRAY).is_empty() || self.occurs(root, elem) {
+            return Err(Mismatch);
+        }
+        self.slots[root] = Slot::Link(array);
+        Ok(())
+    }
+
+    /// Is the variable at `root` part of `var`?
+    fn occurs(&self, root: usize, var: TyVar) -> bool {
+        let found = self.root(var);
+        match self.slots[found] {
+            Slot::Array(elem) => found == root || self.occurs(root, elem),
+            _ => found == root,
+        }
+    }
+
+    /// Narrows `var` to the types in `allowed`. On failure nothing changes.
+    pub fn restrict(&mut self, var: TyVar, allowed: TypeSet) -> Result<(), Mismatch> {
+        let narrowed = self.set(var).intersect(allowed);
         if narrowed.is_empty() {
-            return Err(current);
+            return Err(Mismatch);
         }
 
         let root = self.root(var);
-        self.slots[root] = Slot::Root(narrowed);
+        if let Slot::Root(_) = self.slots[root] {
+            self.slots[root] = Slot::Root(narrowed);
+        }
         Ok(())
+    }
+
+    /// Does `var` have a final type, directly or through a default?
+    /// `[_]` does not: an empty array says nothing about its elements.
+    pub fn is_resolved(&self, var: TyVar) -> bool {
+        match self.slots[self.root(var)] {
+            Slot::Root(set) => set.default_type().is_some(),
+            Slot::Array(elem) => self.is_resolved(elem),
+            Slot::Link(_) => unreachable!("root() returns a root"),
+        }
+    }
+
+    /// For messages: like `TypeSet`'s `Display`, plus arrays: "`[real]`".
+    pub fn describe(&self, var: TyVar) -> String {
+        match self.slots[self.root(var)] {
+            Slot::Root(set) => set.to_string(),
+            _ => format!("`{}`", self.name(var)),
+        }
+    }
+
+    /// `[real]`, `[[int]]`. An element with several candidates shows its
+    /// default, one with no default shows `_`.
+    fn name(&self, var: TyVar) -> String {
+        match self.slots[self.root(var)] {
+            Slot::Root(set) => set
+                .default_type()
+                .map_or("_".to_owned(), |ty| type_name(ty).to_owned()),
+            Slot::Array(elem) => format!("[{}]", self.name(elem)),
+            Slot::Link(_) => unreachable!("root() returns a root"),
+        }
     }
 }

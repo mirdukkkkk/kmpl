@@ -35,21 +35,17 @@ struct GenericCall<'a> {
     vars: Vec<TyVar>,
 }
 
-/// A type in a signature or annotation. Generic parameters were replaced
-/// in the checked copies, and `resolve` rejected unknown names.
-fn known(ty: &TypeExpr) -> Type {
-    ty.known()
-        .expect("generic names are replaced before inference")
-}
-
 struct Infer<'a> {
     u: Unifier,
     functions: HashMap<&'a str, &'a Function>,
-    consts: HashMap<&'a str, Type>,
+    consts: HashMap<&'a str, &'a TypeExpr>,
     /// Name -> type of a local. Innermost scope is last.
     scopes: Vec<HashMap<&'a str, TyVar>>,
     /// Every `let` variable, to check at the end that its type is known.
     locals: Vec<(&'a Ident, TyVar)>,
+    /// Every array literal, to check at the end that its element type is
+    /// known: `print([]);` has no variable to report.
+    array_literals: Vec<(Span, TyVar)>,
     /// Every `1` and `1.0` literal with its item index, to pick its final
     /// type at the end. Copies of a generic function share spans, so the
     /// span alone is not unique.
@@ -61,7 +57,7 @@ struct Infer<'a> {
     /// repeated for every copy.
     reported: HashSet<(Span, String)>,
     /// The function being checked: its name and return type.
-    current_fn: Option<(&'a str, Option<Type>)>,
+    current_fn: Option<(&'a str, Option<&'a TypeExpr>)>,
     errors: Vec<CheckError>,
 }
 
@@ -84,6 +80,7 @@ pub fn infer(program: &Program, report_unknown: bool) -> Inference {
         consts: HashMap::new(),
         scopes: Vec::new(),
         locals: Vec::new(),
+        array_literals: Vec::new(),
         current_fn: None,
         literals: Vec::new(),
         generic_calls: Vec::new(),
@@ -95,7 +92,7 @@ pub fn infer(program: &Program, report_unknown: bool) -> Inference {
     for item in &program.items {
         match item {
             Item::Const(c) => {
-                inf.consts.insert(&c.name.name, known(&c.ty));
+                inf.consts.insert(&c.name.name, &c.ty);
             }
             Item::Function(f) => {
                 inf.functions.insert(&f.name.name, f);
@@ -108,7 +105,8 @@ pub fn infer(program: &Program, report_unknown: bool) -> Inference {
         match item {
             Item::Const(c) => {
                 let value = inf.expr(&c.value);
-                inf.expect(value, known(&c.ty), c.value.span);
+                let expected = inf.annotated(&c.ty);
+                inf.unify(value, expected, c.value.span);
             }
             Item::Function(f) if f.generics.is_empty() => inf.function(f),
             Item::Function(_) => {}
@@ -151,6 +149,25 @@ impl<'a> Infer<'a> {
         self.u.new_var(TypeSet::single(ty))
     }
 
+    /// The variable for a type in a signature or annotation. Generic names
+    /// were replaced in the checked copies, and `resolve` rejected unknown
+    /// names, so none are left here.
+    fn annotated(&mut self, ty: &TypeExpr) -> TyVar {
+        self.type_var(ty, &HashMap::new())
+    }
+
+    /// Like `annotated`, with the variables of the generic names in `ty`.
+    fn type_var(&mut self, ty: &TypeExpr, generics: &HashMap<&str, TyVar>) -> TyVar {
+        match ty {
+            TypeExpr::Known(ty) => self.known(*ty),
+            TypeExpr::Param(name) => generics[name.name.as_str()],
+            TypeExpr::Array(elem) => {
+                let elem = self.type_var(elem, generics);
+                self.u.new_array(elem)
+            }
+        }
+    }
+
     /// `actual` must be `expected`. `span` is where `actual` comes from.
     fn expect(&mut self, actual: TyVar, expected: Type, span: Span) {
         let expected = self.known(expected);
@@ -159,7 +176,8 @@ impl<'a> Infer<'a> {
 
     /// `actual` and `expected` must be the same type.
     fn unify(&mut self, actual: TyVar, expected: TyVar, span: Span) {
-        if let Err((found, wanted)) = self.u.unify(actual, expected) {
+        if self.u.unify(actual, expected).is_err() {
+            let (found, wanted) = (self.u.describe(actual), self.u.describe(expected));
             self.error(
                 format!("mismatched types: expected {wanted}, found {found}"),
                 span,
@@ -169,7 +187,8 @@ impl<'a> Infer<'a> {
 
     /// Narrows `var` to `allowed` for the operator `op`.
     fn restrict(&mut self, var: TyVar, allowed: TypeSet, op: &str, span: Span) {
-        if let Err(found) = self.u.restrict(var, allowed) {
+        if self.u.restrict(var, allowed).is_err() {
+            let found = self.u.describe(var);
             self.error(format!("cannot apply `{op}` to {found}"), span);
         }
     }
@@ -179,11 +198,11 @@ impl<'a> Infer<'a> {
     fn function(&mut self, f: &'a Function) {
         let mut scope = HashMap::new();
         for param in &f.params {
-            let var = self.known(known(&param.ty));
+            let var = self.annotated(&param.ty);
             scope.insert(param.name.name.as_str(), var);
         }
         self.scopes.push(scope);
-        self.current_fn = Some((&f.name.name, f.ret.as_ref().map(known)));
+        self.current_fn = Some((&f.name.name, f.ret.as_ref()));
         self.block(&f.body);
         self.current_fn = None;
         self.scopes.pop();
@@ -208,7 +227,7 @@ impl<'a> Infer<'a> {
         match &stmt.kind {
             StmtKind::Let { name, ty, init } => {
                 let var = match ty {
-                    Some(ty) => self.known(known(ty)),
+                    Some(ty) => self.annotated(ty),
                     None => self.u.new_var(TypeSet::ANY),
                 };
                 if let Some(init) = init {
@@ -225,6 +244,21 @@ impl<'a> Infer<'a> {
                 let value_ty = self.expr(value);
                 // Constants and functions are rejected by `resolve`.
                 if let Some(var) = self.lookup(&name.name) {
+                    self.unify(value_ty, var, value.span);
+                }
+            }
+            StmtKind::IndexAssign {
+                name,
+                indices,
+                value,
+            } => {
+                let value_ty = self.expr(value);
+                // Constants and functions are rejected by `resolve`.
+                if let Some(mut var) = self.lookup(&name.name) {
+                    for index in indices {
+                        self.index_type(index);
+                        var = self.array_elem(var, name.span);
+                    }
                     self.unify(value_ty, var, value.span);
                 }
             }
@@ -254,10 +288,12 @@ impl<'a> Infer<'a> {
                     self.expect(ty, Type::Int, bound.span);
                 }
                 let var_ty = self.known(Type::Int);
-                self.scopes
-                    .push(HashMap::from([(var.name.as_str(), var_ty)]));
-                self.block(body);
-                self.scopes.pop();
+                self.for_body(var, var_ty, body);
+            }
+            StmtKind::ForEach { var, array, body } => {
+                let array_ty = self.expr(array);
+                let var_ty = self.array_elem(array_ty, array.span);
+                self.for_body(var, var_ty, body);
             }
             StmtKind::Break | StmtKind::Continue => {}
             StmtKind::Return(value) => self.return_stmt(value.as_ref(), stmt.span),
@@ -273,6 +309,12 @@ impl<'a> Infer<'a> {
         }
     }
 
+    fn for_body(&mut self, var: &'a Ident, ty: TyVar, body: &'a Block) {
+        self.scopes.push(HashMap::from([(var.name.as_str(), ty)]));
+        self.block(body);
+        self.scopes.pop();
+    }
+
     /// `return x;` must match the function's `-> type`; `return;` is only
     /// allowed in functions without one.
     fn return_stmt(&mut self, value: Option<&'a Expr>, span: Span) {
@@ -280,7 +322,8 @@ impl<'a> Infer<'a> {
         match (value, ret) {
             (Some(value), Some(ret)) => {
                 let ty = self.expr(value);
-                self.expect(ty, ret, value.span);
+                let expected = self.annotated(ret);
+                self.unify(ty, expected, value.span);
             }
             (Some(value), None) => {
                 self.expr(value);
@@ -290,7 +333,8 @@ impl<'a> Infer<'a> {
                 );
             }
             (None, Some(ret)) => {
-                let ret = TypeSet::single(ret);
+                let ret = self.annotated(ret);
+                let ret = self.u.describe(ret);
                 self.error(format!("`{name}` must return a value of type {ret}"), span);
             }
             (None, None) => {}
@@ -312,16 +356,13 @@ impl<'a> Infer<'a> {
             ExprKind::Bool(_) => self.known(Type::Bool),
             ExprKind::Var(name) => match self.lookup(&name.name) {
                 Some(var) => var,
-                None => {
-                    let ty = match self.consts.get(name.name.as_str()) {
-                        Some(ty) => *ty,
-                        None => {
-                            let builtin = kmpl_builtins::lookup_const(&name.name);
-                            builtin.expect("checked by resolve").value.ty()
-                        }
-                    };
-                    self.known(ty)
-                }
+                None => match self.consts.get(name.name.as_str()).copied() {
+                    Some(ty) => self.annotated(ty),
+                    None => {
+                        let builtin = kmpl_builtins::lookup_const(&name.name);
+                        self.known(builtin.expect("checked by resolve").value.ty())
+                    }
+                },
             },
             ExprKind::Unary { op, operand } => {
                 let ty = self.expr(operand);
@@ -340,7 +381,44 @@ impl<'a> Infer<'a> {
                 }
             },
             ExprKind::Swizzle { base, mask } => self.swizzle(base, mask),
+            ExprKind::Array(items) => {
+                let elem = self.u.new_var(TypeSet::ANY);
+                for item in items {
+                    let ty = self.expr(item);
+                    self.unify(ty, elem, item.span);
+                }
+                let array = self.u.new_array(elem);
+                self.array_literals.push((e.span, array));
+                array
+            }
+            ExprKind::ArrayFill { value, len } => {
+                let elem = self.expr(value);
+                self.index_type(len);
+                self.u.new_array(elem)
+            }
+            ExprKind::Index { base, index } => {
+                let base_ty = self.expr(base);
+                self.index_type(index);
+                self.array_elem(base_ty, base.span)
+            }
         }
+    }
+
+    /// An index or an array length is an `int`.
+    fn index_type(&mut self, e: &'a Expr) {
+        let ty = self.expr(e);
+        self.expect(ty, Type::Int, e.span);
+    }
+
+    /// The element type of `ty`, which must be an array.
+    fn array_elem(&mut self, ty: TyVar, span: Span) -> TyVar {
+        let elem = self.u.new_var(TypeSet::ANY);
+        let array = self.u.new_array(elem);
+        if self.u.unify(ty, array).is_err() {
+            let found = self.u.describe(ty);
+            self.error(format!("expected an array, found {found}"), span);
+        }
+        elem
     }
 
     fn literal(&mut self, set: TypeSet, span: Span) -> TyVar {
@@ -409,7 +487,8 @@ impl<'a> Infer<'a> {
                 "cannot tell if the operands of `{sym}` are numbers or vectors, add a type annotation"
             )
         } else {
-            format!("cannot apply `{sym}` to {ls} and {rs}")
+            let (l, r) = (self.u.describe(l), self.u.describe(r));
+            format!("cannot apply `{sym}` to {l} and {r}")
         };
         self.error(message, span);
         self.u.new_var(TypeSet::ANY)
@@ -431,6 +510,9 @@ impl<'a> Infer<'a> {
                 ParamType::Exact(ty) => self.expect(arg_ty, *ty, arg.span),
                 ParamType::T => self.unify(arg_ty, t, arg.span),
                 ParamType::Any => {}
+                ParamType::AnyArray => {
+                    self.array_elem(arg_ty, arg.span);
+                }
             }
         }
 
@@ -461,17 +543,13 @@ impl<'a> Infer<'a> {
             let var = self.u.new_var(TypeSet::of(&generic.bound));
             vars.insert(generic.name.name.as_str(), var);
         }
-        let var_of = |inf: &mut Self, ty: &TypeExpr| match ty {
-            TypeExpr::Known(ty) => inf.known(*ty),
-            TypeExpr::Param(name) => vars[name.name.as_str()],
-        };
 
         for (arg, param) in args.iter().zip(&f.params) {
             let arg_ty = self.expr(arg);
-            let param_ty = var_of(self, &param.ty);
+            let param_ty = self.type_var(&param.ty, &vars);
             self.unify(arg_ty, param_ty, arg.span);
         }
-        let ret = f.ret.as_ref().map(|ty| var_of(self, ty));
+        let ret = f.ret.as_ref().map(|ty| self.type_var(ty, &vars));
 
         if !f.generics.is_empty() {
             let vars = f
@@ -501,7 +579,7 @@ impl<'a> Infer<'a> {
                 let message = if set.is_subset(TypeSet::VECTOR) {
                     "cannot tell which vector this is, add a type annotation".to_owned()
                 } else {
-                    format!("swizzle needs a vector, found {set}")
+                    format!("swizzle needs a vector, found {}", self.u.describe(base_ty))
                 };
                 self.error(message, base.span);
                 return self.u.new_var(TypeSet::ANY);
@@ -540,11 +618,16 @@ impl<'a> Infer<'a> {
             return;
         }
         for (name, var) in std::mem::take(&mut self.locals) {
-            let set = self.u.set(var);
-            if set.default_type().is_none() {
-                let message = if set == TypeSet::ANY {
+            if !self.u.is_resolved(var) {
+                let set = self.u.describe(var);
+                let message = if self.u.set(var) == TypeSet::ANY {
                     format!(
                         "cannot infer the type of `{}`, add a type annotation",
+                        name.name
+                    )
+                } else if self.u.set(var) == TypeSet::ARRAY {
+                    format!(
+                        "cannot infer the element type of `{}`, add a type annotation",
                         name.name
                     )
                 } else {
@@ -554,6 +637,18 @@ impl<'a> Infer<'a> {
                     )
                 };
                 self.error(message, name.span);
+            }
+        }
+
+        if !self.errors.is_empty() {
+            return;
+        }
+        for (span, var) in std::mem::take(&mut self.array_literals) {
+            if !self.u.is_resolved(var) {
+                self.error(
+                    "cannot infer the element type of this array".to_owned(),
+                    span,
+                );
             }
         }
     }

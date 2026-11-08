@@ -42,12 +42,12 @@ pub fn int_pow(base: i64, exp: i64) -> Result<i64, String> {
 /// a panic (Rust's `clamp` panics). A NaN `x` stays NaN.
 pub fn clamp(x: Value, lo: Value, hi: Value) -> Result<Value, String> {
     let bad_bounds = || format!("`clamp` needs lower bound <= upper bound, got {lo} and {hi}");
-    match (x, lo, hi) {
+    match (&x, &lo, &hi) {
         (Value::Int(x), Value::Int(lo), Value::Int(hi)) => {
             if lo > hi {
                 return Err(bad_bounds());
             }
-            Ok(Value::Int(x.max(lo).min(hi)))
+            Ok(Value::Int(*x.max(lo).min(hi)))
         }
         (x, lo, hi) => {
             let (x, lo, hi) = (x.as_real(), lo.as_real(), hi.as_real());
@@ -75,7 +75,7 @@ pub fn lerp(a: Value, b: Value, t: f64) -> Value {
             re: mix(ar, br),
             im: mix(ai, bi),
         },
-        (a, b) => a.zip_components(b, mix).expect("same vector type"),
+        (a, b) => a.zip_components(&b, mix).expect("same vector type"),
     }
 }
 

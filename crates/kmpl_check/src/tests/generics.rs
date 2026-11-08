@@ -186,3 +186,25 @@ fn literals_get_their_type_per_copy() {
 fn generic_annotations_inside_for_are_substituted() {
     assert_ok("fn f<T: real | vec2>(x: T) { for i in 0..2 { let y: T = x; print(y); } }");
 }
+
+#[test]
+fn arrays_of_a_generic_parameter() {
+    assert_ok(
+        "fn first<T: int | real>(a: [T]) -> T { return a[0]; }
+         fn f() { let x: real = first([1.5]); let y: int = first([1]); }",
+    );
+    assert_ok("fn f<T: real | vec2>(x: T) { let a: [T] = [x; 2]; print(a[0]); }");
+    assert_error(
+        "fn first<T: int | real>(a: [T]) -> T { return a[0]; }
+         fn f() { first([true]); }",
+        "mismatched types: expected `[int]`, found `[bool]`",
+    );
+}
+
+#[test]
+fn a_generic_parameter_cannot_be_an_array() {
+    assert_error(
+        "fn g<T: int>(x: T) { } fn f() { g([1]); }",
+        "mismatched types: expected `int`, found `[int]`",
+    );
+}

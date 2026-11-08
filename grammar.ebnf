@@ -14,18 +14,20 @@ params      ::= param (',' param)* ','?
 param       ::= IDENT ':' type
 
 type        ::= IDENT                       (* a built-in type or a generic parameter *)
+              | '[' type ']'                (* an array of any length *)
 
 (* statements *)
 block       ::= '{' stmt* '}'
-stmt        ::= let | if | while | for | break | continue | return | assign | exprstmt
+stmt        ::= let | if | while | for | break | continue | return | assign | indexassign | exprstmt
 let         ::= 'let' IDENT (':' type)? ('=' expr)? ';'
 if          ::= 'if' expr block ('else' (if | block))?
 while       ::= 'while' expr block
-for         ::= 'for' IDENT 'in' expr '..' expr block   (* the end is not included *)
+for         ::= 'for' IDENT 'in' expr ('..' expr)? block   (* a range without its end, or an array *)
 break       ::= 'break' ';'
 continue    ::= 'continue' ';'
 return      ::= 'return' expr? ';'
 assign      ::= IDENT '=' expr ';'
+indexassign ::= IDENT ('[' expr ']')+ '=' expr ';'
 exprstmt    ::= expr ';'
 
 (* expressions: from lowest to highest precedence *)
@@ -37,8 +39,9 @@ comp        ::= add (('<' | '<=' | '>' | '>=') add)*
 add         ::= mul (('+' | '-') mul)*
 mul         ::= unary (('*' | '/') unary)*
 unary       ::= ('!' | '-') unary | postfix
-postfix     ::= primary (':' swizzle)?
-primary     ::= INT | REAL | IMAG | 'true' | 'false' | IDENT | call | '(' expr ')'
+postfix     ::= primary ('[' expr ']')* (':' swizzle)?
+primary     ::= INT | REAL | IMAG | 'true' | 'false' | IDENT | call | array | '(' expr ')'
+array       ::= '[' (expr (',' expr)* ','?)? ']' | '[' expr ';' expr ']'
 call        ::= IDENT '(' (expr (',' expr)* ','?)? ')'
 
 (* The identifier after ':' is an ordinary IDENT. Whether it consists

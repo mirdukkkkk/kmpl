@@ -1,6 +1,6 @@
 //! Statements and blocks.
 
-use kmpl_ast::{Block, Span, Stmt, StmtKind, Type, TypeExpr};
+use kmpl_ast::{Block, Expr, ExprKind, Ident, Span, Stmt, StmtKind, Type, TypeExpr};
 use kmpl_lexer::Token;
 
 use crate::error::PResult;
@@ -102,13 +102,25 @@ fn while_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     })
 }
 
-/// `'for' IDENT 'in' expr '..' expr block`
+/// `'for' IDENT 'in' expr ('..' expr)? block`
 fn for_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     let first = ts.expect(Token::For)?;
     let var = ts.expect_ident()?;
     ts.expect(Token::In)?;
     let start = expr(ts)?;
-    ts.expect(Token::DotDot)?;
+
+    if ts.eat(&Token::DotDot).is_none() {
+        let (body, last) = block(ts)?;
+        return Ok(Stmt {
+            kind: StmtKind::ForEach {
+                var,
+                array: start,
+                body,
+            },
+            span: first.to(last),
+        });
+    }
+
     let end = expr(ts)?;
     let (body, last) = block(ts)?;
 
@@ -165,9 +177,14 @@ fn assign_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     })
 }
 
-/// `expr ';'`
+/// `expr ';'` or `IDENT ('[' expr ']')+ '=' expr ';'`. An index expression
+/// can be any length, so the `=` is only visible after parsing it.
 fn expr_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     let e = expr(ts)?;
+    if ts.peek() == Some(&Token::Assign) && is_index_target(&e) {
+        return index_assign(ts, e);
+    }
+
     let end = ts.expect(Token::Semi)?;
 
     let span = e.span.to(end);
@@ -177,10 +194,60 @@ fn expr_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     })
 }
 
-/// `type ::= IDENT`. The lexer gives type names as plain identifiers.
+/// `a[i]`, `a[i][j]`, but not `f()[i]`: there is no variable to change.
+fn is_index_target(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Index { base, .. } => {
+            matches!(base.kind, ExprKind::Var(_)) || is_index_target(base)
+        }
+        _ => false,
+    }
+}
+
+/// Parses the rest of `target = value;`.
+fn index_assign(ts: &mut TokenStream, target: Expr) -> PResult<Stmt> {
+    let start = target.span;
+    let mut indices = Vec::new();
+    let name = split_target(target, &mut indices);
+
+    ts.expect(Token::Assign)?;
+    let value = expr(ts)?;
+    let end = ts.expect(Token::Semi)?;
+
+    Ok(Stmt {
+        kind: StmtKind::IndexAssign {
+            name,
+            indices,
+            value,
+        },
+        span: start.to(end),
+    })
+}
+
+/// Splits `a[i][j]` into `a` and `[i, j]`. `e` passed `is_index_target`.
+fn split_target(e: Expr, indices: &mut Vec<Expr>) -> Ident {
+    match e.kind {
+        ExprKind::Index { base, index } => {
+            let name = split_target(*base, indices);
+            indices.push(*index);
+            name
+        }
+        ExprKind::Var(name) => name,
+        _ => unreachable!("checked by is_index_target"),
+    }
+}
+
+/// `type ::= IDENT | '[' type ']'`. The lexer gives type names as plain
+/// identifiers.
 /// A built-in name becomes `Known`; any other name becomes `Param` (a
 /// generic parameter or a typo), and the checker decides which.
 pub fn ty(ts: &mut TokenStream) -> PResult<TypeExpr> {
+    if ts.eat(&Token::LBracket).is_some() {
+        let elem = ty(ts)?;
+        ts.expect(Token::RBracket)?;
+        return Ok(TypeExpr::Array(Box::new(elem)));
+    }
+
     let name = ts.expect_ident()?;
     Ok(match Type::from_name(&name.name) {
         Some(ty) => TypeExpr::Known(ty),

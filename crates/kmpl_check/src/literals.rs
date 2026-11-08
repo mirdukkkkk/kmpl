@@ -45,6 +45,16 @@ impl Rewriter<'_> {
                     }
                 }
                 StmtKind::Assign { value, .. } => self.expr(value),
+                StmtKind::IndexAssign { indices, value, .. } => {
+                    for index in indices {
+                        self.expr(index);
+                    }
+                    self.expr(value);
+                }
+                StmtKind::ForEach { array, body, .. } => {
+                    self.expr(array);
+                    self.block(body);
+                }
                 StmtKind::If {
                     cond,
                     then,
@@ -111,6 +121,19 @@ impl Rewriter<'_> {
                 }
             }
             ExprKind::Swizzle { base, .. } => self.expr(base),
+            ExprKind::Array(items) => {
+                for item in items {
+                    self.expr(item);
+                }
+            }
+            ExprKind::ArrayFill { value, len } => {
+                self.expr(value);
+                self.expr(len);
+            }
+            ExprKind::Index { base, index } => {
+                self.expr(base);
+                self.expr(index);
+            }
         }
     }
 }

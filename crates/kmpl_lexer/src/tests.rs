@@ -406,3 +406,16 @@ fn range_dots_do_not_join_reals() {
         vec![Token::Int(1), Token::DotDot, Token::Real(0.5)]
     );
 }
+
+#[test]
+fn brackets() {
+    assert_eq!(
+        tokens("a[0]"),
+        vec![
+            Token::Ident("a".into()),
+            Token::LBracket,
+            Token::Int(0),
+            Token::RBracket,
+        ]
+    );
+}

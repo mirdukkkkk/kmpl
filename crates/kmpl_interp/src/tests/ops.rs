@@ -129,9 +129,9 @@ fn not() {
 #[test]
 fn swizzles() {
     let v = Vec4([1.0, 2.0, 3.0, 4.0]);
-    assert_eq!(swizzle(v, "x"), Real(1.0));
-    assert_eq!(swizzle(v, "wz"), Vec2([4.0, 3.0]));
-    assert_eq!(swizzle(v, "xxy"), Vec3([1.0, 1.0, 2.0]));
+    assert_eq!(swizzle(v.clone(), "x"), Real(1.0));
+    assert_eq!(swizzle(v.clone(), "wz"), Vec2([4.0, 3.0]));
+    assert_eq!(swizzle(v.clone(), "xxy"), Vec3([1.0, 1.0, 2.0]));
     assert_eq!(swizzle(v, "wzyx"), Vec4([4.0, 3.0, 2.0, 1.0]));
     assert_eq!(
         swizzle(Vec2([5.0, 6.0]), "yxyx"),

@@ -343,3 +343,183 @@ fn runtime_error_in_a_for_bound() {
         "division by zero"
     );
 }
+
+#[test]
+fn print_arrays() {
+    assert_eq!(output("print([1, 2]);"), "[1, 2]\n");
+    assert_eq!(output("print([1.5, 2.0]);"), "[1.5, 2.0]\n");
+    assert_eq!(output("print([[1], [2, 3]]);"), "[[1], [2, 3]]\n");
+    assert_eq!(output("let a: [int] = []; print(a);"), "[]\n");
+    assert_eq!(output("print([vec2(1, 2)]);"), "[(1.0, 2.0)]\n");
+}
+
+#[test]
+fn array_literals_get_their_inferred_type() {
+    assert_eq!(output("let a: [real] = [1, 2]; print(a);"), "[1.0, 2.0]\n");
+    assert_eq!(
+        output("let a: [real] = [0; 2]; a[0] = 1; print(a);"),
+        "[1.0, 0.0]\n"
+    );
+    assert_eq!(output("let a: [complex] = [1]; print(a);"), "[1.0+0.0i]\n");
+}
+
+#[test]
+fn array_fill_and_len() {
+    assert_eq!(output("print([7; 3]);"), "[7, 7, 7]\n");
+    assert_eq!(output("let n = 0; print(len([1.0; n]));"), "0\n");
+    assert_eq!(output("print(len([[1], [2]]));"), "2\n");
+}
+
+#[test]
+fn reading_and_writing_elements() {
+    assert_eq!(output("let a = [1, 2, 3]; print(a[2]);"), "3\n");
+    assert_eq!(output("print([1, 2][1]);"), "2\n");
+    assert_eq!(
+        output("let a = [1, 2]; a[0] = a[1] + 5; print(a);"),
+        "[7, 2]\n"
+    );
+    assert_eq!(
+        output("let m = [[1, 2], [3, 4]]; m[1][0] = 9; print(m); print(m[1][0]);"),
+        "[[1, 2], [9, 4]]\n9\n"
+    );
+    assert_eq!(
+        output("let m = [[1], [2]]; m[0] = [5, 6]; print(m);"),
+        "[[5, 6], [2]]\n"
+    );
+}
+
+#[test]
+fn arrays_are_values() {
+    assert_eq!(
+        output("let a = [1, 2]; let b = a; b[0] = 9; print(a); print(b);"),
+        "[1, 2]\n[9, 2]\n"
+    );
+    assert_eq!(
+        output("let m = [[0; 2]; 2]; m[0][0] = 1; print(m);"),
+        "[[1, 0], [0, 0]]\n"
+    );
+    assert_eq!(
+        output("let m = [[1], [2]]; let row = m[0]; row[0] = 9; print(m); print(row);"),
+        "[[1], [2]]\n[9]\n"
+    );
+    let src = "fn change(a: [int]) -> [int] { a[0] = 9; return a; }
+               fn main() { let a = [1]; let b = change(a); print(a); print(b); }";
+    assert_eq!(run(src).unwrap(), "[1]\n[9]\n");
+}
+
+#[test]
+fn array_equality() {
+    assert_eq!(output("print([1, 2] == [1, 2]);"), "true\n");
+    assert_eq!(output("print([1, 2] != [1, 3]);"), "true\n");
+    assert_eq!(output("print([1] == [1, 2]);"), "false\n");
+}
+
+#[test]
+fn index_out_of_bounds() {
+    let message =
+        |i: &str, len: usize| format!("index {i} is out of bounds for an array of length {len}");
+    assert_eq!(
+        runtime_error("fn main() { let a = [1, 2]; print(a[2]); }"),
+        message("2", 2)
+    );
+    assert_eq!(
+        runtime_error("fn main() { let a = [1, 2]; print(a[-1]); }"),
+        message("-1", 2)
+    );
+    assert_eq!(
+        runtime_error("fn main() { let a = [1, 2]; a[5] = 1; }"),
+        message("5", 2)
+    );
+    assert_eq!(
+        runtime_error("fn main() { let m = [[1]]; m[0][1] = 1; }"),
+        message("1", 1)
+    );
+    assert_eq!(
+        runtime_error("fn main() { let a: [int] = []; print(a[0]); }"),
+        message("0", 0)
+    );
+}
+
+#[test]
+fn bad_array_lengths() {
+    assert_eq!(
+        runtime_error("fn main() { let n = -1; print([0; n]); }"),
+        "array length cannot be negative, got -1"
+    );
+    assert_eq!(
+        runtime_error("fn main() { print([0; 9223372036854775807]); }"),
+        "an array of 9223372036854775807 elements is too large"
+    );
+}
+
+#[test]
+fn index_assignment_evaluates_the_value_first() {
+    let src = "fn v() -> int { print(1); return 5; }
+               fn i() -> int { print(2); return 0; }
+               fn main() { let a = [0]; a[i()] = v(); print(a); }";
+    assert_eq!(run(src).unwrap(), "1\n2\n[5]\n");
+}
+
+#[test]
+fn for_each_visits_elements_in_order() {
+    assert_eq!(output("for x in [1, 2, 3] { print(x); }"), "1\n2\n3\n");
+    let empty: &str = "let a: [int] = []; for x in a { print(x); }";
+    assert_eq!(output(empty), "");
+    assert_eq!(
+        output("for row in [[1, 2], [3]] { for x in row { print(x); } }"),
+        "1\n2\n3\n"
+    );
+}
+
+#[test]
+fn for_each_control_flow() {
+    assert_eq!(
+        output("for x in [1, 2, 3, 4] { if x == 2 { continue; } if x == 4 { break; } print(x); }"),
+        "1\n3\n"
+    );
+    let src = "fn find(a: [int]) -> int {
+                   for x in a { if x > 1 { return x; } }
+                   return 0;
+               }
+               fn main() { print(find([1, 2, 3])); }";
+    assert_eq!(run(src).unwrap(), "2\n");
+}
+
+#[test]
+fn for_each_uses_the_array_from_the_start_of_the_loop() {
+    assert_eq!(
+        output("let a = [1, 2]; for x in a { a[1] = 9; print(x); } print(a);"),
+        "1\n2\n[1, 9]\n"
+    );
+    assert_eq!(
+        output("let a = [1, 2]; for x in a { a = [5]; print(x); } print(a);"),
+        "1\n2\n[5]\n"
+    );
+}
+
+#[test]
+fn constant_arrays() {
+    let src = "const A: [real] = [1, 2];
+               fn main() { let b = A; b[0] = 5; print(A); print(b); print(A[1]); }";
+    assert_eq!(run(src).unwrap(), "[1.0, 2.0]\n[5.0, 2.0]\n2.0\n");
+}
+
+#[test]
+fn arrays_of_a_generic_parameter() {
+    let src = "fn first<T: int | real>(a: [T]) -> T { return a[0]; }
+               fn main() { print(first([1, 2])); print(first([1.5])); }";
+    assert_eq!(run(src).unwrap(), "1\n1.5\n");
+}
+
+#[test]
+fn generic_calls_and_literals_inside_arrays() {
+    let src = "fn id<T: int | real>(x: T) -> T { return x; }
+               fn main() {
+                   let a: [real] = [id(1.5); 1 + id(1)];
+                   a[id(0)] = 2;
+                   print(a);
+                   print([id(3)][id(0)]);
+                   for x in [id(4)] { print(x); }
+               }";
+    assert_eq!(run(src).unwrap(), "[2.0, 1.5]\n3\n4\n");
+}

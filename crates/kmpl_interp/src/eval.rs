@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::io::Write;
+use std::sync::Arc;
 
 use kmpl_ast::{
     BinOp, Block, Expr, ExprKind, Function, Ident, Item, Program, Span, Stmt, StmtKind,
@@ -46,6 +47,17 @@ fn error(message: impl Into<String>, span: Span) -> RuntimeError {
     RuntimeError {
         message: message.into(),
         span,
+    }
+}
+
+/// `i` as a position in an array of length `len`.
+fn checked_index(i: i64, len: usize, span: Span) -> Result<usize> {
+    match usize::try_from(i) {
+        Ok(position) if position < len => Ok(position),
+        _ => Err(error(
+            format!("index {i} is out of bounds for an array of length {len}"),
+            span,
+        )),
     }
 }
 
@@ -97,27 +109,57 @@ impl<'p, 'o> Interp<'p, 'o> {
         if let Some(frame) = self.frames.last() {
             for scope in frame.scopes.iter().rev() {
                 if let Some(slot) = scope.get(name.name.as_str()) {
-                    return slot.expect("checker ensures assignment before use");
+                    return slot.clone().expect("checker ensures assignment before use");
                 }
             }
         }
         match self.consts.get(name.name.as_str()) {
-            Some(value) => *value,
+            Some(value) => value.clone(),
             None => {
                 let builtin = kmpl_builtins::lookup_const(&name.name);
-                builtin.expect("checker ensures the name exists").value
+                builtin
+                    .expect("checker ensures the name exists")
+                    .value
+                    .clone()
             }
         }
     }
 
-    fn assign(&mut self, name: &Ident, value: Value) {
+    fn slot(&mut self, name: &Ident) -> &mut Option<Value> {
         for scope in self.frame().scopes.iter_mut().rev() {
             if let Some(slot) = scope.get_mut(name.name.as_str()) {
-                *slot = Some(value);
-                return;
+                return slot;
             }
         }
         unreachable!("checker ensures `{}` is a local variable", name.name);
+    }
+
+    fn assign(&mut self, name: &Ident, value: Value) {
+        *self.slot(name) = Some(value);
+    }
+
+    /// `name[i][j] = value`. `Arc::make_mut` copies an array only if it
+    /// is shared, which is what makes arrays behave like values.
+    fn assign_index(
+        &mut self,
+        name: &Ident,
+        positions: &[(i64, Span)],
+        value: Value,
+    ) -> Result<()> {
+        let slot = self.slot(name);
+        let mut target = slot
+            .as_mut()
+            .expect("checker ensures assignment before use");
+        for &(i, span) in positions {
+            let Value::Array(items) = target else {
+                panic!("indexing {target:?}, the checker should have rejected it");
+            };
+            let items = Arc::make_mut(items);
+            let i = checked_index(i, items.len(), span)?;
+            target = &mut items[i];
+        }
+        *target = value;
+        Ok(())
     }
 
     // ----- statements -----
@@ -148,6 +190,18 @@ impl<'p, 'o> Interp<'p, 'o> {
                 let value = self.eval(value)?;
                 self.assign(name, value);
             }
+            StmtKind::IndexAssign {
+                name,
+                indices,
+                value,
+            } => {
+                let value = self.eval(value)?;
+                let mut positions = Vec::with_capacity(indices.len());
+                for index in indices {
+                    positions.push((self.eval_int(index)?, index.span));
+                }
+                self.assign_index(name, &positions, value)?;
+            }
             StmtKind::If {
                 cond,
                 then,
@@ -177,22 +231,12 @@ impl<'p, 'o> Interp<'p, 'o> {
             } => {
                 let start = self.eval_int(start)?;
                 let end = self.eval_int(end)?;
-
-                self.frame().scopes.push(HashMap::new());
-                let mut result = Flow::Normal;
-                for i in start..end {
-                    self.declare(&var.name, Some(Value::Int(i)));
-                    match self.block(body)? {
-                        Flow::Break => break,
-                        Flow::Normal | Flow::Continue => {}
-                        flow @ Flow::Return(_) => {
-                            result = flow;
-                            break;
-                        }
-                    }
-                }
-                self.frame().scopes.pop();
-                return Ok(result);
+                return self.for_loop(var, body, (start..end).map(Value::Int));
+            }
+            StmtKind::ForEach { var, array, body } => {
+                // `items` keeps the array as it was when the loop started.
+                let items = self.eval_array(array)?;
+                return self.for_loop(var, body, items.iter().cloned());
             }
             StmtKind::Break => return Ok(Flow::Break),
             StmtKind::Continue => return Ok(Flow::Continue),
@@ -216,25 +260,52 @@ impl<'p, 'o> Interp<'p, 'o> {
         Ok(Flow::Normal)
     }
 
+    /// Runs `body` once per value, with `var` set to it.
+    fn for_loop(
+        &mut self,
+        var: &'p Ident,
+        body: &'p Block,
+        values: impl Iterator<Item = Value>,
+    ) -> Result<Flow> {
+        self.frame().scopes.push(HashMap::new());
+        let mut result = Flow::Normal;
+        for value in values {
+            self.declare(&var.name, Some(value));
+            match self.block(body)? {
+                Flow::Break => break,
+                Flow::Normal | Flow::Continue => {}
+                flow @ Flow::Return(_) => {
+                    result = flow;
+                    break;
+                }
+            }
+        }
+        self.frame().scopes.pop();
+        Ok(result)
+    }
+
     // ----- expressions -----
 
     fn eval_bool(&mut self, e: &'p Expr) -> Result<bool> {
         match self.eval(e)? {
             Value::Bool(b) => Ok(b),
-            other => panic!(
-                "condition is {:?}, the checker should have rejected it",
-                other.ty()
-            ),
+            other => panic!("condition is {other:?}, the checker should have rejected it"),
         }
     }
 
     fn eval_int(&mut self, e: &'p Expr) -> Result<i64> {
         match self.eval(e)? {
             Value::Int(v) => Ok(v),
-            other => panic!(
-                "`for` bound is {:?}, the checker should have rejected it",
-                other.ty()
-            ),
+            other => panic!("expected an int, got {other:?}, the checker should have rejected it"),
+        }
+    }
+
+    fn eval_array(&mut self, e: &'p Expr) -> Result<Arc<Vec<Value>>> {
+        match self.eval(e)? {
+            Value::Array(items) => Ok(items),
+            other => {
+                panic!("expected an array, got {other:?}, the checker should have rejected it")
+            }
         }
     }
 
@@ -263,6 +334,34 @@ impl<'p, 'o> Interp<'p, 'o> {
                 let l = self.eval(lhs)?;
                 let r = self.eval(rhs)?;
                 ops::binary(*op, l, r).map_err(|m| error(m, e.span))?
+            }
+            ExprKind::Array(items) => {
+                let mut values = Vec::with_capacity(items.len());
+                for item in items {
+                    values.push(self.eval(item)?);
+                }
+                Value::Array(Arc::new(values))
+            }
+            ExprKind::ArrayFill { value, len } => {
+                let item = self.eval(value)?;
+                let n = self.eval_int(len)?;
+                let count = usize::try_from(n).map_err(|_| {
+                    error(
+                        format!("array length cannot be negative, got {n}"),
+                        len.span,
+                    )
+                })?;
+                let mut values = Vec::new();
+                values.try_reserve_exact(count).map_err(|_| {
+                    error(format!("an array of {n} elements is too large"), len.span)
+                })?;
+                values.resize(count, item);
+                Value::Array(Arc::new(values))
+            }
+            ExprKind::Index { base, index } => {
+                let items = self.eval_array(base)?;
+                let i = self.eval_int(index)?;
+                items[checked_index(i, items.len(), index.span)?].clone()
             }
             ExprKind::Call { name, args } => self
                 .call(name, args, e.span)?

@@ -1,18 +1,30 @@
+use std::sync::Arc;
+
 use kmpl_ast::Type;
 
-/// A runtime value. One variant per `Type`.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// A runtime value. One variant per `Type`, plus arrays.
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Int(i64),
     Real(f64),
     Bool(bool),
-    Complex { re: f64, im: f64 },
+    Complex {
+        re: f64,
+        im: f64,
+    },
     Vec2([f64; 2]),
     Vec3([f64; 3]),
     Vec4([f64; 4]),
+    /// Arrays behave like values: `let b = a;` gives an independent array.
+    /// Copying only shares the `Arc`; a write copies the elements if the
+    /// array is shared (`Arc::make_mut`). `Arc` rather than `Rc` because
+    /// `Value` is stored in the `static` table of built-in constants.
+    Array(Arc<Vec<Value>>),
 }
 
 impl Value {
+    /// The type of this value. Panics on an array, which has no `Type`:
+    /// only built-in constants and tests ask, and those are never arrays.
     pub fn ty(&self) -> Type {
         match self {
             Value::Int(_) => Type::Int,
@@ -22,6 +34,7 @@ impl Value {
             Value::Vec2(_) => Type::Vec2,
             Value::Vec3(_) => Type::Vec3,
             Value::Vec4(_) => Type::Vec4,
+            Value::Array(_) => panic!("an array has no `Type`"),
         }
     }
 
@@ -33,7 +46,7 @@ impl Value {
     pub fn as_real(&self) -> f64 {
         match self {
             Value::Real(v) => *v,
-            other => panic!("expected real, got {:?}", other.ty()),
+            other => panic!("expected real, got {other:?}"),
         }
     }
 
@@ -43,13 +56,13 @@ impl Value {
             Value::Vec2(a) => a,
             Value::Vec3(a) => a,
             Value::Vec4(a) => a,
-            other => panic!("expected a vector, got {:?}", other.ty()),
+            other => panic!("expected a vector, got {other:?}"),
         }
     }
 
     /// Applies `f` to every component of a vector. `None` if `self` is
     /// not a vector.
-    pub fn map_components(self, f: impl Fn(f64) -> f64) -> Option<Value> {
+    pub fn map_components(&self, f: impl Fn(f64) -> f64) -> Option<Value> {
         let v = match self {
             Value::Vec2(a) => Value::Vec2(a.map(f)),
             Value::Vec3(a) => Value::Vec3(a.map(f)),
@@ -61,7 +74,7 @@ impl Value {
 
     /// Applies `f` to matching components of two vectors of the same size.
     /// `None` if they are not vectors of the same size.
-    pub fn zip_components(self, other: Value, f: impl Fn(f64, f64) -> f64) -> Option<Value> {
+    pub fn zip_components(&self, other: &Value, f: impl Fn(f64, f64) -> f64) -> Option<Value> {
         let v = match (self, other) {
             (Value::Vec2(a), Value::Vec2(b)) => Value::Vec2(std::array::from_fn(|i| f(a[i], b[i]))),
             (Value::Vec3(a), Value::Vec3(b)) => Value::Vec3(std::array::from_fn(|i| f(a[i], b[i]))),
@@ -75,12 +88,13 @@ impl Value {
     pub fn as_complex(&self) -> (f64, f64) {
         match self {
             Value::Complex { re, im } => (*re, *im),
-            other => panic!("expected complex, got {:?}", other.ty()),
+            other => panic!("expected complex, got {other:?}"),
         }
     }
 }
 
-/// How `print` shows values: `42`, `1.0`, `true`, `2.0+3.0i`, `(1.0, 2.0)`.
+/// How `print` shows values: `42`, `1.0`, `true`, `2.0+3.0i`, `(1.0, 2.0)`,
+/// `[1, 2]`.
 impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -95,6 +109,10 @@ impl std::fmt::Display for Value {
             Value::Vec2(v) => write_components(f, v),
             Value::Vec3(v) => write_components(f, v),
             Value::Vec4(v) => write_components(f, v),
+            Value::Array(items) => {
+                let parts: Vec<String> = items.iter().map(Value::to_string).collect();
+                write!(f, "[{}]", parts.join(", "))
+            }
         }
     }
 }

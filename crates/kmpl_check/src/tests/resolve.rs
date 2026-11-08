@@ -212,3 +212,47 @@ fn break_and_continue_inside_for() {
         "`break` outside of a loop",
     );
 }
+
+#[test]
+fn names_inside_arrays() {
+    assert_error("fn f() { [x]; }", "undefined variable `x`");
+    assert_error("fn f() { [0; x]; }", "undefined variable `x`");
+    assert_error("fn f(a: [int]) { a[x]; }", "undefined variable `x`");
+    assert_error("fn f() { y[0] = 1; }", "undefined variable `y`");
+    assert_error("fn f(a: [int]) { a[x] = 1; }", "undefined variable `x`");
+    assert_error("fn f(a: [int]) { a[0] = x; }", "undefined variable `x`");
+}
+
+#[test]
+fn index_assignment_targets() {
+    assert_error(
+        "const A: [int] = [1]; fn f() { A[0] = 2; }",
+        "cannot assign to constant `A`",
+    );
+    assert_error(
+        "fn f() { for x in [[1]] { x[0] = 2; } }",
+        "cannot assign to loop variable `x`",
+    );
+}
+
+#[test]
+fn array_type_names_are_checked() {
+    assert_error("fn f() { let a: [Foo]; }", "unknown type `Foo`");
+    assert_error("fn f(a: [[Foo]]) { }", "unknown type `Foo`");
+    assert_ok("fn f<T: int | real>(a: [T]) { }");
+}
+
+#[test]
+fn for_each_scope() {
+    assert_ok("fn f(a: [int]) { for x in a { print(x); } }");
+    assert_error(
+        "fn f(a: [int]) { for x in a { } print(x); }",
+        "undefined variable `x`",
+    );
+    assert_error(
+        "fn f(a: [int]) { for x in a { x = 1; } }",
+        "cannot assign to loop variable `x`",
+    );
+    assert_error("fn f() { for x in x { } }", "undefined variable `x`");
+    assert_ok("fn f(a: [int]) { for x in a { if x == 1 { continue; } break; } }");
+}

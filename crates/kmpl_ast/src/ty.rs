@@ -46,14 +46,6 @@ pub enum TypeExpr {
     /// Any other name: a generic parameter like `T`, or a typo. The parser
     /// cannot tell which; the checker reports unknown names.
     Param(Ident),
-}
-
-impl TypeExpr {
-    /// The type, if it is a built-in one.
-    pub fn known(&self) -> Option<Type> {
-        match self {
-            TypeExpr::Known(ty) => Some(*ty),
-            TypeExpr::Param(_) => None,
-        }
-    }
+    /// `[T]`: an array of `T`, of any length.
+    Array(Box<TypeExpr>),
 }
