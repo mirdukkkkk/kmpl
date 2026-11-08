@@ -1,6 +1,6 @@
-use std::io::Write;
+mod diagnostics;
 
-use kmpl_ast::Span;
+use std::io::Write;
 
 const USAGE: &str = "usage: kmpl [--ast] <file>";
 
@@ -22,18 +22,24 @@ fn main() {
 
     let tokens = match kmpl_lexer::lex(&src) {
         Ok(tokens) => tokens,
-        Err(span) => fail(&located(path, "unexpected character", span)),
+        Err(span) => {
+            let message = diagnostics::lex_error_message(&src, span);
+            fail(&diagnostics::render(path, &src, &message, span))
+        }
     };
 
     let mut program = match kmpl_parse::parse(tokens) {
         Ok(program) => program,
-        Err(err) => fail(&located(path, &err.message, err.span)),
+        Err(err) => fail(&diagnostics::render(path, &src, &err.message, err.span)),
     };
 
     if let Err(errors) = kmpl_check::check(&mut program) {
-        for err in &errors {
-            eprintln!("{}", located(path, &err.message, err.span));
-        }
+        let rendered: Vec<String> = errors
+            .iter()
+            .map(|err| diagnostics::render(path, &src, &err.message, err.span))
+            .collect();
+        // A blank line between errors.
+        eprint!("{}", rendered.join("\n"));
         std::process::exit(1);
     }
 
@@ -49,16 +55,15 @@ fn main() {
         fail(&format!("kmpl: cannot write output: {e}"));
     }
     if let Err(err) = result {
-        fail(&located(path, &err.message, err.span));
+        fail(&diagnostics::render(path, &src, &err.message, err.span));
     }
 }
 
-/// `path: message at start..end`. Line and column come with diagnostics.
-fn located(path: &str, message: &str, span: Span) -> String {
-    format!("{path}: {message} at {}..{}", span.start, span.end)
-}
-
+/// Prints `message` (a rendered error or a plain line) and exits with 1.
 fn fail(message: &str) -> ! {
-    eprintln!("{message}");
+    eprint!("{message}");
+    if !message.ends_with('\n') {
+        eprintln!();
+    }
     std::process::exit(1);
 }

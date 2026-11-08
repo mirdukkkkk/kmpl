@@ -46,18 +46,49 @@ fn missing_file() {
     assert!(stderr(&out).starts_with("/nonexistent/x.kmpl: "));
 }
 
+/// The `-->` location line of every error in `stderr`.
+fn locations(stderr: &str) -> Vec<String> {
+    stderr
+        .lines()
+        .filter_map(|line| line.trim_start().strip_prefix("--> "))
+        .map(|loc| loc.rsplit('/').next().unwrap().to_owned())
+        .collect()
+}
+
 #[test]
 fn lex_error() {
     let out = run("lex_error", "fn main() { let x = 1 $ 2; }");
     assert_eq!(out.status.code(), Some(1));
-    assert!(stderr(&out).ends_with("unexpected character at 22..23\n"));
+    let err = stderr(&out);
+    assert!(
+        err.starts_with("error: unexpected character `$`\n"),
+        "{err}"
+    );
+    assert_eq!(locations(&err), vec!["lex_error.kmpl:1:23"]);
+    assert!(
+        err.ends_with("1 | fn main() { let x = 1 $ 2; }\n  |                       ^\n"),
+        "{err}"
+    );
+}
+
+#[test]
+fn too_large_integer() {
+    let out = run("big_int", "fn main() { print(99999999999999999999); }");
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out)
+            .starts_with("error: integer literal `99999999999999999999` is too large for `int`\n")
+    );
 }
 
 #[test]
 fn parse_error() {
     let out = run("parse_error", "fn main() {\n    let x = 1\n}\n");
     assert_eq!(out.status.code(), Some(1));
-    assert!(stderr(&out).ends_with("expected `;`, found `}` at 26..27\n"));
+    let err = stderr(&out);
+    assert!(err.starts_with("error: expected `;`, found `}`\n"), "{err}");
+    assert_eq!(locations(&err), vec!["parse_error.kmpl:3:1"]);
+    assert!(err.ends_with("3 | }\n  | ^\n"), "{err}");
 }
 
 #[test]
@@ -65,9 +96,14 @@ fn check_errors_are_all_printed() {
     let out = run("check_errors", "fn main() { a = 1; b(); }");
     assert_eq!(out.status.code(), Some(1));
     let err = stderr(&out);
-    assert_eq!(err.lines().count(), 2, "{err}");
-    assert!(err.contains("undefined variable `a` at 12..13"));
-    assert!(err.contains("undefined function `b` at 19..20"));
+    assert!(err.contains("error: undefined variable `a`\n"), "{err}");
+    assert!(err.contains("error: undefined function `b`\n"), "{err}");
+    assert_eq!(
+        locations(&err),
+        vec!["check_errors.kmpl:1:13", "check_errors.kmpl:1:20"]
+    );
+    // Errors are separated by a blank line.
+    assert!(err.contains("^\n\nerror: "), "{err}");
 }
 
 #[test]
@@ -101,9 +137,11 @@ fn runtime_error_after_output() {
     );
     assert_eq!(out.status.code(), Some(1));
     assert_eq!(stdout(&out), "1\n");
+    let err = stderr(&out);
+    assert!(err.starts_with("error: division by zero\n"), "{err}");
+    assert_eq!(locations(&err), vec!["runtime_error.kmpl:1:40"]);
     assert!(
-        stderr(&out).ends_with("division by zero at 39..44\n"),
-        "{}",
-        stderr(&out)
+        err.ends_with("|                                        ^^^^^\n"),
+        "{err}"
     );
 }
