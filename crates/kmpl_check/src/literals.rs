@@ -60,6 +60,13 @@ impl Rewriter<'_> {
                     self.expr(cond);
                     self.block(body);
                 }
+                StmtKind::For {
+                    start, end, body, ..
+                } => {
+                    self.expr(start);
+                    self.expr(end);
+                    self.block(body);
+                }
                 StmtKind::Break | StmtKind::Continue => {}
                 StmtKind::Return(value) => {
                     if let Some(value) = value {

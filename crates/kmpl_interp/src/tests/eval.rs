@@ -246,3 +246,100 @@ fn generic_functions() {
         "2.5\n(1.0, 2.0)\n1.5\n1.5+0.5i\n3628800\n3628800.0\n"
     );
 }
+
+#[test]
+fn for_counts_up_and_excludes_the_end() {
+    assert_eq!(output("for i in 0..3 { print(i); }"), "0\n1\n2\n");
+    assert_eq!(output("for i in -2..0 { print(i); }"), "-2\n-1\n");
+}
+
+#[test]
+fn for_over_an_empty_range_does_not_run() {
+    assert_eq!(output("for i in 3..3 { print(i); }"), "");
+    assert_eq!(output("for i in 5..3 { print(i); }"), "");
+}
+
+#[test]
+fn for_continue_still_advances() {
+    assert_eq!(
+        output("for i in 0..4 { if i == 1 { continue; } print(i); }"),
+        "0\n2\n3\n"
+    );
+}
+
+#[test]
+fn for_break_stops_only_the_inner_loop() {
+    assert_eq!(
+        output("for i in 0..2 { for j in 0..5 { if j == 1 { break; } print(i * 10 + j); } }"),
+        "0\n10\n"
+    );
+}
+
+#[test]
+fn for_return_leaves_the_function() {
+    let src = "fn find() -> int {
+                   for i in 0..10 { if i * i > 20 { return i; } }
+                   return 0;
+               }
+               fn main() { let x = 1; print(find()); print(x); }";
+    assert_eq!(run(src).unwrap(), "5\n1\n");
+}
+
+#[test]
+fn for_bounds_are_evaluated_once_in_order() {
+    assert_eq!(
+        output("let n = 3; for i in 0..n { n = 1; print(i); } print(n);"),
+        "0\n1\n2\n1\n"
+    );
+    let src = "fn a() -> int { print(1); return 0; }
+               fn b() -> int { print(2); return 2; }
+               fn main() { for i in a()..b() { print(10); } }";
+    assert_eq!(run(src).unwrap(), "1\n2\n10\n10\n");
+}
+
+#[test]
+fn for_variable_shadows_and_ends_with_the_loop() {
+    assert_eq!(
+        output("let i = 7; for i in 0..1 { print(i); } print(i);"),
+        "0\n7\n"
+    );
+    assert_eq!(
+        output("for i in 0..2 { let i = 5; i = i + 1; print(i); }"),
+        "6\n6\n"
+    );
+}
+
+#[test]
+fn for_body_locals_are_fresh_each_iteration() {
+    assert_eq!(
+        output("for i in 0..2 { let x; if i == 0 { x = 1; } else { x = 2; } print(x); }"),
+        "1\n2\n"
+    );
+}
+
+#[test]
+fn for_at_the_end_of_the_int_range_does_not_overflow() {
+    assert_eq!(
+        output("for i in 9223372036854775806..9223372036854775807 { print(i); }"),
+        "9223372036854775806\n"
+    );
+}
+
+#[test]
+fn for_literals_and_generic_calls_are_rewritten() {
+    assert_eq!(
+        output("for i in 0..1 { let x: real = 1; print(x / 2); }"),
+        "0.5\n"
+    );
+    let src = "fn id<T: int | real>(x: T) -> T { return x; }
+               fn main() { for i in id(0)..id(2) { print(id(i)); } }";
+    assert_eq!(run(src).unwrap(), "0\n1\n");
+}
+
+#[test]
+fn runtime_error_in_a_for_bound() {
+    assert_eq!(
+        runtime_error("fn main() { let z = 0; for i in 0..1 / z { } }"),
+        "division by zero"
+    );
+}

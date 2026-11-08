@@ -254,3 +254,39 @@ fn vector_builtins() {
         "mismatched types: expected `real`, `complex`, `vec2`, `vec3` or `vec4`, found `int`",
     );
 }
+
+#[test]
+fn for_bounds_must_be_int() {
+    assert_ok("fn f(n: int) { for i in 0..n { } for i in -1..n + 1 { } }");
+    assert_error(
+        "fn f() { for i in 0.0..3 { } }",
+        "mismatched types: expected `int`, found `real` or `complex`",
+    );
+    assert_error(
+        "fn f(x: real) { for i in 0..x { } }",
+        "mismatched types: expected `int`, found `real`",
+    );
+    assert_error(
+        "fn f() { for i in 0..true { } }",
+        "mismatched types: expected `int`, found `bool`",
+    );
+}
+
+#[test]
+fn for_variable_is_int() {
+    assert_ok("fn f() { for i in 0..3 { let x: int = i; } }");
+    assert_ok("fn f() { for i in 0..3 { let x: real = real(i); } }");
+    assert_error(
+        "fn f() { for i in 0..3 { let x: real = i; } }",
+        "mismatched types: expected `real`, found `int`",
+    );
+}
+
+#[test]
+fn for_bound_narrows_a_flexible_variable() {
+    assert_ok("fn f() { let n = 3; for i in 0..n { } let m: int = n; }");
+    assert_error(
+        "fn f() { let n = 3; for i in 0..n { } let m: real = n; }",
+        "mismatched types: expected `real`, found `int`",
+    );
+}

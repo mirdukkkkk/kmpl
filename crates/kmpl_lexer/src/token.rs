@@ -10,6 +10,8 @@ pub enum Token {
     #[token("if")] If,
     #[token("else")] Else,
     #[token("while")] While,
+    #[token("for")] For,
+    #[token("in")] In,
     #[token("break")] Break,
     #[token("continue")] Continue,
     #[token("return")] Return,
@@ -41,6 +43,7 @@ pub enum Token {
     #[token(",")] Comma,
     #[token(";")] Semi,
     #[token(":")] Colon,
+    #[token("..")] DotDot,
 
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*", |l| l.slice().to_owned())]
     Ident(String),
@@ -75,6 +78,8 @@ impl std::fmt::Display for Token {
             Token::If => "if",
             Token::Else => "else",
             Token::While => "while",
+            Token::For => "for",
+            Token::In => "in",
             Token::Break => "break",
             Token::Continue => "continue",
             Token::Return => "return",
@@ -103,6 +108,7 @@ impl std::fmt::Display for Token {
             Token::Comma => ",",
             Token::Semi => ";",
             Token::Colon => ":",
+            Token::DotDot => "..",
             Token::Ident(name) => return write!(f, "identifier `{name}`"),
             Token::Imag(v) => return write!(f, "number `{v:?}i`"),
             Token::Real(v) => return write!(f, "number `{v:?}`"),

@@ -169,6 +169,31 @@ impl<'p, 'o> Interp<'p, 'o> {
                     }
                 }
             }
+            StmtKind::For {
+                var,
+                start,
+                end,
+                body,
+            } => {
+                let start = self.eval_int(start)?;
+                let end = self.eval_int(end)?;
+
+                self.frame().scopes.push(HashMap::new());
+                let mut result = Flow::Normal;
+                for i in start..end {
+                    self.declare(&var.name, Some(Value::Int(i)));
+                    match self.block(body)? {
+                        Flow::Break => break,
+                        Flow::Normal | Flow::Continue => {}
+                        flow @ Flow::Return(_) => {
+                            result = flow;
+                            break;
+                        }
+                    }
+                }
+                self.frame().scopes.pop();
+                return Ok(result);
+            }
             StmtKind::Break => return Ok(Flow::Break),
             StmtKind::Continue => return Ok(Flow::Continue),
             StmtKind::Return(value) => {
@@ -198,6 +223,16 @@ impl<'p, 'o> Interp<'p, 'o> {
             Value::Bool(b) => Ok(b),
             other => panic!(
                 "condition is {:?}, the checker should have rejected it",
+                other.ty()
+            ),
+        }
+    }
+
+    fn eval_int(&mut self, e: &'p Expr) -> Result<i64> {
+        match self.eval(e)? {
+            Value::Int(v) => Ok(v),
+            other => panic!(
+                "`for` bound is {:?}, the checker should have rejected it",
                 other.ty()
             ),
         }

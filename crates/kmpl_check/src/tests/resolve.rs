@@ -170,3 +170,45 @@ fn builtin_constants() {
     assert_error("fn f() { PI = 3.0; }", "cannot assign to constant `PI`");
     assert_error("fn f() { PI(); }", "`PI` is not a function");
 }
+
+#[test]
+fn for_variable_scope() {
+    assert_ok("fn f() { for i in 0..3 { print(i); } }");
+    assert_error(
+        "fn f() { for i in 0..3 { } print(i); }",
+        "undefined variable `i`",
+    );
+    // The bounds do not see the loop variable.
+    assert_error("fn f() { for i in 0..i { } }", "undefined variable `i`");
+    assert_ok("fn f() { let i = 3; for i in 0..i { } }");
+    // Nested and consecutive loops may reuse a name.
+    assert_ok("fn f() { for i in 0..3 { for i in 0..i { } } for i in 0..3 { } }");
+}
+
+#[test]
+fn for_variable_cannot_be_assigned() {
+    assert_error(
+        "fn f() { for i in 0..3 { i = 1; } }",
+        "cannot assign to loop variable `i`",
+    );
+    assert_error(
+        "fn f() { for i in 0..3 { if true { i = 1; } } }",
+        "cannot assign to loop variable `i`",
+    );
+}
+
+#[test]
+fn for_variable_can_be_shadowed() {
+    assert_ok("fn f() { for i in 0..3 { let i = 5; i = 6; print(i); } }");
+    // An outer variable with the same name stays assignable after the loop.
+    assert_ok("fn f() { let i = 1; for i in 0..3 { } i = 2; print(i); }");
+}
+
+#[test]
+fn break_and_continue_inside_for() {
+    assert_ok("fn f() { for i in 0..3 { if i == 1 { continue; } break; } }");
+    assert_error(
+        "fn f() { for i in 0..3 { } break; }",
+        "`break` outside of a loop",
+    );
+}

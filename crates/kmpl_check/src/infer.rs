@@ -243,6 +243,22 @@ impl<'a> Infer<'a> {
                 self.condition(cond);
                 self.block(body);
             }
+            StmtKind::For {
+                var,
+                start,
+                end,
+                body,
+            } => {
+                for bound in [start, end] {
+                    let ty = self.expr(bound);
+                    self.expect(ty, Type::Int, bound.span);
+                }
+                let var_ty = self.known(Type::Int);
+                self.scopes
+                    .push(HashMap::from([(var.name.as_str(), var_ty)]));
+                self.block(body);
+                self.scopes.pop();
+            }
             StmtKind::Break | StmtKind::Continue => {}
             StmtKind::Return(value) => self.return_stmt(value.as_ref(), stmt.span),
             StmtKind::Expr(e) => match &e.kind {

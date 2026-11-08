@@ -128,7 +128,9 @@ fn substitute_block(block: &mut Block, mapping: &HashMap<&str, Type>) {
                     substitute_block(otherwise, mapping);
                 }
             }
-            StmtKind::While { body, .. } => substitute_block(body, mapping),
+            StmtKind::While { body, .. } | StmtKind::For { body, .. } => {
+                substitute_block(body, mapping)
+            }
             _ => {}
         }
     }

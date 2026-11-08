@@ -89,3 +89,34 @@ fn unclosed_block() {
     assert_eq!(err.message, "expected `}`, found end of file");
     assert_eq!(err.span, Span::new(19, 19));
 }
+
+#[test]
+fn for_loop() {
+    assert_eq!(body("for i in 0..n { x; }"), "[(for i 0 n [x])]");
+    assert_eq!(body("for i in 0..n { }"), "[(for i 0 n [])]");
+}
+
+#[test]
+fn for_bounds_are_full_expressions() {
+    assert_eq!(
+        body("for i in a + 1..f(b) * 2 { }"),
+        "[(for i (+ a 1) (* (call f [b]) 2) [])]"
+    );
+}
+
+#[test]
+fn for_errors() {
+    assert_eq!(
+        body_error("for 1 in 0..3 { }"),
+        "expected identifier, found number `1`"
+    );
+    assert_eq!(
+        body_error("for i 0..3 { }"),
+        "expected `in`, found number `0`"
+    );
+    assert_eq!(body_error("for i in 0 { }"), "expected `..`, found `{`");
+    assert_eq!(
+        body_error("for i in 0..3 x;"),
+        "expected `{`, found identifier `x`"
+    );
+}

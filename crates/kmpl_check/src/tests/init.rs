@@ -91,3 +91,20 @@ fn shadowing_tracks_each_variable() {
 fn one_error_per_variable_on_a_path() {
     assert_error("fn f() { let x; print(x); print(x); }", UNINIT_X);
 }
+
+#[test]
+fn for_body_may_not_run() {
+    assert_error(
+        "fn f() { let x; for i in 0..3 { x = i; } print(x); }",
+        UNINIT_X,
+    );
+    assert_ok("fn f() { let x; x = 0; for i in 0..3 { x = i; } print(x); }");
+    assert_ok("fn f() { for i in 0..3 { let x; x = i; print(x); } }");
+}
+
+#[test]
+fn for_bounds_and_variable() {
+    assert_error("fn f() { let x: int; for i in 0..x { } }", UNINIT_X);
+    assert_error("fn f() { let x: int; for i in x..3 { } }", UNINIT_X);
+    assert_ok("fn f() { for i in 0..3 { print(i); } }");
+}

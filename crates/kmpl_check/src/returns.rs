@@ -2,8 +2,8 @@
 //!
 //! A block always returns if one of its statements does. A statement
 //! always returns if it is `return`, or an `if` with an `else` where both
-//! branches always return. `while` never counts, even `while true`, since
-//! the checker does not evaluate conditions: write a `return` after it.
+//! branches always return. Loops never count, even `while true`, since
+//! the checker does not evaluate conditions: write a `return` after them.
 
 use kmpl_ast::{Block, Item, Program, Stmt, StmtKind};
 

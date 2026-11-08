@@ -96,6 +96,18 @@ fn sexp_stmt(s: &Stmt) -> String {
             None => format!("(if {} {})", sexp(cond), sexp_block(then)),
         },
         StmtKind::While { cond, body } => format!("(while {} {})", sexp(cond), sexp_block(body)),
+        StmtKind::For {
+            var,
+            start,
+            end,
+            body,
+        } => format!(
+            "(for {} {} {} {})",
+            var.name,
+            sexp(start),
+            sexp(end),
+            sexp_block(body)
+        ),
         StmtKind::Break => "break".to_owned(),
         StmtKind::Continue => "continue".to_owned(),
         StmtKind::Return(Some(e)) => format!("(return {})", sexp(e)),

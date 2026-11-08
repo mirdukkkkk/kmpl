@@ -1,0 +1,74 @@
+// `for` runs over integer ranges: `a..b` starts at `a` and stops before `b`.
+// The bounds are computed once, before the first iteration.
+
+fn sum_to(n: int) -> int {
+    let sum = 0;
+    for i in 1..n + 1 {
+        sum = sum + i;
+    }
+    return sum;
+}
+
+// Leibniz series: pi / 4 = 1 - 1/3 + 1/5 - ...
+fn leibniz(terms: int) -> real {
+    let sum = 0.0;
+    let sign = 1.0;
+    for k in 0..terms {
+        sum = sum + sign / real(2 * k + 1);
+        sign = -sign;
+    }
+    return 4.0 * sum;
+}
+
+fn is_prime(n: int) -> bool {
+    if n < 2 {
+        return false;
+    }
+    for d in 2..n {
+        if d * d > n {
+            break;
+        }
+        if n / d * d == n {
+            return false;
+        }
+    }
+    return true;
+}
+
+fn main() {
+    print(sum_to(100));
+
+    print(leibniz(10));
+    print(leibniz(1000));
+
+    // Primes below 20.
+    for n in 0..20 {
+        if is_prime(n) {
+            print(n);
+        }
+    }
+
+    // `continue` moves on to the next value: squares of odd numbers.
+    for i in 0..6 {
+        if i / 2 * 2 == i {
+            continue;
+        }
+        print(i * i);
+    }
+
+    // Nested loops: Pythagorean triples with c <= 20.
+    for a in 1..21 {
+        for b in a..21 {
+            for c in b..21 {
+                if a * a + b * b == c * c {
+                    print(vec3(real(a), real(b), real(c)));
+                }
+            }
+        }
+    }
+
+    // An empty range: nothing is printed.
+    for i in 5..5 {
+        print(i);
+    }
+}

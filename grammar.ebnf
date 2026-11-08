@@ -17,10 +17,11 @@ type        ::= IDENT                       (* a built-in type or a generic para
 
 (* statements *)
 block       ::= '{' stmt* '}'
-stmt        ::= let | if | while | break | continue | return | assign | exprstmt
+stmt        ::= let | if | while | for | break | continue | return | assign | exprstmt
 let         ::= 'let' IDENT (':' type)? ('=' expr)? ';'
 if          ::= 'if' expr block ('else' (if | block))?
 while       ::= 'while' expr block
+for         ::= 'for' IDENT 'in' expr '..' expr block   (* the end is not included *)
 break       ::= 'break' ';'
 continue    ::= 'continue' ';'
 return      ::= 'return' expr? ';'

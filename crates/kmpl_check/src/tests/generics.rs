@@ -181,3 +181,8 @@ fn literals_get_their_type_per_copy() {
         ExprKind::Complex { re: 2.0, im: 0.0 }
     );
 }
+
+#[test]
+fn generic_annotations_inside_for_are_substituted() {
+    assert_ok("fn f<T: real | vec2>(x: T) { for i in 0..2 { let y: T = x; print(y); } }");
+}

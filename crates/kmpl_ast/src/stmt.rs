@@ -18,6 +18,13 @@ pub enum StmtKind {
     Assign { name: Ident, value: Expr },
     If { cond: Expr, then: Block, otherwise: Option<Block> },
     While { cond: Expr, body: Block },
+    /// `for var in start..end { body }`: `end` is not included.
+    For {
+        var: Ident,
+        start: Expr,
+        end: Expr,
+        body: Block,
+    },
     Break,
     Continue,
     Return(Option<Expr>),

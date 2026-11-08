@@ -81,3 +81,12 @@ fn while_does_not_count_as_returning() {
 fn functions_without_type_need_no_return() {
     assert_ok("fn f(c: bool) { if c { return; } }");
 }
+
+#[test]
+fn for_does_not_count_as_returning() {
+    assert_error(
+        "fn f() -> int { for i in 0..3 { return i; } }",
+        "`f` may finish without returning a value",
+    );
+    assert_ok("fn f() -> int { for i in 0..3 { return i; } return 0; }");
+}

@@ -375,3 +375,34 @@ fn real_out_of_range() {
     // Too small rounds to zero, like in Rust and C.
     assert_eq!(tokens("1e-400"), vec![Token::Real(0.0)]);
 }
+
+#[test]
+fn for_tokens() {
+    assert_eq!(
+        tokens("for i in 0..n"),
+        vec![
+            Token::For,
+            Token::Ident("i".into()),
+            Token::In,
+            Token::Int(0),
+            Token::DotDot,
+            Token::Ident("n".into()),
+        ]
+    );
+    assert_eq!(
+        tokens("format inner"),
+        vec![Token::Ident("format".into()), Token::Ident("inner".into())]
+    );
+}
+
+#[test]
+fn range_dots_do_not_join_reals() {
+    assert_eq!(
+        tokens("1..2.5"),
+        vec![Token::Int(1), Token::DotDot, Token::Real(2.5)]
+    );
+    assert_eq!(
+        tokens("1...5"),
+        vec![Token::Int(1), Token::DotDot, Token::Real(0.5)]
+    );
+}

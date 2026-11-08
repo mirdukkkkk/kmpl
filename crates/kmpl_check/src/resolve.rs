@@ -12,8 +12,10 @@
 //!   enclosing function (`fn f<T>(x: T)`); generic names are unique.
 //! - Parameters and `let` live in scopes. An inner block may shadow
 //!   an outer name; the same block may not declare a name twice.
+//! - A `for` variable lives in its own scope around the body and cannot be
+//!   assigned to. The body may shadow it with `let`.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use kmpl_ast::{Block, Expr, ExprKind, Function, Ident, Item, Program, Stmt, StmtKind, TypeExpr};
 
@@ -31,11 +33,11 @@ enum Global {
 
 struct Resolver<'a> {
     globals: HashMap<&'a str, Global>,
-    /// Innermost scope is last.
-    scopes: Vec<HashSet<&'a str>>,
+    /// Name -> is it a `for` variable? Innermost scope is last.
+    scopes: Vec<HashMap<&'a str, bool>>,
     /// While checking a constant's initializer: that constant's index.
     current_const: Option<usize>,
-    /// How many `while` loops enclose the current statement.
+    /// How many loops enclose the current statement.
     loop_depth: usize,
     /// Generic parameter names of the function being checked.
     type_params: Vec<&'a str>,
@@ -109,7 +111,7 @@ impl<'a> Resolver<'a> {
             }
         }
 
-        self.scopes.push(HashSet::new());
+        self.scopes.push(HashMap::new());
         for param in &f.params {
             self.check_type(&param.ty);
             self.declare_local(&param.name);
@@ -132,7 +134,7 @@ impl<'a> Resolver<'a> {
     }
 
     fn block(&mut self, block: &'a Block) {
-        self.scopes.push(HashSet::new());
+        self.scopes.push(HashMap::new());
         for stmt in block {
             self.stmt(stmt);
         }
@@ -141,7 +143,7 @@ impl<'a> Resolver<'a> {
 
     fn declare_local(&mut self, name: &'a Ident) {
         let scope = self.scopes.last_mut().expect("inside a function");
-        if !scope.insert(&name.name) {
+        if scope.insert(&name.name, false).is_some() {
             self.error(
                 format!("`{}` is already defined in this scope", name.name),
                 name,
@@ -150,7 +152,7 @@ impl<'a> Resolver<'a> {
     }
 
     fn is_local(&self, name: &str) -> bool {
-        self.scopes.iter().any(|scope| scope.contains(name))
+        self.scopes.iter().any(|scope| scope.contains_key(name))
     }
 
     /// Number of parameters, if `name` is a user or built-in function.
@@ -199,6 +201,21 @@ impl<'a> Resolver<'a> {
                 self.block(body);
                 self.loop_depth -= 1;
             }
+            StmtKind::For {
+                var,
+                start,
+                end,
+                body,
+            } => {
+                // The bounds come first, so `for i in 0..i` uses an outer `i`.
+                self.expr(start);
+                self.expr(end);
+                self.scopes.push(HashMap::from([(var.name.as_str(), true)]));
+                self.loop_depth += 1;
+                self.block(body);
+                self.loop_depth -= 1;
+                self.scopes.pop();
+            }
             StmtKind::Break | StmtKind::Continue => {
                 if self.loop_depth == 0 {
                     let word = match stmt.kind {
@@ -222,8 +239,14 @@ impl<'a> Resolver<'a> {
 
     fn assign_target(&mut self, name: &Ident) {
         let n = name.name.as_str();
-        if self.is_local(n) {
-            return;
+        let local = self.scopes.iter().rev().find_map(|s| s.get(n).copied());
+        match local {
+            Some(true) => {
+                self.error(format!("cannot assign to loop variable `{n}`"), name);
+                return;
+            }
+            Some(false) => return,
+            None => {}
         }
 
         let message = match self.globals.get(n) {

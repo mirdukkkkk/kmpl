@@ -28,6 +28,7 @@ pub fn stmt(ts: &mut TokenStream) -> PResult<Stmt> {
         Some(Token::Let) => let_stmt(ts),
         Some(Token::If) => if_stmt(ts),
         Some(Token::While) => while_stmt(ts),
+        Some(Token::For) => for_stmt(ts),
         Some(Token::Break) => keyword_stmt(ts, StmtKind::Break),
         Some(Token::Continue) => keyword_stmt(ts, StmtKind::Continue),
         Some(Token::Return) => return_stmt(ts),
@@ -98,6 +99,27 @@ fn while_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     Ok(Stmt {
         kind: StmtKind::While { cond, body },
         span: start.to(end),
+    })
+}
+
+/// `'for' IDENT 'in' expr '..' expr block`
+fn for_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
+    let first = ts.expect(Token::For)?;
+    let var = ts.expect_ident()?;
+    ts.expect(Token::In)?;
+    let start = expr(ts)?;
+    ts.expect(Token::DotDot)?;
+    let end = expr(ts)?;
+    let (body, last) = block(ts)?;
+
+    Ok(Stmt {
+        kind: StmtKind::For {
+            var,
+            start,
+            end,
+            body,
+        },
+        span: first.to(last),
     })
 }
 

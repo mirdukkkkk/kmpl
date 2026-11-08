@@ -5,8 +5,8 @@
 //! - `x = ...` initializes `x`.
 //! - After `if`/`else`, `x` is initialized only if both branches initialize it.
 //!   An `if` without `else` initializes nothing.
-//! - Assignments inside `while` do not count after the loop: the body may
-//!   run zero times.
+//! - Assignments inside `while` and `for` do not count after the loop: the
+//!   body may run zero times.
 //! - A branch that ends in `return`, `break` or `continue` never reaches the
 //!   code after it, so it does not block initialization.
 //! - A bad read marks the variable as assigned from then on, so one
@@ -124,6 +124,22 @@ impl<'a> InitChecker<'a> {
                 self.expr(cond);
                 let before = self.init.clone();
                 self.block(body);
+                self.init = before;
+                false
+            }
+            StmtKind::For {
+                var,
+                start,
+                end,
+                body,
+            } => {
+                self.expr(start);
+                self.expr(end);
+                let before = self.init.clone();
+                self.scopes.push(HashMap::new());
+                self.declare(var, true);
+                self.block(body);
+                self.scopes.pop();
                 self.init = before;
                 false
             }
