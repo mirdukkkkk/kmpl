@@ -500,3 +500,23 @@ fn arrays_are_not_moved_out_of_loops() {
     let text = optimized_text(src, "f");
     assert!(block_of(&text, "array [") > 1, "{text}");
 }
+
+#[test]
+fn simple_ranges_have_no_overflow_check() {
+    let up = "fn f(n: int) { for i in 0..n { print(i); } } fn main() { }";
+    assert!(!optimized_text(up, "f").contains("add_overflows"));
+    let down = "fn f(n: int) { for i in n..0 step -1 { print(i); } } fn main() { }";
+    assert!(!optimized_text(down, "f").contains("add_overflows"));
+    let array = "fn f(a: [int]) { for x in a { print(x); } } fn main() { }";
+    assert!(!optimized_text(array, "f").contains("add_overflows"));
+}
+
+#[test]
+fn ranges_that_can_overflow_keep_the_check() {
+    let inclusive = "fn f(n: int) { for i in 0..=n { print(i); } } fn main() { }";
+    assert!(optimized_text(inclusive, "f").contains("add_overflows"));
+    let big_step = "fn f(n: int) { for i in 0..n step 2 { print(i); } } fn main() { }";
+    assert!(optimized_text(big_step, "f").contains("add_overflows"));
+    let unknown = "fn f(n: int, s: int) { for i in 0..n step s { print(i); } } fn main() { }";
+    assert!(optimized_text(unknown, "f").contains("add_overflows"));
+}

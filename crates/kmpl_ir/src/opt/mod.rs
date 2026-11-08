@@ -11,6 +11,7 @@ mod compact;
 mod dce;
 mod fold;
 mod licm;
+mod range;
 
 use crate::{Function, Module};
 
@@ -24,6 +25,7 @@ pub fn optimize(module: &mut Module) {
 }
 
 fn optimize_function(f: &mut Function) {
+    range::simplify(f);
     for _ in 0..MAX_ROUNDS {
         let mut changed = fold::fold(f);
         changed |= cfg::simplify(f);

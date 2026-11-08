@@ -1301,3 +1301,29 @@ fn moved_work_in_nested_and_branching_loops() {
                fn main() { print(f(true, 3)); print(f(false, 3)); }";
     assert_eq!(run(src).unwrap(), "3.0\n0.0\n");
 }
+
+#[test]
+fn ranges_near_the_end_of_int() {
+    let max = "9223372036854775807";
+    assert_eq!(
+        output(&format!("for i in {max}-1..{max} {{ print(i); }}")),
+        format!("{}\n", 9223372036854775806_i64)
+    );
+    assert_eq!(
+        output(&format!("for i in {max}-1..={max} {{ print(i); }}")),
+        format!("{}\n{max}\n", 9223372036854775806_i64)
+    );
+    assert_eq!(
+        output(&format!("for i in {max}-3..{max} step 2 {{ print(i); }}")),
+        "9223372036854775804\n9223372036854775806\n"
+    );
+    let min = "(-9223372036854775807 - 1)";
+    assert_eq!(
+        output(&format!("for i in {min}+1..{min} step -1 {{ print(i); }}")),
+        "-9223372036854775807\n"
+    );
+    assert_eq!(
+        output(&format!("for i in {min}+1..={min} step -1 {{ print(i); }}")),
+        "-9223372036854775807\n-9223372036854775808\n"
+    );
+}
