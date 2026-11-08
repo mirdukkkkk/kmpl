@@ -96,3 +96,11 @@ fn single_ampersand_and_pipe_are_errors() {
     assert_eq!(lex("a & b"), Err(Span::new(2, 3)));
     assert_eq!(lex("a | b"), Err(Span::new(2, 3)));
 }
+
+#[test]
+fn numbers_are_64_bit() {
+    assert_eq!(
+        tokens("9000000000 3.141592653589793"),
+        vec![Token::Int(9_000_000_000), Token::Real(std::f64::consts::PI)]
+    );
+}

@@ -8,9 +8,9 @@ pub struct Expr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExprKind {
-    Int(i32),
-    Real(f32),
-    Imag(f32),
+    Int(i64),
+    Real(f64),
+    Imag(f64),
     Bool(bool),
     Var(Ident),
     Unary { op: UnOp, operand: Box<Expr> },

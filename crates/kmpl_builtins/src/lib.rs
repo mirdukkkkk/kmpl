@@ -22,12 +22,12 @@ pub struct Builtin {
 }
 
 pub static BUILTINS: &[Builtin] = &[
-    real_to_real("sqrt", |a| real_math(a, f32::sqrt)),
-    real_to_real("sin", |a| real_math(a, f32::sin)),
-    real_to_real("cos", |a| real_math(a, f32::cos)),
-    real_to_real("exp", |a| real_math(a, f32::exp)),
-    real_to_real("log", |a| real_math(a, f32::ln)),
-    real_to_real("abs", |a| real_math(a, f32::abs)),
+    real_to_real("sqrt", |a| real_math(a, f64::sqrt)),
+    real_to_real("sin", |a| real_math(a, f64::sin)),
+    real_to_real("cos", |a| real_math(a, f64::cos)),
+    real_to_real("exp", |a| real_math(a, f64::exp)),
+    real_to_real("log", |a| real_math(a, f64::ln)),
+    real_to_real("abs", |a| real_math(a, f64::abs)),
     Builtin {
         name: "vec2",
         params: &[Type::Real, Type::Real],
@@ -75,7 +75,7 @@ const fn real_to_real(name: &'static str, func: fn(&[Value]) -> Option<Value>) -
     }
 }
 
-/// Applies `math` (e.g. `f32::sqrt`) to the single `real` argument.
-fn real_math(args: &[Value], math: fn(f32) -> f32) -> Option<Value> {
+/// Applies `math` (e.g. `f64::sqrt`) to the single `real` argument.
+fn real_math(args: &[Value], math: fn(f64) -> f64) -> Option<Value> {
     Some(Value::Real(math(args[0].as_real())))
 }

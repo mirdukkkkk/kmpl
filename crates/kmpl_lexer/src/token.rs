@@ -45,15 +45,15 @@ pub enum Token {
 
     #[regex(r"[0-9]+\.[0-9]+i", |l| {
         let s = l.slice();
-        s[..s.len() - 1].parse::<f32>().ok()
+        s[..s.len() - 1].parse::<f64>().ok()
     })]
-    Imag(f32),
+    Imag(f64),
 
-    #[regex(r"[0-9]+\.[0-9]+", |l| l.slice().parse::<f32>().ok())]
-    Real(f32),
+    #[regex(r"[0-9]+\.[0-9]+", |l| l.slice().parse::<f64>().ok())]
+    Real(f64),
 
-    #[regex(r"[0-9]+", |l| l.slice().parse::<i32>().ok())]
-    Int(i32),
+    #[regex(r"[0-9]+", |l| l.slice().parse::<i64>().ok())]
+    Int(i64),
 }
 
 impl std::fmt::Display for Token {

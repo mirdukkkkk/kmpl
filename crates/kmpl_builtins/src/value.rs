@@ -3,13 +3,13 @@ use kmpl_ast::Type;
 /// A runtime value. One variant per `Type`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Value {
-    Int(i32),
-    Real(f32),
+    Int(i64),
+    Real(f64),
     Bool(bool),
-    Complex { re: f32, im: f32 },
-    Vec2([f32; 2]),
-    Vec3([f32; 3]),
-    Vec4([f32; 4]),
+    Complex { re: f64, im: f64 },
+    Vec2([f64; 2]),
+    Vec3([f64; 3]),
+    Vec4([f64; 4]),
 }
 
 impl Value {
@@ -25,12 +25,12 @@ impl Value {
         }
     }
 
-    /// The inner `f32` of a `Real`.
+    /// The inner `f64` of a `Real`.
     ///
     /// Panics on other variants. The checker guarantees argument types
     /// before the interpreter calls a built-in, so a panic here is a bug
     /// in the checker, not in the user's program.
-    pub fn as_real(&self) -> f32 {
+    pub fn as_real(&self) -> f64 {
         match self {
             Value::Real(v) => *v,
             other => panic!("expected real, got {:?}", other.ty()),
