@@ -55,3 +55,48 @@ pub enum Token {
     #[regex(r"[0-9]+", |l| l.slice().parse::<i32>().ok())]
     Int(i32),
 }
+
+impl std::fmt::Display for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let text = match self {
+            Token::Const => "const",
+            Token::Fn => "fn",
+            Token::Let => "let",
+            Token::If => "if",
+            Token::Else => "else",
+            Token::While => "while",
+            Token::Break => "break",
+            Token::Continue => "continue",
+            Token::Return => "return",
+            Token::True => "true",
+            Token::False => "false",
+            Token::Plus => "+",
+            Token::Minus => "-",
+            Token::Star => "*",
+            Token::Slash => "/",
+            Token::Bang => "!",
+            Token::And => "&&",
+            Token::Or => "||",
+            Token::EqEq => "==",
+            Token::NotEq => "!=",
+            Token::Lt => "<",
+            Token::Le => "<=",
+            Token::Gt => ">",
+            Token::Ge => ">=",
+            Token::Assign => "=",
+            Token::Arrow => "->",
+            Token::LParen => "(",
+            Token::RParen => ")",
+            Token::LBrace => "{",
+            Token::RBrace => "}",
+            Token::Comma => ",",
+            Token::Semi => ";",
+            Token::Colon => ":",
+            Token::Ident(name) => return write!(f, "identifier `{name}`"),
+            Token::Imag(v) => return write!(f, "number `{v}i`"),
+            Token::Real(v) => return write!(f, "number `{v}`"),
+            Token::Int(v) => return write!(f, "number `{v}`"),
+        };
+        write!(f, "`{text}`")
+    }
+}

@@ -47,6 +47,10 @@ dependencies = [
 [[package]]
 name = "kmpl_parse"
 version = "0.1.0"
+dependencies = [
+ "kmpl_ast",
+ "kmpl_lexer",
+]
 
 [[package]]
 name = "logos"

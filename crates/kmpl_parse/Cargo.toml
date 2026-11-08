@@ -5,3 +5,5 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+kmpl_ast.workspace = true
+kmpl_lexer.workspace = true
