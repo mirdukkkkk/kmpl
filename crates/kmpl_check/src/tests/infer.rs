@@ -842,3 +842,19 @@ fn structs_infer_through_empty_arrays() {
         "fn f(p: P) { let a = []; a = push(a, p); let n: int = a[0].n; }",
     ));
 }
+
+#[test]
+fn input_built_ins() {
+    assert_ok("fn f() { let a: [string] = args(); let s: string = a[0]; }");
+    assert_ok("fn f() { let (line, ok) = read_line(); let s: string = line; let b: bool = ok; }");
+    assert_ok(r#"fn f() { let (n, ok) = parse_int("1"); let i: int = n; let b: bool = ok; }"#);
+    assert_ok(r#"fn f() { let (x, ok) = parse_real("1"); let r: real = x; }"#);
+    assert_error(
+        "fn f() { parse_int(1); }",
+        "mismatched types: expected `string`, found `int`, `real` or `complex`",
+    );
+    assert_error(
+        "fn f() { let (a, b, c) = read_line(); }",
+        "expected a tuple of 3 elements, found `(string, bool)`",
+    );
+}

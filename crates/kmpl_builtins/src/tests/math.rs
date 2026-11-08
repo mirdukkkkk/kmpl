@@ -4,7 +4,7 @@ use crate::lookup;
 use super::call;
 
 fn error(name: &str, args: &[Value]) -> String {
-    (lookup(name).unwrap().func)(args, &mut Vec::new()).unwrap_err()
+    super::call_silently(lookup(name).unwrap(), args).unwrap_err()
 }
 
 fn real(name: &str, args: &[f64]) -> f64 {

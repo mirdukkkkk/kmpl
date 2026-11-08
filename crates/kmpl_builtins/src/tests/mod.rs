@@ -4,10 +4,11 @@ mod plot;
 mod vector;
 
 use std::collections::HashSet;
+use std::io::Write;
 
 use kmpl_ast::Type;
 
-use crate::{BUILTINS, ParamType, RetType, Value, lookup};
+use crate::{BUILTINS, Builtin, Io, ParamType, RetType, Value, lookup};
 
 /// Some value of the given type, to call built-ins with.
 fn sample(ty: Type) -> Value {
@@ -23,8 +24,28 @@ fn sample(ty: Type) -> Value {
     }
 }
 
+/// Calls a built-in with no input or arguments, writing to `out`.
+fn call_with_out(
+    b: &Builtin,
+    args: &[Value],
+    out: &mut (dyn Write + Send),
+) -> Result<Option<Value>, String> {
+    let mut input: &[u8] = &[];
+    let mut io = Io {
+        out,
+        input: &mut input,
+        args: &[],
+    };
+    (b.func)(args, &mut io)
+}
+
+/// Like `call_with_out`, discarding the output.
+fn call_silently(b: &Builtin, args: &[Value]) -> Result<Option<Value>, String> {
+    call_with_out(b, args, &mut Vec::new())
+}
+
 fn call(name: &str, args: &[Value]) -> Option<Value> {
-    (lookup(name).unwrap().func)(args, &mut Vec::new()).unwrap()
+    call_silently(lookup(name).unwrap(), args).unwrap()
 }
 
 #[test]
@@ -89,10 +110,18 @@ fn signatures_match_implementations() {
                 })
                 .collect();
 
-            let result = (b.func)(&args, &mut Vec::new()).unwrap();
+            let result = call_silently(b, &args).unwrap();
             // `Value::ty` covers only the closed list of types.
-            if b.ret == RetType::ArrayOfElem {
+            if matches!(b.ret, RetType::ArrayOfElem | RetType::ArrayOf(_)) {
                 assert!(matches!(result, Some(Value::Array(_))), "`{}`", b.name);
+                continue;
+            }
+            if let RetType::Pair(first, second) = b.ret {
+                let Some(Value::Tuple(items)) = result else {
+                    panic!("`{}` must return a tuple", b.name);
+                };
+                assert_eq!(items[0].ty(), first, "`{}`", b.name);
+                assert_eq!(items[1].ty(), second, "`{}`", b.name);
                 continue;
             }
 
@@ -102,7 +131,9 @@ fn signatures_match_implementations() {
                 RetType::T => Some(t),
                 RetType::Magnitude if t == Type::Complex => Some(Type::Real),
                 RetType::Magnitude => Some(t),
-                RetType::ArrayOfElem => unreachable!("handled above"),
+                RetType::ArrayOfElem | RetType::ArrayOf(_) | RetType::Pair(..) => {
+                    unreachable!("handled above")
+                }
             };
 
             assert_eq!(
@@ -222,8 +253,8 @@ fn abs_keeps_the_type() {
 fn print_writes_to_out() {
     let print = lookup("print").unwrap();
     let mut out = Vec::new();
-    (print.func)(&[Value::Int(1)], &mut out).unwrap();
-    (print.func)(&[Value::Vec2([0.5, 2.0])], &mut out).unwrap();
+    call_with_out(print, &[Value::Int(1)], &mut out).unwrap();
+    call_with_out(print, &[Value::Vec2([0.5, 2.0])], &mut out).unwrap();
     assert_eq!(String::from_utf8(out).unwrap(), "1\n(0.5, 2.0)\n");
 }
 
@@ -240,7 +271,7 @@ fn print_reports_write_errors() {
     }
 
     let print = lookup("print").unwrap();
-    let err = (print.func)(&[Value::Int(1)], &mut Broken).unwrap_err();
+    let err = call_with_out(print, &[Value::Int(1)], &mut Broken).unwrap_err();
     assert_eq!(err, "cannot write output: disk full");
 }
 
@@ -261,7 +292,7 @@ fn conversions() {
 
 fn int_error(x: f64) -> String {
     let int = lookup("int").unwrap();
-    (int.func)(&[Value::Real(x)], &mut Vec::new()).unwrap_err()
+    call_silently(int, &[Value::Real(x)]).unwrap_err()
 }
 
 #[test]
@@ -287,4 +318,31 @@ fn int_at_the_limits() {
         int_error(9_223_372_036_854_775_808.0),
         "`9.223372036854776e18` is out of range for `int`"
     );
+}
+
+#[test]
+fn read_line_shows_a_prompt_first() {
+    #[derive(Default)]
+    struct Counting(usize);
+    impl Write for Counting {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.0 += 1;
+            Ok(())
+        }
+    }
+
+    let mut out = Counting::default();
+    call_with_out(lookup("read_line").unwrap(), &[], &mut out).unwrap();
+    assert_eq!(out.0, 1);
+}
+
+#[test]
+fn only_input_built_ins_depend_on_the_run() {
+    assert!(crate::depends_on_run("args"));
+    assert!(crate::depends_on_run("read_line"));
+    assert!(!crate::depends_on_run("parse_int"));
+    assert!(!crate::depends_on_run("sqrt"));
 }

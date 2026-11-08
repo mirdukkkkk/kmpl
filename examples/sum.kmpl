@@ -1,0 +1,38 @@
+// Adds up numbers: from the command line, then one per line from stdin.
+//
+//   kmpl examples/sum.kmpl 1 2.5
+//   printf '3\n4\n' | kmpl examples/sum.kmpl
+
+struct Total {
+    sum: real,
+    count: int,
+}
+
+fn add(t: Total, text: string) -> Total {
+    let (value, ok) = parse_real(text);
+    if !ok {
+        print("skipping: " + text);
+        return t;
+    }
+    t.sum += value;
+    t.count += 1;
+    return t;
+}
+
+fn main() {
+    let total = Total { sum: 0.0, count: 0 };
+
+    for arg in args() {
+        total = add(total, arg);
+    }
+
+    while true {
+        let (line, more) = read_line();
+        if !more {
+            break;
+        }
+        total = add(total, line);
+    }
+
+    print(string(total.count) + " numbers, sum " + string(total.sum));
+}

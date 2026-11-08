@@ -4,11 +4,23 @@ mod ops;
 /// Checks and runs `src`. Returns what it printed, or the runtime error
 /// message with what was printed before it.
 fn run(src: &str) -> Result<String, (String, String)> {
+    run_with(src, &[], b"")
+}
+
+/// `run` with command line arguments and standard input.
+fn run_with(src: &str, args: &[&str], input: &[u8]) -> Result<String, (String, String)> {
     let mut program = kmpl_parse::parse(kmpl_lexer::lex(src).unwrap()).unwrap();
     kmpl_check::check(&mut program).unwrap();
 
+    let args: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
     let mut out = Vec::new();
-    let result = crate::run(&program, &mut out);
+    let mut input = input;
+    let io = crate::Io {
+        out: &mut out,
+        input: &mut input,
+        args: &args,
+    };
+    let result = crate::run(&program, io);
     let printed = String::from_utf8(out).unwrap();
     match result {
         Ok(()) => Ok(printed),

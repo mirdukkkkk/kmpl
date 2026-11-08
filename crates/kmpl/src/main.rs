@@ -4,19 +4,53 @@ mod loader;
 use std::io::Write;
 
 use diagnostics::Sources;
+use kmpl_interp::Io;
 
-const USAGE: &str = "usage: kmpl [--ast] <file>";
+const USAGE: &str = "usage: kmpl [--ast] <file> [args...]";
+
+const HELP: &str = "\
+kmpl: the Kepler Math Programming Language
+
+Usage:
+    kmpl [--ast] <file> [args...]
+
+Arguments:
+    <file>       the program to run, a .kmpl file with `fn main()`
+    [args...]    passed to the program, which reads them with `args()`
+
+Options:
+    --ast        check the program and print its syntax tree, without running it
+    -h, --help   show this help
+
+Examples:
+    kmpl examples/demo.kmpl
+    kmpl program.kmpl 1 2 3
+    echo 42 | kmpl program.kmpl
+";
 
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let (print_ast, path) = match args.as_slice() {
-        [flag, path] if flag == "--ast" => (true, path),
-        [path] if !path.starts_with("--") => (false, path),
-        _ => {
-            eprintln!("{USAGE}");
-            std::process::exit(2);
-        }
+    let args: Vec<String> = std::env::args_os()
+        .skip(1)
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+
+    let (print_ast, rest) = match args.as_slice() {
+        [flag, rest @ ..] if flag == "--ast" => (true, rest),
+        rest => (false, rest),
     };
+    if matches!(rest.first().map(String::as_str), Some("--help" | "-h")) {
+        print!("{HELP}");
+        return;
+    }
+    // Everything after the file belongs to the program.
+    let [path, program_args @ ..] = rest else {
+        eprintln!("{USAGE}");
+        std::process::exit(2);
+    };
+    if path.starts_with("--") {
+        eprintln!("{USAGE}");
+        std::process::exit(2);
+    }
 
     let mut sources = Sources::default();
     let modules = match loader::load(path, &mut sources) {
@@ -48,7 +82,13 @@ fn main() {
     }
 
     let mut out = std::io::BufWriter::new(std::io::stdout());
-    let result = kmpl_interp::run(&program, &mut out);
+    let mut input = std::io::BufReader::new(std::io::stdin());
+    let io = Io {
+        out: &mut out,
+        input: &mut input,
+        args: program_args,
+    };
+    let result = kmpl_interp::run(&program, io);
     // Flush first, so output printed before an error appears before it.
     if let Err(e) = out.flush() {
         fail(&format!("kmpl: cannot write output: {e}"));

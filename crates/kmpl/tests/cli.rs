@@ -306,3 +306,73 @@ fn link_errors_are_reported_with_the_file() {
     assert!(err.contains("unknown module `a`, add `import a;`"), "{err}");
     assert!(err.contains("main.kmpl:1:19"), "{err}");
 }
+
+/// Runs the binary with `input` on stdin.
+fn kmpl_with_input(args: &[&std::ffi::OsStr], input: &[u8]) -> Output {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_kmpl"))
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(input).unwrap();
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn help_is_printed_to_stdout() {
+    for flags in [vec!["--help"], vec!["-h"], vec!["--ast", "--help"]] {
+        let args: Vec<&std::ffi::OsStr> = flags.iter().map(|f| f.as_ref()).collect();
+        let out = kmpl(&args);
+        assert_eq!(out.status.code(), Some(0), "{flags:?}");
+        let text = stdout(&out);
+        assert!(text.contains("kmpl [--ast] <file> [args...]"), "{text}");
+        assert!(text.contains("--ast"), "{text}");
+        assert!(text.contains("-h, --help"), "{text}");
+        assert_eq!(stderr(&out), "");
+    }
+}
+
+#[test]
+fn arguments_after_the_file_go_to_the_program() {
+    let path = source_file("program_args", "fn main() { print(args()); }");
+    let out = kmpl(&[
+        path.as_os_str(),
+        "one".as_ref(),
+        "--help".as_ref(),
+        "--ast".as_ref(),
+    ]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "[one, --help, --ast]\n");
+}
+
+#[test]
+fn stdin_reaches_the_program() {
+    let path = source_file(
+        "program_stdin",
+        r#"fn main() {
+            print("number?");
+            let (line, _) = read_line();
+            let (n, ok) = parse_int(line);
+            print(n * 2);
+            print(ok);
+        }"#,
+    );
+    let out = kmpl_with_input(&[path.as_os_str()], b"21\n");
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "number?\n42\ntrue\n");
+}
+
+#[test]
+fn end_of_input_without_any_data() {
+    let path = source_file(
+        "program_empty_stdin",
+        "fn main() { let (_, ok) = read_line(); print(ok); }",
+    );
+    let out = kmpl_with_input(&[path.as_os_str()], b"");
+    assert_eq!(stdout(&out), "false\n");
+}

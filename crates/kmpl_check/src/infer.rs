@@ -756,6 +756,14 @@ impl<'a> Infer<'a> {
             RetType::Exact(ty) => Some(self.known(ty)),
             RetType::T => Some(t),
             RetType::ArrayOfElem => Some(self.u.new_array(elem)),
+            RetType::ArrayOf(ty) => {
+                let elem = self.known(ty);
+                Some(self.u.new_array(elem))
+            }
+            RetType::Pair(a, b) => {
+                let elems = vec![self.known(a), self.known(b)];
+                Some(self.u.new_tuple(elems))
+            }
             RetType::Magnitude => {
                 if self.u.set(t) == TypeSet::single(Type::Complex) {
                     Some(self.known(Type::Real))

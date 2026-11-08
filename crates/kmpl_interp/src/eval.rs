@@ -5,13 +5,12 @@
 //! checker bug and panics.
 
 use std::collections::HashMap;
-use std::io::Write;
 use std::sync::Arc;
 
 use kmpl_ast::{
     BinOp, Block, Expr, ExprKind, Function, Ident, Item, PathStep, Program, Span, Stmt, StmtKind,
 };
-use kmpl_builtins::{StructLayout, StructValue, Value};
+use kmpl_builtins::{Io, StructLayout, StructValue, Value};
 
 use crate::RuntimeError;
 use crate::ops;
@@ -39,7 +38,7 @@ pub struct Interp<'p, 'o> {
     consts: HashMap<&'p str, Value>,
     structs: HashMap<&'p str, Arc<StructLayout>>,
     frames: Vec<Frame<'p>>,
-    out: &'o mut dyn Write,
+    io: Io<'o>,
 }
 
 /// One evaluated step of an assignment target.
@@ -102,7 +101,7 @@ fn range_values(start: i64, end: i64, inclusive: bool, step: i64) -> impl Iterat
 }
 
 impl<'p, 'o> Interp<'p, 'o> {
-    pub fn new(program: &'p Program, out: &'o mut dyn Write) -> Self {
+    pub fn new(program: &'p Program, io: Io<'o>) -> Self {
         let functions = program
             .items
             .iter()
@@ -132,7 +131,7 @@ impl<'p, 'o> Interp<'p, 'o> {
             consts: HashMap::new(),
             structs,
             frames: Vec::new(),
-            out,
+            io,
         }
     }
 
@@ -537,7 +536,7 @@ impl<'p, 'o> Interp<'p, 'o> {
         }
 
         let builtin = kmpl_builtins::lookup(&name.name).expect("checker ensures it exists");
-        (builtin.func)(&values, self.out).map_err(|m| error(m, span))
+        (builtin.func)(&values, &mut self.io).map_err(|m| error(m, span))
     }
 
     fn call_function(

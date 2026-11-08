@@ -8,9 +8,9 @@ mod tests;
 
 pub use eval::MAX_CALL_DEPTH;
 
-use std::io::Write;
-
 use kmpl_ast::{Program, Span};
+
+pub use kmpl_builtins::Io;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RuntimeError {
@@ -24,13 +24,12 @@ pub struct RuntimeError {
 const STACK_SIZE: usize = 1 << 30;
 
 /// Runs `program`, which must have passed `kmpl_check::check`.
-/// `print` writes to `out`.
-pub fn run(program: &Program, out: &mut (dyn Write + Send)) -> Result<(), RuntimeError> {
+pub fn run(program: &Program, io: Io) -> Result<(), RuntimeError> {
     std::thread::scope(|scope| {
         std::thread::Builder::new()
             .name("kmpl".to_owned())
             .stack_size(STACK_SIZE)
-            .spawn_scoped(scope, || eval::Interp::new(program, out).run(program))
+            .spawn_scoped(scope, move || eval::Interp::new(program, io).run(program))
             .expect("cannot start the interpreter thread")
             .join()
             .unwrap_or_else(|panic| std::panic::resume_unwind(panic))

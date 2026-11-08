@@ -408,3 +408,26 @@ fn struct_names_are_not_values() {
         "cannot assign to loop variable `p`",
     );
 }
+
+#[test]
+fn constants_cannot_depend_on_the_run() {
+    assert_error(
+        "const A: [string] = args();",
+        "a constant cannot call `args`: its value depends on how the program is run",
+    );
+    assert_error(
+        "const A: int = len(args());",
+        "a constant cannot call `args`: its value depends on how the program is run",
+    );
+    assert_error(
+        "const A: (string, bool) = read_line();",
+        "a constant cannot call `read_line`: its value depends on how the program is run",
+    );
+    assert_ok(r#"const A: (int, bool) = parse_int("1");"#);
+    assert_error(
+        "fn f() { args(1); }",
+        "`args` takes 0 arguments, but 1 was given",
+    );
+    assert_error("fn args() { }", "`args` is a built-in function");
+    assert_ok("fn f() { let args = 1; print(args); }");
+}

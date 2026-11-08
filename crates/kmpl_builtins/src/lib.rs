@@ -14,7 +14,7 @@ mod tests;
 
 pub use value::{StructLayout, StructValue, Value};
 
-use std::io::Write;
+use std::io::{BufRead, Write};
 use std::sync::Arc;
 
 use kmpl_ast::Type;
@@ -27,13 +27,31 @@ pub struct Builtin {
     pub generic: &'static [Type],
     pub params: &'static [ParamType],
     pub ret: RetType,
-    /// Called with arguments whose types already match `params`.
-    /// `out` is where `print` writes. Returns the value (`None` for
-    /// `RetType::Nothing`) or a runtime error message.
+    /// Called with arguments whose types already match `params`. Returns
+    /// the value (`None` for `RetType::Nothing`) or a runtime error message.
     pub func: BuiltinFn,
 }
 
-pub type BuiltinFn = fn(&[Value], &mut dyn Write) -> Result<Option<Value>, String>;
+pub type BuiltinFn = fn(&[Value], &mut Io) -> Result<Option<Value>, String>;
+
+/// What a running program can reach outside itself. `Send` because the
+/// interpreter runs on its own thread.
+pub struct Io<'a> {
+    /// Where `print` writes.
+    pub out: &'a mut (dyn Write + Send),
+    /// Where `read_line` reads from.
+    pub input: &'a mut (dyn BufRead + Send),
+    /// What `args` returns.
+    pub args: &'a [String],
+}
+
+/// Built-ins whose value depends on how the program is run, so constants
+/// cannot use them. Those that return nothing are excluded anyway.
+const DEPENDS_ON_RUN: &[&str] = &["args", "read_line"];
+
+pub fn depends_on_run(name: &str) -> bool {
+    DEPENDS_ON_RUN.contains(&name)
+}
 
 /// What a built-in accepts in one argument position.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,6 +84,10 @@ pub enum RetType {
     Magnitude,
     /// An array of `E`, see `ParamType::Elem`.
     ArrayOfElem,
+    /// An array of exactly this element type.
+    ArrayOf(Type),
+    /// A tuple of two values of these types.
+    Pair(Type, Type),
 }
 
 const REAL: ParamType = ParamType::Exact(Type::Real);
@@ -402,6 +424,75 @@ pub static BUILTINS: &[Builtin] = &[
         ret: RetType::Exact(Type::Str),
         func: |a, _| ok(Value::Str(a[0].to_string().into())),
     },
+    Builtin {
+        name: "parse_int",
+        generic: &[],
+        params: &[ParamType::Exact(Type::Str)],
+        ret: RetType::Pair(Type::Int, Type::Bool),
+        func: |a, _| {
+            let parsed = a[0].as_str().trim().parse::<i64>().ok();
+            ok(pair(
+                Value::Int(parsed.unwrap_or(0)),
+                Value::Bool(parsed.is_some()),
+            ))
+        },
+    },
+    Builtin {
+        name: "parse_real",
+        generic: &[],
+        params: &[ParamType::Exact(Type::Str)],
+        ret: RetType::Pair(Type::Real, Type::Bool),
+        func: |a, _| {
+            // Not `inf` or `NaN`, and not `1e400`, like literals in a program.
+            let parsed = a[0]
+                .as_str()
+                .trim()
+                .parse::<f64>()
+                .ok()
+                .filter(|v| v.is_finite());
+            ok(pair(
+                Value::Real(parsed.unwrap_or(0.0)),
+                Value::Bool(parsed.is_some()),
+            ))
+        },
+    },
+    // ----- input -----
+    Builtin {
+        name: "args",
+        generic: &[],
+        params: &[],
+        ret: RetType::ArrayOf(Type::Str),
+        func: |_, io| {
+            let items = io
+                .args
+                .iter()
+                .map(|a| Value::Str(a.as_str().into()))
+                .collect();
+            ok(Value::Array(Arc::new(items)))
+        },
+    },
+    Builtin {
+        name: "read_line",
+        generic: &[],
+        params: &[],
+        ret: RetType::Pair(Type::Str, Type::Bool),
+        func: |_, io| {
+            // A prompt printed just before has to show while this waits.
+            io.out
+                .flush()
+                .map_err(|e| format!("cannot write output: {e}"))?;
+
+            let mut line = String::new();
+            let read = io
+                .input
+                .read_line(&mut line)
+                .map_err(|e| format!("cannot read input: {e}"))?;
+
+            let text = line.strip_suffix('\n').unwrap_or(&line);
+            let text = text.strip_suffix('\r').unwrap_or(text);
+            ok(pair(Value::Str(text.into()), Value::Bool(read > 0)))
+        },
+    },
     // ----- output -----
     Builtin {
         name: "plot",
@@ -418,8 +509,8 @@ pub static BUILTINS: &[Builtin] = &[
         generic: &[],
         params: &[ParamType::Any],
         ret: RetType::Nothing,
-        func: |a, out| {
-            writeln!(out, "{}", a[0]).map_err(|e| format!("cannot write output: {e}"))?;
+        func: |a, io| {
+            writeln!(io.out, "{}", a[0]).map_err(|e| format!("cannot write output: {e}"))?;
             Ok(None)
         },
     },
@@ -457,6 +548,10 @@ pub fn lookup_const(name: &str) -> Option<&'static BuiltinConst> {
 /// `Ok(Some(value))`, the result of a built-in that cannot fail.
 fn ok(value: Value) -> Result<Option<Value>, String> {
     Ok(Some(value))
+}
+
+fn pair(a: Value, b: Value) -> Value {
+    Value::Tuple(vec![a, b].into())
 }
 
 /// Table entry for a `fn(T) -> T` built-in with `T` in `[real, complex]`.

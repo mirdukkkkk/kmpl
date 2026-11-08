@@ -1,4 +1,4 @@
-use super::{output, run, runtime_error};
+use super::{output, run, run_with, runtime_error};
 
 #[test]
 fn print_values() {
@@ -140,7 +140,13 @@ fn runtime_error_span_points_at_the_operation() {
     let src = "fn main() { let z = 0; let y = 10 / z; }";
     let mut program = kmpl_parse::parse(kmpl_lexer::lex(src).unwrap()).unwrap();
     kmpl_check::check(&mut program).unwrap();
-    let err = crate::run(&program, &mut Vec::new()).unwrap_err();
+    let (mut out, mut input) = (Vec::new(), &b""[..]);
+    let io = crate::Io {
+        out: &mut out,
+        input: &mut input,
+        args: &[],
+    };
+    let err = crate::run(&program, io).unwrap_err();
     assert_eq!(&src[err.span.start..err.span.end], "10 / z");
 }
 
@@ -1058,4 +1064,56 @@ fn structs_in_if_headers_with_brackets() {
         with_point(r#"let a = P { x: 1, n: 1 }; if a == (P { x: 1, n: 1 }) { print("same"); }"#),
         "same\n"
     );
+}
+
+#[test]
+fn args_are_strings() {
+    let src = "fn main() { print(args()); print(len(args())); }";
+    assert_eq!(run_with(src, &["a", "b c"], b"").unwrap(), "[a, b c]\n2\n");
+    assert_eq!(run(src).unwrap(), "[]\n0\n");
+}
+
+#[test]
+fn read_line_goes_through_the_input() {
+    let src = "fn main() {
+                   while true {
+                       let (line, ok) = read_line();
+                       if !ok { break; }
+                       print(\"<\" + line + \">\");
+                   }
+                   print(read_line());
+               }";
+    assert_eq!(
+        run_with(src, &[], b"one\r\ntwo\n\nlast").unwrap(),
+        "<one>\n<two>\n<>\n<last>\n(, false)\n"
+    );
+    assert_eq!(run(src).unwrap(), "(, false)\n");
+}
+
+#[test]
+fn input_that_is_not_text_is_an_error() {
+    let (message, _) = run_with("fn main() { read_line(); }", &[], &[0xff, b'\n']).unwrap_err();
+    assert!(message.starts_with("cannot read input: "), "{message}");
+}
+
+#[test]
+fn parsing_numbers() {
+    let parsed = |call: &str| output(&format!("print({call});"));
+    assert_eq!(parsed(r#"parse_int("42")"#), "(42, true)\n");
+    assert_eq!(parsed(r#"parse_int(" -7 ")"#), "(-7, true)\n");
+    assert_eq!(parsed(r#"parse_int("4.5")"#), "(0, false)\n");
+    assert_eq!(parsed(r#"parse_int("")"#), "(0, false)\n");
+    assert_eq!(
+        parsed(r#"parse_int("9223372036854775808")"#),
+        "(0, false)\n"
+    );
+
+    assert_eq!(parsed(r#"parse_real("1.5")"#), "(1.5, true)\n");
+    assert_eq!(parsed(r#"parse_real("1e3")"#), "(1000.0, true)\n");
+    assert_eq!(parsed(r#"parse_real(".5")"#), "(0.5, true)\n");
+    assert_eq!(parsed(r#"parse_real("2")"#), "(2.0, true)\n");
+    assert_eq!(parsed(r#"parse_real("abc")"#), "(0.0, false)\n");
+    assert_eq!(parsed(r#"parse_real("nan")"#), "(0.0, false)\n");
+    assert_eq!(parsed(r#"parse_real("inf")"#), "(0.0, false)\n");
+    assert_eq!(parsed(r#"parse_real("1e400")"#), "(0.0, false)\n");
 }
