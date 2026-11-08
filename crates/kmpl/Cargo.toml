@@ -13,4 +13,4 @@ kmpl_lexer.workspace = true
 kmpl_parse.workspace = true
 kmpl_check.workspace = true
 kmpl_lower.workspace = true
-kmpl_interp.workspace = true
+kmpl_vm.workspace = true

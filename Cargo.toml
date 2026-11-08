@@ -16,8 +16,14 @@ kmpl_check    = { path = "crates/kmpl_check" }
 kmpl_interp   = { path = "crates/kmpl_interp" }
 kmpl_ir       = { path = "crates/kmpl_ir" }
 kmpl_lower    = { path = "crates/kmpl_lower" }
+kmpl_vm       = { path = "crates/kmpl_vm" }
 
 logos = "0.16.1"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
+
+# The interpreter's speed depends on inlining across crates.
+[profile.release]
+lto = "fat"
+codegen-units = 1

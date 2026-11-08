@@ -4,7 +4,7 @@ mod loader;
 use std::io::Write;
 
 use diagnostics::Sources;
-use kmpl_interp::Io;
+use kmpl_vm::Io;
 
 const USAGE: &str = "usage: kmpl [--ast | --ir] <file> [args...]";
 
@@ -78,16 +78,15 @@ fn main() {
         Err(errors) => fail(&render_all(errors)),
     };
 
-    match print_flag {
-        Some("--ast") => {
-            println!("{program:#?}");
-            return;
-        }
-        Some(_) => {
-            print!("{}", kmpl_lower::lower(&program, &types));
-            return;
-        }
-        None => {}
+    if print_flag == Some("--ast") {
+        println!("{program:#?}");
+        return;
+    }
+
+    let module = kmpl_lower::lower(&program, &types);
+    if print_flag == Some("--ir") {
+        print!("{module}");
+        return;
     }
 
     let mut out = std::io::BufWriter::new(std::io::stdout());
@@ -97,7 +96,7 @@ fn main() {
         input: &mut input,
         args: program_args,
     };
-    let result = kmpl_interp::run(&program, io);
+    let result = kmpl_vm::run(&module, io);
     // Flush first, so output printed before an error appears before it.
     if let Err(e) = out.flush() {
         fail(&format!("kmpl: cannot write output: {e}"));
