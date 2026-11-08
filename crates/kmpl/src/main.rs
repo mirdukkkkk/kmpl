@@ -12,14 +12,24 @@ fn main() {
         }
     };
 
-    match kmpl_lexer::lex(&src) {
-        Ok(tokens) => {
-            for (tok, span) in tokens {
-                println!("{}..{}  {tok:?}", span.start, span.end);
-            }
-        }
+    let tokens = match kmpl_lexer::lex(&src) {
+        Ok(tokens) => tokens,
         Err(span) => {
-            eprintln!("{path}: unexpected character at {}..{}", span.start, span.end);
+            eprintln!(
+                "{path}: unexpected character at {}..{}",
+                span.start, span.end
+            );
+            std::process::exit(1);
+        }
+    };
+
+    match kmpl_parse::parse(tokens) {
+        Ok(program) => println!("{program:#?}"),
+        Err(err) => {
+            eprintln!(
+                "{path}: {} at {}..{}",
+                err.message, err.span.start, err.span.end
+            );
             std::process::exit(1);
         }
     }

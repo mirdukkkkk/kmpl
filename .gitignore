@@ -25,3 +25,6 @@ rustc-ice-*.txt
 
 # direnv
 .direnv/
+
+# nix build output
+result

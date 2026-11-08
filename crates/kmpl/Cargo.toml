@@ -9,3 +9,4 @@ workspace = true
 
 [dependencies]
 kmpl_lexer.workspace = true
+kmpl_parse.workspace = true
