@@ -43,13 +43,13 @@ pub enum Token {
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*", |l| l.slice().to_owned())]
     Ident(String),
 
-    #[regex(r"[0-9]+\.[0-9]+i", |l| {
+    #[regex(r"[0-9]*\.[0-9]+i", |l| {
         let s = l.slice();
         s[..s.len() - 1].parse::<f64>().ok()
     })]
     Imag(f64),
 
-    #[regex(r"[0-9]+\.[0-9]+", |l| l.slice().parse::<f64>().ok())]
+    #[regex(r"[0-9]*\.[0-9]+", |l| l.slice().parse::<f64>().ok())]
     Real(f64),
 
     #[regex(r"[0-9]+", |l| l.slice().parse::<i64>().ok())]

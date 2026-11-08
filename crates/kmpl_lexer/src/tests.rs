@@ -104,3 +104,20 @@ fn numbers_are_64_bit() {
         vec![Token::Int(9_000_000_000), Token::Real(std::f64::consts::PI)]
     );
 }
+
+#[test]
+fn reals_without_leading_zero() {
+    assert_eq!(
+        tokens(".1 .5i 0.25"),
+        vec![Token::Real(0.1), Token::Imag(0.5), Token::Real(0.25)]
+    );
+    assert_eq!(
+        tokens("x-.5"),
+        vec![Token::Ident("x".into()), Token::Minus, Token::Real(0.5)]
+    );
+}
+
+#[test]
+fn lone_dot_is_an_error() {
+    assert_eq!(lex("1 . 2"), Err(Span::new(2, 3)));
+}
