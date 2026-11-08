@@ -8,6 +8,13 @@ pub struct ParseError {
 }
 
 impl ParseError {
+    pub fn new(message: impl Into<String>, span: Span) -> Self {
+        Self {
+            message: message.into(),
+            span,
+        }
+    }
+
     /// "expected `;`, found `}`" or "expected expression, found end of file".
     pub fn expected(what: &str, found: Option<&Token>, span: Span) -> Self {
         let found = match found {
@@ -15,10 +22,7 @@ impl ParseError {
             None => "end of file".to_owned(),
         };
 
-        Self {
-            message: format!("expected {what}, found {found}"),
-            span,
-        }
+        Self::new(format!("expected {what}, found {found}"), span)
     }
 }
 

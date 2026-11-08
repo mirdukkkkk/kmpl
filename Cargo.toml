@@ -15,3 +15,6 @@ kmpl_check  = { path = "crates/kmpl_check" }
 kmpl_interp = { path = "crates/kmpl_interp" }
 
 logos = "0.16.1"
+
+[workspace.lints.rust]
+unsafe_code = "deny"

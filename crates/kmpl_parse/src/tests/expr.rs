@@ -1,50 +1,6 @@
-use kmpl_ast::{BinOp, Expr, ExprKind, Span, UnOp};
+use kmpl_ast::Span;
 
-use crate::parse_expr;
-
-fn parse(src: &str) -> Result<Expr, crate::ParseError> {
-    parse_expr(kmpl_lexer::lex(src).unwrap())
-}
-
-/// Short S-expression form, so tests show the tree shape: `(+ 1 (* 2 3))`.
-fn sexp(e: &Expr) -> String {
-    match &e.kind {
-        ExprKind::Int(v) => v.to_string(),
-        ExprKind::Real(v) => format!("{v:?}"),
-        ExprKind::Imag(v) => format!("{v:?}i"),
-        ExprKind::Bool(v) => v.to_string(),
-        ExprKind::Var(id) => id.name.clone(),
-        ExprKind::Unary { op, operand } => {
-            let op = match op {
-                UnOp::Neg => "-",
-                UnOp::Not => "!",
-            };
-            format!("({op} {})", sexp(operand))
-        }
-        ExprKind::Binary { op, lhs, rhs } => {
-            let op = match op {
-                BinOp::Add => "+",
-                BinOp::Sub => "-",
-                BinOp::Mul => "*",
-                BinOp::Div => "/",
-                BinOp::Eq => "==",
-                BinOp::Ne => "!=",
-                BinOp::Lt => "<",
-                BinOp::Le => "<=",
-                BinOp::Gt => ">",
-                BinOp::Ge => ">=",
-                BinOp::And => "&&",
-                BinOp::Or => "||",
-            };
-            format!("({op} {} {})", sexp(lhs), sexp(rhs))
-        }
-        ExprKind::Call { name, args } => {
-            let args: Vec<String> = args.iter().map(sexp).collect();
-            format!("(call {} [{}])", name.name, args.join(" "))
-        }
-        ExprKind::Swizzle { base, mask } => format!("(: {} {})", sexp(base), mask.name),
-    }
-}
+use super::{parse_expr as parse, sexp};
 
 fn tree(src: &str) -> String {
     sexp(&parse(src).unwrap())
