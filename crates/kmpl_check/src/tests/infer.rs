@@ -204,3 +204,18 @@ fn all_type_errors_are_reported() {
         ]
     );
 }
+
+#[test]
+fn conversions_bridge_typed_values() {
+    assert_ok("fn f(x: real) { let z = complex(x, 0) * 2.0i; }");
+    assert_ok("fn f(n: int) { let half = real(n) / 2; let back: int = int(half); }");
+    assert_ok("fn f(z: complex) { let r: real = re(z) + im(z); }");
+    assert_error(
+        "fn f(z: complex) { let r = real(z); }",
+        "mismatched types: expected `int` or `real`, found `complex`",
+    );
+    assert_error(
+        "fn f(n: int) { let z = complex(n, 0); }",
+        "mismatched types: expected `real`, found `int`",
+    );
+}

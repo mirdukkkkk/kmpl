@@ -52,7 +52,9 @@ pub enum RetType {
 }
 
 const REAL: ParamType = ParamType::Exact(Type::Real);
+const COMPLEX: ParamType = ParamType::Exact(Type::Complex);
 const REAL_OR_COMPLEX: &[Type] = &[Type::Real, Type::Complex];
+const INT_OR_REAL: &[Type] = &[Type::Int, Type::Real];
 
 pub static BUILTINS: &[Builtin] = &[
     float_fn("sqrt", |a, _| float_math(a, f64::sqrt, complex::sqrt)),
@@ -62,7 +64,7 @@ pub static BUILTINS: &[Builtin] = &[
     float_fn("log", |a, _| float_math(a, f64::ln, complex::log)),
     Builtin {
         name: "abs",
-        generic: &[Type::Int, Type::Real],
+        generic: INT_OR_REAL,
         params: &[ParamType::T],
         ret: RetType::T,
         func: |a, _| {
@@ -106,6 +108,52 @@ pub static BUILTINS: &[Builtin] = &[
                 a[3].as_real(),
             ]))
         },
+    },
+    Builtin {
+        name: "real",
+        generic: INT_OR_REAL,
+        params: &[ParamType::T],
+        ret: RetType::Exact(Type::Real),
+        func: |a, _| match a[0] {
+            Value::Int(n) => ok(Value::Real(n as f64)),
+            other => ok(Value::Real(other.as_real())),
+        },
+    },
+    Builtin {
+        name: "int",
+        generic: INT_OR_REAL,
+        params: &[ParamType::T],
+        ret: RetType::Exact(Type::Int),
+        func: |a, _| match a[0] {
+            Value::Int(n) => ok(Value::Int(n)),
+            other => real_to_int(other.as_real()).map(|n| Some(Value::Int(n))),
+        },
+    },
+    Builtin {
+        name: "complex",
+        generic: &[],
+        params: &[REAL, REAL],
+        ret: RetType::Exact(Type::Complex),
+        func: |a, _| {
+            ok(Value::Complex {
+                re: a[0].as_real(),
+                im: a[1].as_real(),
+            })
+        },
+    },
+    Builtin {
+        name: "re",
+        generic: &[],
+        params: &[COMPLEX],
+        ret: RetType::Exact(Type::Real),
+        func: |a, _| ok(Value::Real(a[0].as_complex().0)),
+    },
+    Builtin {
+        name: "im",
+        generic: &[],
+        params: &[COMPLEX],
+        ret: RetType::Exact(Type::Real),
+        func: |a, _| ok(Value::Real(a[0].as_complex().1)),
     },
     Builtin {
         name: "print",
@@ -153,4 +201,19 @@ fn float_math(
 /// `Ok(Some(value))`, the result of a built-in that cannot fail.
 fn ok(value: Value) -> Result<Option<Value>, String> {
     Ok(Some(value))
+}
+
+/// `int(x)`: drops the fractional part (`-2.7` becomes `-2`). Fails instead
+/// of saturating like Rust's `as` when the result does not fit.
+fn real_to_int(x: f64) -> Result<i64, String> {
+    let t = x.trunc();
+    // 2^63 is exactly representable; every real in [-2^63, 2^63) fits.
+    const LIMIT: f64 = 9_223_372_036_854_775_808.0;
+    if x.is_nan() {
+        Err("cannot convert NaN to `int`".to_owned())
+    } else if !(-LIMIT..LIMIT).contains(&t) {
+        Err(format!("`{x:?}` is out of range for `int`"))
+    } else {
+        Ok(t as i64)
+    }
 }

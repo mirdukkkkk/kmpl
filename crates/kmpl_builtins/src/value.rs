@@ -36,6 +36,14 @@ impl Value {
             other => panic!("expected real, got {:?}", other.ty()),
         }
     }
+
+    /// `(re, im)` of a `Complex`. Panics on other variants, like `as_real`.
+    pub fn as_complex(&self) -> (f64, f64) {
+        match self {
+            Value::Complex { re, im } => (*re, *im),
+            other => panic!("expected complex, got {:?}", other.ty()),
+        }
+    }
 }
 
 /// How `print` shows values: `42`, `1.0`, `true`, `2.0+3.0i`, `(1.0, 2.0)`.

@@ -1,0 +1,18 @@
+// Converting between int, real and complex.
+
+fn mean(sum: int, count: int) -> real {
+    return real(sum) / real(count);
+}
+
+fn main() {
+    print(mean(7, 2));        // 3.5, not the integer 3
+
+    let x: real = 2.9;
+    print(int(x));            // 2: drops the fraction
+    print(int(-x));           // -2
+
+    let z = complex(x, 0) * 2.0i;
+    print(z);
+    print(re(z));
+    print(im(z));
+}

@@ -197,3 +197,48 @@ fn print_reports_write_errors() {
     let err = (print.func)(&[Value::Int(1)], &mut Broken).unwrap_err();
     assert_eq!(err, "cannot write output: disk full");
 }
+
+#[test]
+fn conversions() {
+    assert_eq!(call("real", &[Value::Int(3)]), Some(Value::Real(3.0)));
+    assert_eq!(call("real", &[Value::Real(1.5)]), Some(Value::Real(1.5)));
+    assert_eq!(call("int", &[Value::Real(2.7)]), Some(Value::Int(2)));
+    assert_eq!(call("int", &[Value::Real(-2.7)]), Some(Value::Int(-2)));
+    assert_eq!(call("int", &[Value::Int(-5)]), Some(Value::Int(-5)));
+    assert_eq!(
+        call("complex", &[Value::Real(1.0), Value::Real(-2.0)]),
+        Some(complex(1.0, -2.0))
+    );
+    assert_eq!(call("re", &[complex(1.5, -2.0)]), Some(Value::Real(1.5)));
+    assert_eq!(call("im", &[complex(1.5, -2.0)]), Some(Value::Real(-2.0)));
+}
+
+fn int_error(x: f64) -> String {
+    let int = lookup("int").unwrap();
+    (int.func)(&[Value::Real(x)], &mut Vec::new()).unwrap_err()
+}
+
+#[test]
+fn int_of_bad_reals_is_an_error() {
+    assert_eq!(int_error(f64::NAN), "cannot convert NaN to `int`");
+    assert_eq!(int_error(f64::INFINITY), "`inf` is out of range for `int`");
+    assert_eq!(int_error(1e19), "`1e19` is out of range for `int`");
+    assert_eq!(int_error(-1e19), "`-1e19` is out of range for `int`");
+}
+
+#[test]
+fn int_at_the_limits() {
+    // -2^63 is i64::MIN exactly; the largest real below 2^63 fits too.
+    assert_eq!(
+        call("int", &[Value::Real(-9_223_372_036_854_775_808.0)]),
+        Some(Value::Int(i64::MIN))
+    );
+    assert_eq!(
+        call("int", &[Value::Real(9_223_372_036_854_774_784.0)]),
+        Some(Value::Int(9_223_372_036_854_774_784))
+    );
+    assert_eq!(
+        int_error(9_223_372_036_854_775_808.0),
+        "`9.223372036854776e18` is out of range for `int`"
+    );
+}

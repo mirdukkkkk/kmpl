@@ -175,3 +175,23 @@ fn negative_complex_has_no_negative_zero() {
         "-1.0+0.0i\n0.0+3.141592653589793i\n"
     );
 }
+
+#[test]
+fn conversions() {
+    assert_eq!(
+        output("let n = 7; print(real(n) / 2); print(int(-2.7)); print(complex(1, -2));"),
+        "3.5\n-2\n1.0-2.0i\n"
+    );
+    assert_eq!(
+        output("let z = 3.0 + 4.0i; print(re(z)); print(im(z));"),
+        "3.0\n4.0\n"
+    );
+}
+
+#[test]
+fn int_of_nan_is_a_runtime_error() {
+    assert_eq!(
+        runtime_error("fn main() { print(int(sqrt(-1))); }"),
+        "cannot convert NaN to `int`"
+    );
+}
