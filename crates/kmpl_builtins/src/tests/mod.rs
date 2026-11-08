@@ -27,7 +27,7 @@ fn sample(ty: Type) -> Value {
 fn call_with_out(
     b: &Builtin,
     args: &[Value],
-    out: &mut (dyn Write + Send),
+    out: &mut dyn Write,
 ) -> Result<Option<Value>, String> {
     let mut input: &[u8] = &[];
     let mut io = Io {

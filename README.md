@@ -37,9 +37,9 @@ fn main() {
 ## Status
 
 kmpl is a hobby project at version 0.1, and the language can still change.
-Programs run on a tree-walking interpreter, so it is not fast yet: in a simple
-numeric loop it is slower than CPython. There is no file I/O yet, only standard
-input and output.
+Programs are compiled to an SSA intermediate representation and run on a virtual
+machine, which in a simple numeric loop is about as fast as CPython. Native code
+is planned. There is no file I/O yet, only standard input and output.
 
 ## Install
 

@@ -33,13 +33,12 @@ pub struct Builtin {
 
 pub type BuiltinFn = fn(&[Value], &mut Io) -> Result<Option<Value>, String>;
 
-/// What a running program can reach outside itself. `Send` because the
-/// interpreter runs on its own thread.
+/// What a running program can reach outside itself.
 pub struct Io<'a> {
     /// Where `print` writes.
-    pub out: &'a mut (dyn Write + Send),
+    pub out: &'a mut dyn Write,
     /// Where `read_line` reads from.
-    pub input: &'a mut (dyn BufRead + Send),
+    pub input: &'a mut dyn BufRead,
     /// What `args` returns.
     pub args: &'a [String],
 }
