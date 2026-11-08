@@ -1,0 +1,201 @@
+//! Definite assignment: a variable declared with `let x;` may only be read
+//! after it has been assigned on every path that reaches the read.
+//!
+//! Rules:
+//! - `x = ...` initializes `x`.
+//! - After `if`/`else`, `x` is initialized only if both branches initialize it.
+//!   An `if` without `else` initializes nothing.
+//! - Assignments inside `while` do not count after the loop: the body may
+//!   run zero times.
+//! - A branch that ends in `return`, `break` or `continue` never reaches the
+//!   code after it, so it does not block initialization.
+//! - A bad read marks the variable as assigned from then on, so one
+//!   missing assignment does not produce a chain of errors on that path.
+//!
+//! Names that are not locals (constants, functions, undefined names) are
+//! skipped here; `resolve` reports problems with them.
+
+use std::collections::HashMap;
+
+use kmpl_ast::{Block, Expr, ExprKind, Function, Ident, Item, Program, Stmt, StmtKind};
+
+use crate::error::CheckError;
+
+struct InitChecker<'a> {
+    /// Name -> variable id. Innermost scope is last.
+    scopes: Vec<HashMap<&'a str, usize>>,
+    /// `init[id]`: is variable `id` definitely assigned at this point?
+    /// Ids are handed out in declaration order and dropped when their
+    /// block ends, so this works like a stack.
+    init: Vec<bool>,
+    errors: Vec<CheckError>,
+}
+
+pub fn check_init(program: &Program) -> Vec<CheckError> {
+    let mut c = InitChecker {
+        scopes: Vec::new(),
+        init: Vec::new(),
+        errors: Vec::new(),
+    };
+
+    for item in &program.items {
+        if let Item::Function(f) = item {
+            c.function(f);
+        }
+    }
+
+    c.errors
+}
+
+impl<'a> InitChecker<'a> {
+    fn function(&mut self, f: &'a Function) {
+        self.scopes.push(HashMap::new());
+        for param in &f.params {
+            self.declare(&param.name, true);
+        }
+        self.block(&f.body);
+        self.scopes.pop();
+        self.init.clear();
+    }
+
+    fn declare(&mut self, name: &'a Ident, initialized: bool) {
+        let id = self.init.len();
+        self.init.push(initialized);
+        self.scopes
+            .last_mut()
+            .expect("inside a function")
+            .insert(&name.name, id);
+    }
+
+    fn lookup(&self, name: &str) -> Option<usize> {
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(name).copied())
+    }
+
+    /// Returns `true` if the block always ends in `return`, `break` or
+    /// `continue`, so the code after it is never reached from here.
+    fn block(&mut self, block: &'a Block) -> bool {
+        let mark = self.init.len();
+        self.scopes.push(HashMap::new());
+
+        let mut diverges = false;
+        for stmt in block {
+            if self.stmt(stmt) && !diverges {
+                diverges = true;
+                // The rest of the block is unreachable: treat everything
+                // as assigned there so it reports nothing.
+                self.init.fill(true);
+            }
+        }
+
+        self.scopes.pop();
+        self.init.truncate(mark);
+        diverges
+    }
+
+    /// Returns `true` if the statement never lets control reach the next one.
+    fn stmt(&mut self, stmt: &'a Stmt) -> bool {
+        match &stmt.kind {
+            StmtKind::Let { name, init, .. } => {
+                if let Some(init) = init {
+                    self.expr(init);
+                }
+                self.declare(name, init.is_some());
+                false
+            }
+            StmtKind::Assign { name, value } => {
+                self.expr(value);
+                if let Some(id) = self.lookup(&name.name) {
+                    self.init[id] = true;
+                }
+                false
+            }
+            StmtKind::If {
+                cond,
+                then,
+                otherwise,
+            } => {
+                self.expr(cond);
+                self.if_branches(then, otherwise.as_ref())
+            }
+            StmtKind::While { cond, body } => {
+                self.expr(cond);
+                let before = self.init.clone();
+                self.block(body);
+                self.init = before;
+                false
+            }
+            StmtKind::Break | StmtKind::Continue => true,
+            StmtKind::Return(value) => {
+                if let Some(value) = value {
+                    self.expr(value);
+                }
+                true
+            }
+            StmtKind::Expr(e) => {
+                self.expr(e);
+                false
+            }
+        }
+    }
+
+    /// Runs both branches from the same starting state and merges the
+    /// results. Returns `true` if both branches diverge.
+    fn if_branches(&mut self, then: &'a Block, otherwise: Option<&'a Block>) -> bool {
+        let before = self.init.clone();
+        let then_diverges = self.block(then);
+        let after_then = std::mem::replace(&mut self.init, before);
+
+        let else_diverges = match otherwise {
+            Some(block) => self.block(block),
+            None => false,
+        };
+        // `self.init` now holds the state after the `else` branch.
+
+        match (then_diverges, else_diverges) {
+            (true, true) => return true,
+            (true, false) => {}
+            (false, true) => self.init = after_then,
+            (false, false) => {
+                for (now, then) in self.init.iter_mut().zip(&after_then) {
+                    *now &= *then;
+                }
+            }
+        }
+        false
+    }
+
+    fn expr(&mut self, e: &'a Expr) {
+        match &e.kind {
+            ExprKind::Int(_) | ExprKind::Real(_) | ExprKind::Imag(_) | ExprKind::Bool(_) => {}
+            ExprKind::Var(name) => self.read(name),
+            ExprKind::Unary { operand, .. } => self.expr(operand),
+            ExprKind::Binary { lhs, rhs, .. } => {
+                self.expr(lhs);
+                self.expr(rhs);
+            }
+            ExprKind::Call { args, .. } => {
+                for arg in args {
+                    self.expr(arg);
+                }
+            }
+            ExprKind::Swizzle { base, .. } => self.expr(base),
+        }
+    }
+
+    fn read(&mut self, name: &Ident) {
+        let Some(id) = self.lookup(&name.name) else {
+            return;
+        };
+        if !self.init[id] {
+            self.errors.push(CheckError::new(
+                format!("`{}` is used before being assigned", name.name),
+                name.span,
+            ));
+            // Avoid repeating the same error for later reads.
+            self.init[id] = true;
+        }
+    }
+}
