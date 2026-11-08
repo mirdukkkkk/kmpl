@@ -50,6 +50,9 @@ pub enum RetType {
     Exact(Type),
     /// The generic type `T`, see `Builtin::generic`.
     T,
+    /// Like `T`, but `complex` gives `real`: `abs` of `int` is `int`,
+    /// of `real` is `real`, of `complex` is its modulus, a `real`.
+    Magnitude,
 }
 
 const REAL: ParamType = ParamType::Exact(Type::Real);
@@ -75,11 +78,12 @@ pub static BUILTINS: &[Builtin] = &[
     // ----- other numbers -----
     Builtin {
         name: "abs",
-        generic: INT_OR_REAL,
+        generic: NUMBER,
         params: &[ParamType::T],
-        ret: RetType::T,
+        ret: RetType::Magnitude,
         func: |a, _| match a[0] {
             Value::Int(n) => math::int_abs(n).map(|n| Some(Value::Int(n))),
+            Value::Complex { re, im } => ok(Value::Real(re.hypot(im))),
             other => ok(Value::Real(other.as_real().abs())),
         },
     },
@@ -161,6 +165,26 @@ pub static BUILTINS: &[Builtin] = &[
                 re: a[0].as_real(),
                 im: a[1].as_real(),
             })
+        },
+    },
+    Builtin {
+        name: "arg",
+        generic: &[],
+        params: &[COMPLEX],
+        ret: RetType::Exact(Type::Real),
+        func: |a, _| {
+            let (re, im) = a[0].as_complex();
+            ok(Value::Real(im.atan2(re)))
+        },
+    },
+    Builtin {
+        name: "conj",
+        generic: &[],
+        params: &[COMPLEX],
+        ret: RetType::Exact(Type::Complex),
+        func: |a, _| {
+            let (re, im) = a[0].as_complex();
+            ok(Value::Complex { re, im: 0.0 - im })
         },
     },
     Builtin {

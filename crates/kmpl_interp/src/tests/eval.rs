@@ -195,3 +195,13 @@ fn int_of_nan_is_a_runtime_error() {
         "cannot convert NaN to `int`"
     );
 }
+
+#[test]
+fn complex_helpers() {
+    assert_eq!(
+        output(
+            "let z = 3.0 - 4.0i; print(abs(z)); print(conj(z)); print(abs(-7)); print(arg(-1.0 + 0.0i));"
+        ),
+        "5.0\n3.0+4.0i\n7\n3.141592653589793\n"
+    );
+}

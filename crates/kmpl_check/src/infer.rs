@@ -386,6 +386,17 @@ impl<'a> Infer<'a> {
             RetType::Nothing => None,
             RetType::Exact(ty) => Some(self.known(ty)),
             RetType::T => Some(t),
+            RetType::Magnitude => {
+                if self.u.set(t) == TypeSet::single(Type::Complex) {
+                    Some(self.known(Type::Real))
+                } else {
+                    // Still open, e.g. `abs(-1)`: the result type would
+                    // depend on the choice, so drop `complex`. It is the
+                    // last default anyway.
+                    let _ = self.u.restrict(t, TypeSet::ORDERED);
+                    Some(t)
+                }
+            }
         }
     }
 

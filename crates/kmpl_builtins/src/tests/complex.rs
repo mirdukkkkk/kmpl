@@ -83,3 +83,19 @@ fn complex_pow() {
     assert_eq!(pow((0.0, 0.0), (0.0, 0.0)), (1.0, 0.0));
     assert_eq!(pow((0.0, 0.0), (2.0, 0.0)), (0.0, 0.0));
 }
+
+#[test]
+fn modulus_argument_and_conjugate() {
+    assert_eq!(call("abs", &[c((3.0, -4.0))]), Some(Value::Real(5.0)));
+    assert_eq!(
+        call("arg", &[c((0.0, 1.0))]),
+        Some(Value::Real(std::f64::consts::FRAC_PI_2))
+    );
+    assert_eq!(
+        call("arg", &[c((-1.0, 0.0))]),
+        Some(Value::Real(std::f64::consts::PI))
+    );
+    assert_eq!(f("conj", (1.0, 2.0)), (1.0, -2.0));
+    // No negative zero: conj(2 + 0i) is 2 + 0i, as for negation.
+    assert!(f("conj", (2.0, 0.0)).1.is_sign_positive());
+}

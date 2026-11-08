@@ -59,6 +59,8 @@ fn signatures_match_implementations() {
                 RetType::Nothing => None,
                 RetType::Exact(ty) => Some(ty),
                 RetType::T => Some(t),
+                RetType::Magnitude if t == Type::Complex => Some(Type::Real),
+                RetType::Magnitude => Some(t),
             };
 
             let result = (b.func)(&args, &mut Vec::new()).unwrap();

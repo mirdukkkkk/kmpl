@@ -129,10 +129,6 @@ fn generic_builtins() {
         "mismatched types: expected `int`, found `real` or `complex`",
     );
     assert_error(
-        "fn f(z: complex) { let a = abs(z); }",
-        "mismatched types: expected `int` or `real`, found `complex`",
-    );
-    assert_error(
         "fn f(v: vec2) { let a = sin(v); }",
         "mismatched types: expected `real` or `complex`, found `vec2`",
     );
@@ -217,5 +213,19 @@ fn conversions_bridge_typed_values() {
     assert_error(
         "fn f(n: int) { let z = complex(n, 0); }",
         "mismatched types: expected `real`, found `int`",
+    );
+}
+
+#[test]
+fn abs_of_complex_is_real() {
+    assert_ok("fn f(z: complex) { let r: real = abs(z); }");
+    assert_ok(
+        "fn f() { let n: int = abs(-3); let x: real = abs(-2.5); let r: real = abs(3.0 + 4.0i); }",
+    );
+    assert_ok("fn f(z: complex) { let a: real = arg(z); let w: complex = conj(z); }");
+    // An open literal never picks the complex reading.
+    assert_error(
+        "fn f() { let w: complex = abs(-1); }",
+        "mismatched types: expected `complex`, found `int` or `real`",
     );
 }
