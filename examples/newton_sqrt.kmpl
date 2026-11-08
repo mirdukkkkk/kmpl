@@ -1,0 +1,57 @@
+// Square root by Newton's method, compared with the built-in `sqrt`.
+//
+// To solve g * g = x, improve a guess g with  g = (g + x / g) / 2.
+// Each step roughly doubles the number of correct digits.
+
+// The guess after `steps` Newton steps, starting from max(x, 1).
+fn newton_steps(x: real, steps: int) -> real {
+    let g = max(x, 1);
+    let i = 0;
+    while i < steps {
+        g = (g + x / g) / 2;
+        i = i + 1;
+    }
+    return g;
+}
+
+// Newton until the guess stops shrinking. Starting above the root,
+// every step moves down, so the first step that does not is the end.
+fn newton_sqrt(x: real) -> real {
+    if x == 0 {
+        return 0.0;
+    }
+    let g = max(x, 1);
+    while true {
+        let next = (g + x / g) / 2;
+        if next >= g {
+            return g;
+        }
+        g = next;
+    }
+    return g;
+}
+
+fn row(x: real) {
+    let mine = newton_sqrt(x);
+    print(vec4(x, mine, sqrt(x), mine - sqrt(x)));
+}
+
+fn main() {
+    // Convergence for x = 2: (steps, error). The error falls like
+    // 1e-1, 1e-3, 1e-6, 1e-12, then hits the limit of `real`.
+    let n = 0;
+    while n <= 6 {
+        print(vec2(real(n), newton_steps(2.0, n) - sqrt(2.0)));
+        n = n + 1;
+    }
+
+    // (x, newton, built-in, difference) for a few values. A difference of
+    // 2.2e-16 is one step between neighbouring `real`s (one ulp): Newton
+    // can stop one ulp short, while the built-in `sqrt` is a single CPU
+    // instruction that IEEE 754 requires to be correctly rounded.
+    row(2.0);
+    row(10.0);
+    row(0.25);
+    row(1000000.0);
+    row(0.000001);
+}

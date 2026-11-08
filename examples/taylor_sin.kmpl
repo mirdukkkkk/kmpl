@@ -1,0 +1,59 @@
+// Sine by its Taylor series, compared with the built-in `sin`.
+//
+//   sin x = x - x^3/3! + x^5/5! - x^7/7! + ...
+//
+// Each term is the previous one times -x^2 / ((2k)(2k + 1)), so no
+// powers or factorials are computed directly.
+
+// The first `terms` terms of the series.
+fn taylor_sin(x: real, terms: int) -> real {
+    let term = x;
+    let sum = x;
+    let k = 1;
+    while k < terms {
+        term = -term * x * x / real((2 * k) * (2 * k + 1));
+        sum = sum + term;
+        k = k + 1;
+    }
+    return sum;
+}
+
+// sin has period 2π, so move x into [-π, π] first, where the series
+// converges fast and the terms stay small.
+fn reduce(x: real) -> real {
+    return x - TAU * round(x / TAU);
+}
+
+fn row(x: real, terms: int) {
+    let mine = taylor_sin(x, terms);
+    print(vec4(x, mine, sin(x), mine - sin(x)));
+}
+
+fn row_reduced(x: real, terms: int) {
+    let mine = taylor_sin(reduce(x), terms);
+    print(vec4(x, mine, sin(x), mine - sin(x)));
+}
+
+fn main() {
+    // More terms, smaller error, for x = 1: (terms, error).
+    let n = 1;
+    while n <= 9 {
+        print(vec2(real(n), taylor_sin(1.0, n) - sin(1.0)));
+        n = n + 1;
+    }
+
+    // (x, taylor with 12 terms, built-in, difference).
+    row(0.5, 12);
+    row(1.0, 12);
+    row(3.0, 12);
+    // Far from 0 the series needs many more terms, and the huge
+    // alternating terms (20^19 / 19! is about 4e7) cancel badly.
+    row(20.0, 12);
+    row(20.0, 40);
+
+    // The same x after range reduction: 12 terms are enough again. For
+    // x = 100 the reduction itself costs a few ulps (`TAU` is rounded, and
+    // the error grows with x); real math libraries reduce with extra-precise π.
+    row_reduced(20.0, 12);
+    row_reduced(100.0, 12);
+}
