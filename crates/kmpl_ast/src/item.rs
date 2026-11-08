@@ -2,7 +2,16 @@ use crate::{Block, Expr, Ident, Span, Type, TypeExpr};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
+    pub imports: Vec<Import>,
     pub items: Vec<Item>,
+}
+
+/// `import math.stats;`
+#[derive(Debug, Clone, PartialEq)]
+pub struct Import {
+    /// `math`, `stats`. At least one part.
+    pub path: Vec<Ident>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]

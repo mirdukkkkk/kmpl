@@ -1,7 +1,7 @@
 //! Expressions. One function per precedence level, weakest first,
 //! exactly as in `grammar.ebnf`.
 
-use kmpl_ast::{BinOp, Expr, ExprKind, Span, UnOp};
+use kmpl_ast::{BinOp, Expr, ExprKind, Ident, Span, UnOp};
 use kmpl_lexer::Token;
 
 use crate::error::PResult;
@@ -248,8 +248,23 @@ fn array(ts: &mut TokenStream) -> PResult<Expr> {
     })
 }
 
+/// `IDENT ('.' IDENT)?`. `stats.mean` becomes one `Ident` with that name;
+/// the module linker works out what it refers to.
+fn name(ts: &mut TokenStream) -> PResult<Ident> {
+    let first = ts.expect_ident()?;
+    if ts.eat(&Token::Dot).is_none() {
+        return Ok(first);
+    }
+
+    let member = ts.expect_ident()?;
+    Ok(Ident {
+        name: format!("{}.{}", first.name, member.name),
+        span: first.span.to(member.span),
+    })
+}
+
 fn var_or_call(ts: &mut TokenStream) -> PResult<Expr> {
-    let name = ts.expect_ident()?;
+    let name = name(ts)?;
 
     if ts.eat(&Token::LParen).is_none() {
         let span = name.span;

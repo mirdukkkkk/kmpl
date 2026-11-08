@@ -1,6 +1,10 @@
 (* kmpl grammar v0.1 *)
 
-program     ::= item*
+program     ::= import* item*
+
+(* The path is relative to the importing file: 'import a.b;' reads a/b.kmpl.
+   The code then says 'b.name'. *)
+import      ::= 'import' IDENT ('.' IDENT)* ';'
 
 (* items *)
 item        ::= const | function
@@ -45,10 +49,11 @@ mul         ::= unary (('*' | '/') unary)*
 unary       ::= ('!' | '-') unary | postfix
 postfix     ::= primary ('[' (expr | slice) ']')* (':' swizzle)?
 slice       ::= expr? '..' expr? | expr? '..=' expr
-primary     ::= INT | REAL | IMAG | STRING | 'true' | 'false' | IDENT | call | array | tuple | '(' expr ')'
+primary     ::= INT | REAL | IMAG | STRING | 'true' | 'false' | name | call | array | tuple | '(' expr ')'
 tuple       ::= '(' expr (',' expr)+ ','? ')'
 array       ::= '[' (expr (',' expr)* ','?)? ']' | '[' expr ';' expr ']'
-call        ::= IDENT '(' (expr (',' expr)* ','?)? ')'
+call        ::= name '(' (expr (',' expr)* ','?)? ')'
+name        ::= IDENT ('.' IDENT)?          (* 'stats.mean': an item of an imported module *)
 
 (* The identifier after ':' is an ordinary IDENT. Whether it consists
    only of the letters x, y, z, and w is checked during semantic analysis,

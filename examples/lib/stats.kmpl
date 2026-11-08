@@ -1,0 +1,22 @@
+fn mean(a: [real]) -> real {
+    let sum = 0.0;
+    for x in a {
+        sum += x;
+    }
+    return sum / real(len(a));
+}
+
+fn min_max(a: [real]) -> (real, real) {
+    let lo = a[0];
+    let hi = a[0];
+    for x in a {
+        lo = min(lo, x);
+        hi = max(hi, x);
+    }
+    return (lo, hi);
+}
+
+// Only runs when this file is the one given to `kmpl`.
+fn main() {
+    print(mean([1.0, 2.0]));
+}

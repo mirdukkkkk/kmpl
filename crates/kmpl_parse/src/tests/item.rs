@@ -105,3 +105,27 @@ fn generic_call_is_an_ordinary_call() {
         "(fn main [] _ [(call lerp [a b 0.5])])"
     );
 }
+
+#[test]
+fn imports() {
+    let program = parse_program("import a.b; import c; fn main() { }").unwrap();
+    let paths: Vec<Vec<&str>> = program
+        .imports
+        .iter()
+        .map(|i| i.path.iter().map(|p| p.name.as_str()).collect())
+        .collect();
+    assert_eq!(paths, vec![vec!["a", "b"], vec!["c"]]);
+    assert_eq!(program.items.len(), 1);
+}
+
+#[test]
+fn import_errors() {
+    let error = |src: &str| parse_program(src).unwrap_err().message;
+    assert_eq!(error("import a"), "expected `;`, found end of file");
+    assert_eq!(error("import ;"), "expected identifier, found `;`");
+    assert_eq!(error("import a.;"), "expected identifier, found `;`");
+    assert_eq!(
+        error("fn f() { } import a;"),
+        "expected `const` or `fn`, found `import`"
+    );
+}

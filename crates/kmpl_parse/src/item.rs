@@ -1,6 +1,6 @@
 //! Top-level items: `const` and `fn`.
 
-use kmpl_ast::{Const, Function, Generic, Item, Param, Program, Type};
+use kmpl_ast::{Const, Function, Generic, Import, Item, Param, Program, Type};
 use kmpl_lexer::Token;
 
 use crate::error::{PResult, ParseError};
@@ -8,13 +8,33 @@ use crate::expr::expr;
 use crate::stmt::{block, ty};
 use crate::token_stream::TokenStream;
 
-/// `program ::= item*`
+/// `program ::= import* item*`
 pub fn program(ts: &mut TokenStream) -> PResult<Program> {
+    let mut imports = Vec::new();
+    while ts.peek() == Some(&Token::Import) {
+        imports.push(import(ts)?);
+    }
+
     let mut items = Vec::new();
     while !ts.at_end() {
         items.push(item(ts)?);
     }
-    Ok(Program { items })
+    Ok(Program { imports, items })
+}
+
+/// `'import' IDENT ('.' IDENT)* ';'`
+fn import(ts: &mut TokenStream) -> PResult<Import> {
+    let start = ts.expect(Token::Import)?;
+    let mut path = vec![ts.expect_ident()?];
+    while ts.eat(&Token::Dot).is_some() {
+        path.push(ts.expect_ident()?);
+    }
+    let end = ts.expect(Token::Semi)?;
+
+    Ok(Import {
+        path,
+        span: start.to(end),
+    })
 }
 
 fn item(ts: &mut TokenStream) -> PResult<Item> {

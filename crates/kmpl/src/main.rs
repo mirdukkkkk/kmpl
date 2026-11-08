@@ -1,6 +1,9 @@
 mod diagnostics;
+mod loader;
 
 use std::io::Write;
+
+use diagnostics::Sources;
 
 const USAGE: &str = "usage: kmpl [--ast] <file>";
 
@@ -15,32 +18,28 @@ fn main() {
         }
     };
 
-    let src = match std::fs::read_to_string(path) {
-        Ok(src) => src,
-        Err(e) => fail(&format!("{path}: {e}")),
+    let mut sources = Sources::default();
+    let modules = match loader::load(path, &mut sources) {
+        Ok(modules) => modules,
+        Err(message) => fail(&message),
     };
 
-    let tokens = match kmpl_lexer::lex(&src) {
-        Ok(tokens) => tokens,
-        Err(span) => {
-            let message = diagnostics::lex_error_message(&src, span);
-            fail(&diagnostics::render(path, &src, &message, span))
-        }
+    let render_all = |errors: Vec<kmpl_check::CheckError>| -> String {
+        let rendered: Vec<String> = errors
+            .iter()
+            .map(|err| sources.render(&err.message, err.span))
+            .collect();
+        // A blank line between errors.
+        rendered.join("\n")
     };
 
-    let mut program = match kmpl_parse::parse(tokens) {
+    let mut program = match kmpl_check::link(modules) {
         Ok(program) => program,
-        Err(err) => fail(&diagnostics::render(path, &src, &err.message, err.span)),
+        Err(errors) => fail(&render_all(errors)),
     };
 
     if let Err(errors) = kmpl_check::check(&mut program) {
-        let rendered: Vec<String> = errors
-            .iter()
-            .map(|err| diagnostics::render(path, &src, &err.message, err.span))
-            .collect();
-        // A blank line between errors.
-        eprint!("{}", rendered.join("\n"));
-        std::process::exit(1);
+        fail(&render_all(errors));
     }
 
     if print_ast {
@@ -55,7 +54,7 @@ fn main() {
         fail(&format!("kmpl: cannot write output: {e}"));
     }
     if let Err(err) = result {
-        fail(&diagnostics::render(path, &src, &err.message, err.span));
+        fail(&sources.render(&err.message, err.span));
     }
 }
 

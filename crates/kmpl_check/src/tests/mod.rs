@@ -5,6 +5,7 @@ mod infer;
 mod init;
 mod literals;
 mod main_fn;
+mod modules;
 mod resolve;
 mod returns;
 mod types;

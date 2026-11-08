@@ -14,6 +14,50 @@ mod tests;
 
 use kmpl_ast::Span;
 
+/// Every source file of the program. A `Span` is only two numbers, so each
+/// file gets its own range of them, one after another; which file a span
+/// belongs to follows from where it starts.
+#[derive(Default)]
+pub struct Sources {
+    files: Vec<SourceFile>,
+}
+
+struct SourceFile {
+    path: String,
+    text: String,
+    start: usize,
+}
+
+impl Sources {
+    /// Adds a file and returns the position of its first byte. The first
+    /// file starts at 0. The `+ 1` keeps an empty span at the end of a file
+    /// from looking like the start of the next one.
+    pub fn add(&mut self, path: &str, text: &str) -> usize {
+        let start = self
+            .files
+            .last()
+            .map_or(0, |file| file.start + file.text.len() + 1);
+        self.files.push(SourceFile {
+            path: path.to_owned(),
+            text: text.to_owned(),
+            start,
+        });
+        start
+    }
+
+    /// Formats one error, with `span` in positions given out by `add`.
+    pub fn render(&self, message: &str, span: Span) -> String {
+        let file = self
+            .files
+            .iter()
+            .rev()
+            .find(|file| file.start <= span.start)
+            .expect("a span comes from a file");
+        let local = Span::new(span.start - file.start, span.end.saturating_sub(file.start));
+        render(&file.path, &file.text, message, local)
+    }
+}
+
 /// Formats one error. `span` is in bytes of `src`; line and column are
 /// 1-based, and the column counts characters, not bytes.
 pub fn render(path: &str, src: &str, message: &str, span: Span) -> String {

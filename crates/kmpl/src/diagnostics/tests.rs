@@ -1,6 +1,6 @@
 use kmpl_ast::Span;
 
-use super::{lex_error_message, render};
+use super::{Sources, lex_error_message, render};
 
 /// Span of the first occurrence of `part` in `src`.
 fn span_of(src: &str, part: &str) -> Span {
@@ -152,4 +152,27 @@ fn bad_string_messages() {
         let span = kmpl_lexer::lex(src).unwrap_err();
         assert_eq!(lex_error_message(src, span), "unterminated string", "{src}");
     }
+}
+
+#[test]
+fn sources_find_the_file_of_a_span() {
+    let mut sources = Sources::default();
+    assert_eq!(sources.add("a.kmpl", "first\n"), 0);
+    let start = sources.add("b.kmpl", "one\ntwo\n");
+    assert_eq!(start, 7);
+
+    let out = sources.render("bad", Span::new(0, 5));
+    assert!(out.contains("--> a.kmpl:1:1"), "{out}");
+    let out = sources.render("bad", Span::new(start + 4, start + 7));
+    assert!(out.contains("--> b.kmpl:2:1"), "{out}");
+    assert!(out.contains("2 | two"), "{out}");
+}
+
+#[test]
+fn sources_tell_the_end_of_a_file_from_the_next_one() {
+    let mut sources = Sources::default();
+    sources.add("a.kmpl", "abc");
+    sources.add("b.kmpl", "def");
+    let out = sources.render("bad", Span::new(3, 3));
+    assert!(out.contains("--> a.kmpl:1:4"), "{out}");
 }

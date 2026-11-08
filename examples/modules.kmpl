@@ -1,0 +1,20 @@
+// Modules: `import lib.geometry;` reads `lib/geometry.kmpl` next to this
+// file, and the code then says `geometry.name`.
+import lib.geometry;
+import lib.stats;
+
+fn main() {
+    print(geometry.circle_area(2.0));
+    print(geometry.UNIT_AREA == PI);
+
+    let data = [1.0, 2.0, 6.0];
+    print(stats.mean(data));
+
+    let (lo, hi) = stats.min_max(data);
+    print(lo);
+    print(hi);
+
+    // A variable may share a name with something inside a module.
+    let mean = stats.mean([4.0]);
+    print(mean);
+}

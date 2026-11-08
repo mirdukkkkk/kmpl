@@ -264,3 +264,15 @@ fn strings() {
         r#"expected `;`, found string "b""#
     );
 }
+
+#[test]
+fn module_names() {
+    assert_eq!(body("stats.G;"), "[stats.G]");
+    assert_eq!(body("stats.mean(1);"), "[(call stats.mean [1])]");
+    assert_eq!(body("m.a[0];"), "[(index m.a 0)]");
+    assert_eq!(body("m.v:xy;"), "[(: m.v xy)]");
+    assert_eq!(body_error("a.b.c;"), "expected `;`, found `.`");
+    assert_eq!(body_error("a.b = 1;"), "expected `;`, found `=`");
+    assert_eq!(body_error("f().x;"), "expected `;`, found `.`");
+    assert_eq!(body_error("a.;"), "expected identifier, found `;`");
+}

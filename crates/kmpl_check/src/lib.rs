@@ -4,6 +4,7 @@ mod infer;
 mod init;
 mod literals;
 mod main_fn;
+mod modules;
 mod resolve;
 mod returns;
 mod types;
@@ -13,6 +14,7 @@ mod tests;
 
 pub use error::CheckError;
 pub use generics::MAX_INSTANCES;
+pub use modules::{Module, ModuleImport, link};
 
 use kmpl_ast::{Item, Program};
 

@@ -1,0 +1,8 @@
+// An import is relative to this file: this reads `lib/numbers.kmpl`.
+import numbers;
+
+const UNIT_AREA: real = PI * numbers.TWO / numbers.TWO;
+
+fn circle_area(r: real) -> real {
+    return UNIT_AREA * numbers.square(r);
+}

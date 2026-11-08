@@ -130,11 +130,6 @@ fn reals_without_leading_zero() {
     );
 }
 
-#[test]
-fn lone_dot_is_an_error() {
-    assert_eq!(lex("1 . 2"), Err(Span::new(2, 3)));
-}
-
 fn spans(src: &str) -> Vec<(usize, usize)> {
     lex(src)
         .unwrap()
@@ -473,4 +468,23 @@ fn bad_strings() {
     assert!(lex("\"a\nb\"").is_err());
     assert!(lex(r#""a\q""#).is_err());
     assert!(lex(r#""ends with backslash\""#).is_err());
+}
+
+#[test]
+fn dots() {
+    assert_eq!(
+        tokens("math.stats"),
+        vec![
+            Token::Ident("math".into()),
+            Token::Dot,
+            Token::Ident("stats".into())
+        ]
+    );
+    assert_eq!(tokens(".5"), vec![Token::Real(0.5)]);
+    assert_eq!(tokens(".."), vec![Token::DotDot]);
+    assert_eq!(tokens("."), vec![Token::Dot]);
+    assert_eq!(
+        tokens("import a;"),
+        vec![Token::Import, Token::Ident("a".into()), Token::Semi]
+    );
 }
