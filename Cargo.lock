@@ -50,6 +50,13 @@ dependencies = [
 [[package]]
 name = "kmpl_interp"
 version = "0.1.0"
+dependencies = [
+ "kmpl_ast",
+ "kmpl_builtins",
+ "kmpl_check",
+ "kmpl_lexer",
+ "kmpl_parse",
+]
 
 [[package]]
 name = "kmpl_lexer"
