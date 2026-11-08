@@ -7,7 +7,9 @@ use crate::lower;
 fn lowered(src: &str) -> Module {
     let mut program = kmpl_parse::parse(kmpl_lexer::lex(src).unwrap()).unwrap();
     let types = kmpl_check::check(&mut program).unwrap();
-    lower(&program, &types)
+    let mut module = lower(&program, &types);
+    kmpl_ir::annotate(&mut module);
+    module
 }
 
 /// The text of the function called `name`.

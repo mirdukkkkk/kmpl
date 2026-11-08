@@ -8,11 +8,13 @@
 
 mod display;
 mod liveness;
+mod opt;
 
 #[cfg(test)]
 mod tests;
 
 pub use liveness::annotate;
+pub use opt::optimize;
 
 use kmpl_ast::{BinOp, Span, Ty, UnOp};
 

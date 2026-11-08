@@ -57,7 +57,7 @@ With Nix: `nix run . -- examples/demo.kmpl`.
 ## Usage
 
 ```text
-kmpl [--ast | --ir] <file> [args...]
+kmpl [--ast | --ir] [--no-opt] <file> [args...]
 ```
 
 Everything after the file is passed to the program. `kmpl --help` lists the

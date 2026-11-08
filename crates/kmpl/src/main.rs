@@ -6,13 +6,13 @@ use std::io::Write;
 use diagnostics::Sources;
 use kmpl_vm::Io;
 
-const USAGE: &str = "usage: kmpl [--ast | --ir] <file> [args...]";
+const USAGE: &str = "usage: kmpl [--ast | --ir] [--no-opt] <file> [args...]";
 
 const HELP: &str = "\
 kmpl: the Kepler Math Programming Language
 
 Usage:
-    kmpl [--ast | --ir] <file> [args...]
+    kmpl [--ast | --ir] [--no-opt] <file> [args...]
 
 Arguments:
     <file>       the program to run, a .kmpl file with `fn main()`
@@ -21,6 +21,7 @@ Arguments:
 Options:
     --ast        check the program and print its syntax tree, without running it
     --ir         check the program and print its intermediate representation
+    --no-opt     do not optimize the intermediate representation
     -h, --help   show this help
 
 Examples:
@@ -35,10 +36,17 @@ fn main() {
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();
 
-    let (print_flag, rest) = match args.as_slice() {
-        [flag, rest @ ..] if flag == "--ast" || flag == "--ir" => (Some(flag.as_str()), rest),
-        rest => (None, rest),
-    };
+    let mut rest = args.as_slice();
+    let mut print_flag = None;
+    let mut optimize = true;
+    while let [flag, tail @ ..] = rest {
+        match flag.as_str() {
+            "--ast" | "--ir" => print_flag = Some(flag.as_str()),
+            "--no-opt" => optimize = false,
+            _ => break,
+        }
+        rest = tail;
+    }
     if matches!(rest.first().map(String::as_str), Some("--help" | "-h")) {
         print!("{HELP}");
         return;
@@ -83,11 +91,15 @@ fn main() {
         return;
     }
 
-    let module = kmpl_lower::lower(&program, &types);
+    let mut module = kmpl_lower::lower(&program, &types);
+    if optimize {
+        kmpl_ir::optimize(&mut module);
+    }
     if print_flag == Some("--ir") {
         print!("{module}");
         return;
     }
+    kmpl_ir::annotate(&mut module);
 
     let mut out = std::io::BufWriter::new(std::io::stdout());
     let mut input = std::io::BufReader::new(std::io::stdin());

@@ -140,7 +140,8 @@ fn runtime_error_span_points_at_the_operation() {
     let src = "fn main() { let z = 0; let y = 10 / z; }";
     let mut program = kmpl_parse::parse(kmpl_lexer::lex(src).unwrap()).unwrap();
     let types = kmpl_check::check(&mut program).unwrap();
-    let module = kmpl_lower::lower(&program, &types);
+    let mut module = kmpl_lower::lower(&program, &types);
+    kmpl_ir::annotate(&mut module);
     let (mut out, mut input) = (Vec::new(), &b""[..]);
     let io = crate::Io {
         out: &mut out,

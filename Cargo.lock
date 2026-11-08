@@ -23,6 +23,7 @@ version = "0.1.0"
 dependencies = [
  "kmpl_ast",
  "kmpl_check",
+ "kmpl_ir",
  "kmpl_lexer",
  "kmpl_lower",
  "kmpl_parse",

@@ -22,7 +22,7 @@ use kmpl_builtins::Value;
 use kmpl_check::TypeInfo;
 use kmpl_ir::{
     Block, BlockId, Constant, FuncId, Function, Inst, Module, Op, Reg, Step, StructLayout, Target,
-    Terminator, annotate,
+    Terminator,
 };
 
 const INT: Ty = Ty::Prim(Type::Int);
@@ -62,6 +62,7 @@ fn to_ty(ty: &TypeExpr) -> Ty {
     }
 }
 
+/// The result still needs `kmpl_ir::annotate` before it can run.
 pub fn lower(program: &Program, types: &TypeInfo) -> Module {
     let mut ctx = Context {
         types,
@@ -105,16 +106,14 @@ pub fn lower(program: &Program, types: &TypeInfo) -> Module {
     functions.push(lower_constants(&mut ctx, program));
 
     let main = ctx.functions["main"];
-    let mut module = Module {
+    Module {
         functions,
         init,
         main,
         globals: ctx.globals.len(),
         builtins: ctx.builtins,
         structs: ctx.layouts,
-    };
-    annotate(&mut module);
-    module
+    }
 }
 
 fn lower_function<'p>(ctx: &mut Context<'p>, item: usize, f: &'p ast::Function) -> Function {
