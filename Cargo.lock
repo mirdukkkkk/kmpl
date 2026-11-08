@@ -61,6 +61,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "kmpl_ir"
+version = "0.1.0"
+dependencies = [
+ "kmpl_ast",
+]
+
+[[package]]
 name = "kmpl_lexer"
 version = "0.1.0"
 dependencies = [

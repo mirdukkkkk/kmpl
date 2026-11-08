@@ -14,6 +14,7 @@ kmpl_lexer    = { path = "crates/kmpl_lexer" }
 kmpl_parse    = { path = "crates/kmpl_parse" }
 kmpl_check    = { path = "crates/kmpl_check" }
 kmpl_interp   = { path = "crates/kmpl_interp" }
+kmpl_ir       = { path = "crates/kmpl_ir" }
 
 logos = "0.16.1"
 
