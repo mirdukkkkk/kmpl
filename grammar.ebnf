@@ -44,6 +44,7 @@ swizzle     ::= IDENT
 (* lexical *)
 IDENT       ::= [a-zA-Z_] [a-zA-Z0-9_]*
 INT         ::= [0-9]+
-REAL        ::= [0-9]* '.' [0-9]+          (* 1.5, 0.5, .5 *)
+REAL        ::= [0-9]* '.' [0-9]+ EXP? | [0-9]+ EXP   (* 1.5, .5, 1.5e-3, 1e6 *)
+EXP         ::= [eE] [+-]? [0-9]+
 IMAG        ::= REAL 'i'
 comment     ::= '//' [^\n]*

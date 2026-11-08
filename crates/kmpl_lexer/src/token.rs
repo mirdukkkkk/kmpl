@@ -43,17 +43,25 @@ pub enum Token {
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*", |l| l.slice().to_owned())]
     Ident(String),
 
-    #[regex(r"[0-9]*\.[0-9]+i", |l| {
+    // A real is `1.5`, `.5`, `1.5e-3`, `.5E+2` or `1e6` (an exponent
+    // without a dot is still a real). `i` after it makes it imaginary.
+    #[regex(r"([0-9]*\.[0-9]+([eE][+-]?[0-9]+)?|[0-9]+[eE][+-]?[0-9]+)i", |l| {
         let s = l.slice();
-        s[..s.len() - 1].parse::<f64>().ok()
+        parse_real(&s[..s.len() - 1])
     })]
     Imag(f64),
 
-    #[regex(r"[0-9]*\.[0-9]+", |l| l.slice().parse::<f64>().ok())]
+    #[regex(r"[0-9]*\.[0-9]+([eE][+-]?[0-9]+)?|[0-9]+[eE][+-]?[0-9]+", |l| parse_real(l.slice()))]
     Real(f64),
 
     #[regex(r"[0-9]+", |l| l.slice().parse::<i64>().ok())]
     Int(i64),
+}
+
+/// `None` (a lex error) for literals too large for `f64`, like `1e400`,
+/// instead of silently becoming `inf`. Too small ones round to `0.0`.
+fn parse_real(text: &str) -> Option<f64> {
+    text.parse::<f64>().ok().filter(|v| v.is_finite())
 }
 
 impl std::fmt::Display for Token {

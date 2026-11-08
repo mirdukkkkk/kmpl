@@ -123,6 +123,11 @@ fn lex_messages() {
         lex_error_message(src, span_of(src, "99999999999999999999")),
         "integer literal `99999999999999999999` is too large for `int`"
     );
+    let src = "x = 1e400;";
+    assert_eq!(
+        lex_error_message(src, span_of(src, "1e400")),
+        "real literal `1e400` is out of range"
+    );
     let src = "a $ b";
     assert_eq!(
         lex_error_message(src, span_of(src, "$")),

@@ -316,3 +316,49 @@ fn display_of_value_tokens() {
     assert_eq!(Token::Real(1.0).to_string(), "number `1.0`");
     assert_eq!(Token::Imag(2.0).to_string(), "number `2.0i`");
 }
+
+#[test]
+fn exponent_notation() {
+    assert_eq!(
+        tokens("1e6 1.5e-3 .5E+2 2E0 7e2i"),
+        vec![
+            Token::Real(1e6),
+            Token::Real(1.5e-3),
+            Token::Real(50.0),
+            Token::Real(2.0),
+            Token::Imag(700.0),
+        ]
+    );
+}
+
+#[test]
+fn exponent_needs_digits() {
+    // `2e` and `2e+` are not reals: the `e` is an identifier.
+    assert_eq!(tokens("2e"), vec![Token::Int(2), Token::Ident("e".into())]);
+    assert_eq!(
+        tokens("2e+x"),
+        vec![
+            Token::Int(2),
+            Token::Ident("e".into()),
+            Token::Plus,
+            Token::Ident("x".into()),
+        ]
+    );
+    // An identifier that starts with `e` after an expression still works.
+    assert_eq!(
+        tokens("x*e1"),
+        vec![
+            Token::Ident("x".into()),
+            Token::Star,
+            Token::Ident("e1".into())
+        ]
+    );
+}
+
+#[test]
+fn real_out_of_range() {
+    assert_eq!(lex("1e400"), Err(Span::new(0, 5)));
+    assert_eq!(lex("x = 1.0e309i"), Err(Span::new(4, 12)));
+    // Too small rounds to zero, like in Rust and C.
+    assert_eq!(tokens("1e-400"), vec![Token::Real(0.0)]);
+}

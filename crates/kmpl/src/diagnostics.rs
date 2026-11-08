@@ -57,14 +57,18 @@ fn floor_char_boundary(s: &str, i: usize) -> usize {
 }
 
 /// Message for a lexer error at `span`: a too-large number or a character
-/// that starts no token.
+/// that starts no token. A number that failed to lex was out of range,
+/// since the lexer accepts every other digit sequence.
 pub fn lex_error_message(src: &str, span: Span) -> String {
     let start = floor_char_boundary(src, span.start);
     let end = floor_char_boundary(src, span.end.max(start));
     let text = &src[start..end];
 
+    let starts_like_number = text.starts_with(|c: char| c.is_ascii_digit() || c == '.');
     if !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()) {
         format!("integer literal `{text}` is too large for `int`")
+    } else if starts_like_number && text.len() > 1 {
+        format!("real literal `{text}` is out of range")
     } else {
         let shown = text.chars().next().unwrap_or(' ');
         format!("unexpected character `{shown}`")
