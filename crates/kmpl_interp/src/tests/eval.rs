@@ -899,33 +899,6 @@ fn strings_in_generics_and_constants() {
     assert_eq!(run(src).unwrap(), "hi!hi!\n4\n");
 }
 
-#[test]
-fn plot_writes_a_file() {
-    let path = std::env::temp_dir().join(format!("kmpl_plot_{}.svg", std::process::id()));
-    let path_text = path.to_str().unwrap();
-    let src =
-        format!(r#"fn main() {{ plot([0, 1, 2], [1, 3, 2], "{path_text}"); print("done"); }}"#);
-    assert_eq!(run(&src).unwrap(), "done\n");
-
-    let image = std::fs::read_to_string(&path).unwrap();
-    std::fs::remove_file(&path).unwrap();
-    assert!(image.starts_with("<svg"), "{image}");
-    assert!(image.contains("<polyline"), "{image}");
-}
-
-#[test]
-fn plot_errors() {
-    assert_eq!(
-        runtime_error(r#"fn main() { plot([1.0, 2.0], [1.0], "x.svg"); }"#),
-        "`plot` needs as many x values as y values, got 2 and 1"
-    );
-    let message = runtime_error(r#"fn main() { plot([1.0], [1.0], "/nonexistent-dir/x.svg"); }"#);
-    assert!(
-        message.starts_with("cannot write `/nonexistent-dir/x.svg`: "),
-        "{message}"
-    );
-}
-
 const POINT: &str = "struct P { x: real, n: int } ";
 
 fn with_point(body: &str) -> String {

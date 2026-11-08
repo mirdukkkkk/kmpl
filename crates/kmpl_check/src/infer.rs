@@ -738,11 +738,6 @@ impl<'a> Infer<'a> {
                         self.array_elem(arg_ty, arg.span);
                     }
                 }
-                ParamType::ArrayOf(ty) => {
-                    let elem = self.known(*ty);
-                    let array = self.u.new_array(elem);
-                    self.unify(arg_ty, array, arg.span);
-                }
                 ParamType::Elem => self.unify(arg_ty, elem, arg.span),
                 ParamType::ArrayOfElem => {
                     let array = self.u.new_array(elem);

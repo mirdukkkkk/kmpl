@@ -319,10 +319,7 @@ let (line, more) = read_line();
 | Vectors | `vec2 vec3 vec4 dot length distance normalize cross` |
 | Arrays and strings | `len push concat` |
 | Text | `parse_int parse_real` |
-| Input and output | `print args read_line plot` |
-
-`plot(xs, ys, "chart.svg")` draws a line through the points of two `[real]`
-arrays and writes an SVG file. `NaN` and infinite points leave a gap in the line.
+| Input and output | `print args read_line` |
 
 These functions work on single values. `sqrt` of an array is an error, so use a
 loop.

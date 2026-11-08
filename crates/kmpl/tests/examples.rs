@@ -15,10 +15,6 @@ fn examples_match_expected_output() {
     sources.sort();
     assert!(!sources.is_empty(), "no examples in {}", dir.display());
 
-    // Examples may write files; keep them out of the repository.
-    let work_dir = std::env::temp_dir().join(format!("kmpl_examples_{}", std::process::id()));
-    std::fs::create_dir_all(&work_dir).unwrap();
-
     let mut failures = Vec::new();
     for source in &sources {
         let name = source.file_name().unwrap().to_string_lossy();
@@ -32,7 +28,6 @@ fn examples_match_expected_output() {
 
         let out = Command::new(env!("CARGO_BIN_EXE_kmpl"))
             .arg(source)
-            .current_dir(&work_dir)
             .output()
             .unwrap();
         let actual = String::from_utf8_lossy(&out.stdout);
@@ -47,6 +42,5 @@ fn examples_match_expected_output() {
         }
     }
 
-    std::fs::remove_dir_all(&work_dir).unwrap();
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }

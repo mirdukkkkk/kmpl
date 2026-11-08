@@ -6,7 +6,6 @@
 
 mod complex;
 mod math;
-mod plot;
 mod value;
 
 #[cfg(test)]
@@ -63,8 +62,6 @@ pub enum ParamType {
     Any,
     /// An array of any element type, or a string. Used by `len`.
     Collection,
-    /// An array of exactly this element type.
-    ArrayOf(Type),
     /// The element type `E`: any type, arrays included. All `E` positions
     /// in one call are the same type. Used by `push`.
     Elem,
@@ -105,7 +102,6 @@ const FLOAT_OR_VECTOR: &[Type] = &[
     Type::Vec4,
 ];
 const VEC3: ParamType = ParamType::Exact(Type::Vec3);
-const REAL_ARRAY: ParamType = ParamType::ArrayOf(Type::Real);
 
 pub static BUILTINS: &[Builtin] = &[
     // ----- `T -> T` with `T` in `real, complex` -----
@@ -494,16 +490,6 @@ pub static BUILTINS: &[Builtin] = &[
         },
     },
     // ----- output -----
-    Builtin {
-        name: "plot",
-        generic: &[],
-        params: &[REAL_ARRAY, REAL_ARRAY, ParamType::Exact(Type::Str)],
-        ret: RetType::Nothing,
-        func: |a, _| {
-            plot::plot(a[0].as_array(), a[1].as_array(), a[2].as_str())?;
-            Ok(None)
-        },
-    },
     Builtin {
         name: "print",
         generic: &[],

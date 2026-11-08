@@ -4,8 +4,7 @@
 
 kmpl (Kepler Math Programming Language) is a small statically typed language
 for math, with Rust-like syntax and type inference. Complex numbers, vectors
-and matrices are part of the language, and it can draw charts without any
-libraries.
+and matrices are part of the language.
 
 ```kmpl
 struct Body {
@@ -34,11 +33,6 @@ fn main() {
     print(sqrt(-4.0 + 0.0i));  // 0.0+2.0i
 }
 ```
-
-`plot(xs, ys, "chart.svg")` writes a line chart. This one comes from
-[`examples/plot.kmpl`](examples/plot.kmpl):
-
-![A damped sine wave](docs/damped_sine.svg)
 
 ## Status
 
