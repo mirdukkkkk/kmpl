@@ -36,7 +36,13 @@
             "-p"
             "kmpl"
           ];
-          meta.mainProgram = "kmpl";
+          meta = {
+            mainProgram = "kmpl";
+            license = with pkgs.lib.licenses; [
+              mit
+              asl20
+            ];
+          };
         };
       });
     };

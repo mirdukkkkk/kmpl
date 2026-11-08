@@ -25,8 +25,8 @@ exprstmt    ::= expr ';'
 
 (* expressions: from lowest to highest precedence *)
 expr        ::= or
-or          ::= and ('|' and)*
-and         ::= eq ('&' eq)*
+or          ::= and ('||' and)*
+and         ::= eq ('&&' eq)*
 eq          ::= comp (('==' | '!=') comp)*
 comp        ::= add (('<' | '<=' | '>' | '>=') add)*
 add         ::= mul (('+' | '-') mul)*

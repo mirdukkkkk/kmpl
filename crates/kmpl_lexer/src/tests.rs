@@ -42,7 +42,13 @@ fn numbers() {
 fn two_char_operators() {
     assert_eq!(
         tokens("<= >= == != ->"),
-        vec![Token::Le, Token::Ge, Token::EqEq, Token::NotEq, Token::Arrow]
+        vec![
+            Token::Le,
+            Token::Ge,
+            Token::EqEq,
+            Token::NotEq,
+            Token::Arrow
+        ]
     );
 }
 
@@ -60,10 +66,33 @@ fn swizzle_tokens() {
 
 #[test]
 fn comments_are_skipped() {
-    assert_eq!(tokens("1 // комментарий\n2"), vec![Token::Int(1), Token::Int(2)]);
+    assert_eq!(
+        tokens("1 // комментарий\n2"),
+        vec![Token::Int(1), Token::Int(2)]
+    );
 }
 
 #[test]
 fn bad_char_gives_span() {
     assert_eq!(lex("let x = 1 $ 2;"), Err(Span::new(10, 11)));
+}
+
+#[test]
+fn logical_operators() {
+    assert_eq!(
+        tokens("a && b || c"),
+        vec![
+            Token::Ident("a".into()),
+            Token::And,
+            Token::Ident("b".into()),
+            Token::Or,
+            Token::Ident("c".into()),
+        ]
+    );
+}
+
+#[test]
+fn single_ampersand_and_pipe_are_errors() {
+    assert_eq!(lex("a & b"), Err(Span::new(2, 3)));
+    assert_eq!(lex("a | b"), Err(Span::new(2, 3)));
 }
