@@ -1,7 +1,19 @@
 use crate::check;
 
 /// Error messages for `src`, in the order they were found.
+/// Adds an empty `fn main() { }` if `src` has no `main`, so tests
+/// about other rules do not also get "no `main`".
 fn errors(src: &str) -> Vec<String> {
+    let src = if src.contains("main") {
+        src.to_owned()
+    } else {
+        format!("{src} fn main() {{ }}")
+    };
+    errors_exact(&src)
+}
+
+/// Error messages for `src` exactly as written.
+fn errors_exact(src: &str) -> Vec<String> {
     let tokens = kmpl_lexer::lex(src).unwrap();
     let program = kmpl_parse::parse(tokens).unwrap();
     match check(&program) {
@@ -135,6 +147,75 @@ fn reports_all_errors() {
             "undefined variable `a`",
             "undefined function `b`",
             "undefined variable `c`",
+        ]
+    );
+}
+
+#[test]
+fn break_and_continue_need_a_loop() {
+    assert_error("fn f() { break; }", "`break` outside of a loop");
+    assert_error(
+        "fn f() { if true { continue; } }",
+        "`continue` outside of a loop",
+    );
+    assert_ok("fn f() { while true { if true { break; } continue; } }");
+    assert_ok("fn f() { while true { while false { break; } break; } }");
+}
+
+#[test]
+fn loop_depth_resets_after_loop() {
+    assert_error(
+        "fn f() { while true { } break; }",
+        "`break` outside of a loop",
+    );
+}
+
+#[test]
+fn argument_counts() {
+    assert_error(
+        "fn g(a: int) { } fn f() { g(); }",
+        "`g` takes 1 argument, but 0 were given",
+    );
+    assert_error(
+        "fn g() { } fn f() { g(1); }",
+        "`g` takes 0 arguments, but 1 was given",
+    );
+    assert_error(
+        "fn f() { let v = vec3(1.0, 2.0); }",
+        "`vec3` takes 3 arguments, but 2 were given",
+    );
+    assert_error(
+        "fn f() { print(1, 2); }",
+        "`print` takes 1 argument, but 2 were given",
+    );
+    assert_ok("fn g(a: int, b: real) { } fn f() { g(1, 2.0); }");
+}
+
+#[test]
+fn main_is_required() {
+    assert_eq!(
+        errors_exact("fn f() { }"),
+        vec!["no `main` function in the program"]
+    );
+    assert_eq!(errors_exact(""), vec!["no `main` function in the program"]);
+    assert_eq!(
+        errors_exact("const main: int = 1;"),
+        vec!["`main` must be a function"]
+    );
+}
+
+#[test]
+fn main_signature() {
+    assert_error("fn main(a: int) { }", "`main` must not take parameters");
+    assert_error(
+        "fn main() -> int { return 0; }",
+        "`main` must not return a value",
+    );
+    assert_eq!(
+        errors_exact("fn main(a: int) -> int { return a; }"),
+        vec![
+            "`main` must not take parameters",
+            "`main` must not return a value",
         ]
     );
 }

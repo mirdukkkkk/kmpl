@@ -1,4 +1,5 @@
 mod error;
+mod main_fn;
 mod resolve;
 
 #[cfg(test)]
@@ -10,7 +11,9 @@ use kmpl_ast::Program;
 
 /// Runs all checks. Returns every error found, not just the first.
 pub fn check(program: &Program) -> Result<(), Vec<CheckError>> {
-    let errors = resolve::resolve(program);
+    let mut errors = resolve::resolve(program);
+    errors.extend(main_fn::check_main(program));
+
     if errors.is_empty() {
         Ok(())
     } else {

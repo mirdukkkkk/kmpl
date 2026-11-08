@@ -1,5 +1,7 @@
-//! Name resolution: every name refers to something that exists,
-//! nothing is declared twice, constants are not assigned to.
+//! Name resolution and structural checks, in one walk over the program:
+//! every name refers to something that exists, nothing is declared twice,
+//! constants are not assigned to, calls pass the right number of arguments,
+//! `break` and `continue` are inside a loop.
 //!
 //! Rules:
 //! - `fn` and `const` share one global namespace and may not reuse
@@ -20,7 +22,9 @@ enum Global {
     Const {
         index: usize,
     },
-    Function,
+    Function {
+        params: usize,
+    },
 }
 
 struct Resolver<'a> {
@@ -29,6 +33,8 @@ struct Resolver<'a> {
     scopes: Vec<HashSet<&'a str>>,
     /// While checking a constant's initializer: that constant's index.
     current_const: Option<usize>,
+    /// How many `while` loops enclose the current statement.
+    loop_depth: usize,
     errors: Vec<CheckError>,
 }
 
@@ -37,6 +43,7 @@ pub fn resolve(program: &Program) -> Vec<CheckError> {
         globals: HashMap::new(),
         scopes: Vec::new(),
         current_const: None,
+        loop_depth: 0,
         errors: Vec::new(),
     };
 
@@ -65,7 +72,12 @@ impl<'a> Resolver<'a> {
         for (index, item) in program.items.iter().enumerate() {
             let (name, global) = match item {
                 Item::Const(c) => (&c.name, Global::Const { index }),
-                Item::Function(f) => (&f.name, Global::Function),
+                Item::Function(f) => (
+                    &f.name,
+                    Global::Function {
+                        params: f.params.len(),
+                    },
+                ),
             };
 
             if kmpl_builtins::lookup(&name.name).is_some() {
@@ -109,9 +121,16 @@ impl<'a> Resolver<'a> {
         self.scopes.iter().any(|scope| scope.contains(name))
     }
 
+    /// Number of parameters, if `name` is a user or built-in function.
+    fn param_count(&self, name: &str) -> Option<usize> {
+        match self.globals.get(name) {
+            Some(Global::Function { params }) => Some(*params),
+            _ => kmpl_builtins::lookup(name).map(|b| b.params.len()),
+        }
+    }
+
     fn is_function(&self, name: &str) -> bool {
-        matches!(self.globals.get(name), Some(Global::Function))
-            || kmpl_builtins::lookup(name).is_some()
+        self.param_count(name).is_some()
     }
 
     fn stmt(&mut self, stmt: &'a Stmt) {
@@ -141,9 +160,22 @@ impl<'a> Resolver<'a> {
             }
             StmtKind::While { cond, body } => {
                 self.expr(cond);
+                self.loop_depth += 1;
                 self.block(body);
+                self.loop_depth -= 1;
             }
-            StmtKind::Break | StmtKind::Continue => {}
+            StmtKind::Break | StmtKind::Continue => {
+                if self.loop_depth == 0 {
+                    let word = match stmt.kind {
+                        StmtKind::Break => "break",
+                        _ => "continue",
+                    };
+                    self.errors.push(CheckError::new(
+                        format!("`{word}` outside of a loop"),
+                        stmt.span,
+                    ));
+                }
+            }
             StmtKind::Return(value) => {
                 if let Some(value) = value {
                     self.expr(value);
@@ -177,7 +209,7 @@ impl<'a> Resolver<'a> {
                 self.expr(rhs);
             }
             ExprKind::Call { name, args } => {
-                self.call_target(name);
+                self.call_target(name, args.len());
                 for arg in args {
                     self.expr(arg);
                 }
@@ -207,13 +239,23 @@ impl<'a> Resolver<'a> {
         self.error(message, name);
     }
 
-    fn call_target(&mut self, name: &Ident) {
+    fn call_target(&mut self, name: &Ident, given: usize) {
         let n = name.name.as_str();
-        if self.is_function(n) {
-            return;
-        }
 
-        let message = if self.is_local(n) || self.globals.contains_key(n) {
+        let message = if let Some(expected) = self.param_count(n) {
+            if expected == given {
+                return;
+            }
+            format!(
+                "`{n}` takes {expected} {}, but {given} {} given",
+                if expected == 1 {
+                    "argument"
+                } else {
+                    "arguments"
+                },
+                if given == 1 { "was" } else { "were" },
+            )
+        } else if self.is_local(n) || self.globals.contains_key(n) {
             format!("`{n}` is not a function")
         } else {
             format!("undefined function `{n}`")
