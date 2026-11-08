@@ -36,7 +36,7 @@ fn stdout(out: &Output) -> String {
 fn no_arguments_prints_usage() {
     let out = kmpl(&[]);
     assert_eq!(out.status.code(), Some(2));
-    assert!(stderr(&out).contains("usage: kmpl <file>"));
+    assert!(stderr(&out).contains("usage: kmpl [--ast] <file>"));
 }
 
 #[test]
@@ -71,9 +71,39 @@ fn check_errors_are_all_printed() {
 }
 
 #[test]
-fn valid_program_prints_ast() {
-    let out = run("valid", "fn main() { print(1); }");
+fn unknown_flag_prints_usage() {
+    let out = kmpl(&["--tokens".as_ref(), "x.kmpl".as_ref()]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(stderr(&out).contains("usage:"));
+}
+
+#[test]
+fn runs_the_program() {
+    let out = run("runs", "fn main() { print(1 + 2); print(sqrt(4.0)); }");
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "3\n2.0\n");
+    assert!(stderr(&out).is_empty());
+}
+
+#[test]
+fn ast_flag_prints_ast() {
+    let path = source_file("ast", "fn main() { print(1); }");
+    let out = kmpl(&["--ast".as_ref(), path.as_os_str()]);
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
     assert!(stdout(&out).starts_with("Program {"));
-    assert!(stderr(&out).is_empty());
+}
+
+#[test]
+fn runtime_error_after_output() {
+    let out = run(
+        "runtime_error",
+        "fn main() { let z = 0; print(1); print(1 / z); }",
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(stdout(&out), "1\n");
+    assert!(
+        stderr(&out).ends_with("division by zero at 39..44\n"),
+        "{}",
+        stderr(&out)
+    );
 }
