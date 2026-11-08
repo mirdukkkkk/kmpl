@@ -339,3 +339,66 @@ fn straight_code_is_one_block() {
     let m = optimized(src);
     assert_eq!(m.functions[0].blocks.len(), 1, "{m}");
 }
+
+#[test]
+fn unused_values_are_removed() {
+    let src = "fn f(x: real) -> real { let a = x * 1.5; return x; } fn main() { }";
+    let text = optimized_text(src, "f");
+    assert!(!text.contains("mul"), "{text}");
+}
+
+#[test]
+fn a_value_that_only_feeds_a_loop_is_removed() {
+    let src = "fn f(n: int) {
+                   let x = 0.0;
+                   let i = 0;
+                   while i < n { x = x * 2.0; i += 1; }
+               }
+               fn main() { }";
+    let text = optimized_text(src, "f");
+    assert!(!text.contains("mul"), "{text}");
+}
+
+#[test]
+fn what_can_fail_or_has_an_effect_stays() {
+    let div = "fn f(x: int) { let a = 1 / x; } fn main() { }";
+    assert!(optimized_text(div, "f").contains("div"));
+    let add = "fn f(x: int) { let a = x + 1; } fn main() { }";
+    assert!(optimized_text(add, "f").contains("add"));
+    let neg = "fn f(x: int) { let a = -x; } fn main() { }";
+    assert!(optimized_text(neg, "f").contains("neg"));
+    let index = "fn f(a: [int]) { let x = a[5]; } fn main() { }";
+    assert!(optimized_text(index, "f").contains("index"));
+    let call = "fn g() -> int { return 1; } fn f() { let x = g(); } fn main() { }";
+    assert!(optimized_text(call, "f").contains("call g"));
+    let builtin = "fn f(x: real) { let a = sqrt(x); } fn main() { }";
+    assert!(optimized_text(builtin, "f").contains("builtin sqrt"));
+    let arrays = "fn f(a: [real], b: [real]) { let c = a + b; } fn main() { }";
+    assert!(optimized_text(arrays, "f").contains("add"));
+}
+
+#[test]
+fn registers_have_no_gaps_after_optimizing() {
+    let src = "fn f(n: int) -> int {
+                   let unused = n * 2 + 1;
+                   let total = 0;
+                   for i in 0..n { total += i; }
+                   return total;
+               }
+               fn main() { }";
+    for f in &optimized(src).functions {
+        let mut defined: Vec<u32> = f
+            .blocks
+            .iter()
+            .flat_map(|b| {
+                b.params
+                    .iter()
+                    .map(|r| r.0)
+                    .chain(b.insts.iter().filter_map(|i| i.dest.map(|d| d.0)))
+            })
+            .collect();
+        defined.sort_unstable();
+        let expected: Vec<u32> = (0..f.types.len() as u32).collect();
+        assert_eq!(defined, expected, "{}", f.name);
+    }
+}

@@ -7,6 +7,8 @@
 //! - `real` arithmetic is never rearranged: floats are not associative.
 
 mod cfg;
+mod compact;
+mod dce;
 mod fold;
 
 use crate::{Function, Module};
@@ -24,8 +26,10 @@ fn optimize_function(f: &mut Function) {
     for _ in 0..MAX_ROUNDS {
         let mut changed = fold::fold(f);
         changed |= cfg::simplify(f);
+        changed |= dce::eliminate(f);
         if !changed {
             break;
         }
     }
+    compact::compact(f);
 }
