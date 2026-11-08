@@ -26,6 +26,13 @@ pub fn block(ts: &mut TokenStream) -> PResult<(Block, Span)> {
 }
 
 pub fn stmt(ts: &mut TokenStream) -> PResult<Stmt> {
+    ts.enter()?;
+    let parsed = stmt_kind(ts);
+    ts.leave();
+    parsed
+}
+
+fn stmt_kind(ts: &mut TokenStream) -> PResult<Stmt> {
     match ts.peek() {
         Some(Token::Let) => let_stmt(ts),
         Some(Token::If) => if_stmt(ts),
@@ -85,7 +92,9 @@ fn if_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     let otherwise = if ts.eat(&Token::Else).is_none() {
         None
     } else if ts.peek() == Some(&Token::If) {
+        ts.enter()?;
         let nested = if_stmt(ts)?;
+        ts.leave();
         end = nested.span;
         Some(vec![nested])
     } else {
@@ -312,6 +321,13 @@ fn two_or_more<T>(
 /// A built-in name becomes `Known`; any other name becomes `Param` (a
 /// generic parameter, a struct or a typo), and the checker decides which.
 pub fn ty(ts: &mut TokenStream) -> PResult<TypeExpr> {
+    ts.enter()?;
+    let parsed = ty_kind(ts);
+    ts.leave();
+    parsed
+}
+
+fn ty_kind(ts: &mut TokenStream) -> PResult<TypeExpr> {
     if ts.eat(&Token::LBracket).is_some() {
         let elem = ty(ts)?;
         ts.expect(Token::RBracket)?;

@@ -8,7 +8,10 @@ use crate::error::PResult;
 use crate::token_stream::TokenStream;
 
 pub fn expr(ts: &mut TokenStream) -> PResult<Expr> {
-    or(ts)
+    ts.enter()?;
+    let e = or(ts);
+    ts.leave();
+    e
 }
 
 /// An expression in the header of `if`, `while` or `for`.
@@ -108,7 +111,9 @@ fn unary(ts: &mut TokenStream) -> PResult<Expr> {
     };
 
     let (_, op_span) = ts.next().expect("peeked");
+    ts.enter()?;
     let operand = unary(ts)?;
+    ts.leave();
     let span = op_span.to(operand.span);
 
     Ok(Expr {

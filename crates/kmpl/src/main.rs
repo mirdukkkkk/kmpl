@@ -30,7 +30,23 @@ Examples:
     echo 42 | kmpl program.kmpl
 ";
 
+/// Stack for the whole compiler and VM. Compiling a long expression and
+/// freeing, printing or comparing deeply nested data all recurse. Only
+/// touched pages are actually allocated.
+const STACK_SIZE: usize = 1 << 30;
+
 fn main() {
+    let worker = std::thread::Builder::new()
+        .name("kmpl".to_owned())
+        .stack_size(STACK_SIZE)
+        .spawn(run)
+        .expect("cannot start the main thread");
+    if let Err(panic) = worker.join() {
+        std::panic::resume_unwind(panic);
+    }
+}
+
+fn run() {
     let args: Vec<String> = std::env::args_os()
         .skip(1)
         .map(|arg| arg.to_string_lossy().into_owned())

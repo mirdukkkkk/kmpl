@@ -404,3 +404,84 @@ fn no_opt_runs_the_program_the_same() {
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
     assert_eq!(stdout(&out), "6\n[a]\n");
 }
+
+fn assert_too_deep(test: &str, src: &str) {
+    let out = run(test, src);
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("nested too deeply"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn deep_nesting_in_source_is_an_error_not_a_crash() {
+    let n = 100_000;
+    let open_close = |open: &str, close: &str| (open.repeat(n), close.repeat(n));
+
+    let (open, close) = open_close("(", ")");
+    assert_too_deep(
+        "deep_parens",
+        &format!("fn main() {{ print({open}1{close}); }}"),
+    );
+
+    let (open, close) = open_close("[", "]");
+    assert_too_deep(
+        "deep_arrays",
+        &format!("fn main() {{ let a = {open}1{close}; }}"),
+    );
+    assert_too_deep(
+        "deep_types",
+        &format!("fn f(a: {open}int{close}) {{ }} fn main() {{ }}"),
+    );
+
+    let minus = "-".repeat(n);
+    assert_too_deep("deep_unary", &format!("fn main() {{ print({minus}1); }}"));
+
+    let (open, close) = open_close("if true { ", "} ");
+    assert_too_deep("deep_blocks", &format!("fn main() {{ {open} {close} }}"));
+
+    let chain = "if false { } else ".repeat(n);
+    assert_too_deep("deep_else", &format!("fn main() {{ {chain} {{ }} }}"));
+}
+
+#[test]
+fn reasonable_nesting_works() {
+    let open = "(".repeat(200);
+    let close = ")".repeat(200);
+    let out = run(
+        "ok_parens",
+        &format!("fn main() {{ print({open}1{close}); }}"),
+    );
+    assert_eq!(stdout(&out), "1\n", "{}", stderr(&out));
+}
+
+#[test]
+fn a_long_expression_compiles() {
+    let chain = " + 1".repeat(20_000);
+    let out = run("long_chain", &format!("fn main() {{ print(0{chain}); }}"));
+    assert_eq!(stdout(&out), "20000\n", "{}", stderr(&out));
+}
+
+#[test]
+fn deeply_nested_data_is_freed_printed_and_compared() {
+    let build = "struct Node { children: [Node] }
+                 fn deep(n: int) -> Node {
+                     let node = Node { children: [] };
+                     for i in 0..n { node = Node { children: [node] }; }
+                     return node;
+                 }";
+    let out = run(
+        "deep_data",
+        &format!(
+            "{build} fn main() {{
+                 let a = deep(100000);
+                 print(a == deep(100000));
+                 print(len(string(a)) > 100000);
+             }}"
+        ),
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "true\ntrue\n");
+}
