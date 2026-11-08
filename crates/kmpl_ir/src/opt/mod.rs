@@ -10,6 +10,7 @@ mod cfg;
 mod compact;
 mod dce;
 mod fold;
+mod licm;
 
 use crate::{Function, Module};
 
@@ -30,6 +31,10 @@ fn optimize_function(f: &mut Function) {
         if !changed {
             break;
         }
+    }
+    if licm::hoist(f) {
+        // Moving work out can leave empty blocks behind.
+        cfg::simplify(f);
     }
     compact::compact(f);
 }

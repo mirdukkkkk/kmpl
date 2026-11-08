@@ -402,3 +402,101 @@ fn registers_have_no_gaps_after_optimizing() {
         assert_eq!(defined, expected, "{}", f.name);
     }
 }
+
+/// Index of the block a loop's header jump comes back to, with its text.
+fn block_of(text: &str, needle: &str) -> usize {
+    let at = text.find(needle).unwrap_or_else(|| panic!("no {needle} in\n{text}"));
+    text[..at].matches("\nb").count()
+}
+
+#[test]
+fn constants_leave_loops() {
+    let src = "fn f(n: int) -> real {
+                   let s = 0.0;
+                   let i = 0;
+                   while i < n { s += 0.5; i += 1; }
+                   return s;
+               }
+               fn main() { }";
+    let text = optimized_text(src, "f");
+    assert_eq!(block_of(&text, "const 0.5"), 1, "{text}");
+}
+
+#[test]
+fn work_on_unchanging_values_leaves_loops() {
+    let src = "fn f(x: real, n: int) -> real {
+                   let s = 0.0;
+                   let i = 0;
+                   while i < n { s += x * x; i += 1; }
+                   return s;
+               }
+               fn main() { }";
+    let text = optimized_text(src, "f");
+    assert_eq!(block_of(&text, "mul"), 1, "{text}");
+}
+
+#[test]
+fn work_leaves_nested_loops() {
+    let src = "fn f(n: int) -> real {
+                   let s = 0.0;
+                   for i in 0..n {
+                       for j in 0..n { s += 0.25; }
+                   }
+                   return s;
+               }
+               fn main() { }";
+    let text = optimized_text(src, "f");
+    assert_eq!(block_of(&text, "const 0.25"), 1, "{text}");
+}
+
+#[test]
+fn failing_work_stays_in_the_loop() {
+    let src = "fn f(a: [int], x: int, n: int) -> int {
+                   let s = 0;
+                   let i = 0;
+                   while i < n { s += 10 / x; s += a[9]; i += 1; }
+                   return s;
+               }
+               fn main() { }";
+    let text = optimized_text(src, "f");
+    assert!(block_of(&text, "div") > 1, "{text}");
+    assert!(block_of(&text, "index") > 1, "{text}");
+}
+
+#[test]
+fn work_that_depends_on_the_loop_stays() {
+    let src = "fn f(n: int) -> real {
+                   let s = 1.5;
+                   let i = 0;
+                   while i < n { s = s * s; i += 1; }
+                   return s;
+               }
+               fn main() { }";
+    let text = optimized_text(src, "f");
+    assert!(block_of(&text, "mul") > 1, "{text}");
+}
+
+#[test]
+fn a_loop_entered_from_a_branch_gets_a_preheader() {
+    let src = "fn f(c: bool, n: int) -> real {
+                   let s = 0.0;
+                   if c {
+                       let i = 0;
+                       while i < n { s += 0.5; i += 1; }
+                   }
+                   return s;
+               }
+               fn main() { }";
+    let m = optimized(src);
+    verify(&m.functions[0]);
+}
+
+#[test]
+fn arrays_are_not_moved_out_of_loops() {
+    let src = "fn f(n: int) {
+                   for i in 0..n { let a = [1, 2]; a[0] = i; print(a); }
+               }
+               fn main() { }";
+    let text = optimized_text(src, "f");
+    assert!(block_of(&text, "array [") > 1, "{text}");
+}

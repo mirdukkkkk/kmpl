@@ -1264,3 +1264,40 @@ fn swapping_values_in_a_while_loop() {
         "yx\n"
     );
 }
+
+#[test]
+fn a_loop_that_never_runs_keeps_moved_work_harmless() {
+    assert_eq!(output("for i in 0..0 { print(2.0 * 3.0); } print(1);"), "1\n");
+    assert_eq!(
+        output("let x = 2.0; let i = 0; while i < 0 { print(x * x); i += 1; } print(x);"),
+        "2.0\n"
+    );
+}
+
+#[test]
+fn an_array_made_in_a_loop_is_new_every_round() {
+    assert_eq!(
+        output("for i in 0..2 { let a = [0, 0]; a[i] = 1; print(a); }"),
+        "[1, 0]\n[0, 1]\n"
+    );
+}
+
+#[test]
+fn moved_work_in_nested_and_branching_loops() {
+    let src = "fn f(c: bool, n: int) -> real {
+                   let s = 0.0;
+                   if c {
+                       for i in 0..n {
+                           let j = 0;
+                           while j < n {
+                               if j == 1 { j += 1; continue; }
+                               s += 0.25 * 2.0;
+                               j += 1;
+                           }
+                       }
+                   }
+                   return s;
+               }
+               fn main() { print(f(true, 3)); print(f(false, 3)); }";
+    assert_eq!(run(src).unwrap(), "3.0\n0.0\n");
+}
