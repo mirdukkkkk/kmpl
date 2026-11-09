@@ -279,6 +279,15 @@ fn main() {
 `length` is the length of a vector as a `real`, and the number of elements of an
 array or `bytes` or of characters of a string as an `int`.
 
+`format(x, digits)` gives the text of an `int`, `real`, `complex` or vector with
+this many digits after the point, from 0 to 100. A number is rounded by its exact
+value in memory, so `format(2.675, 2)` is `2.67`.
+
+```kmpl
+print(format(3.14159, 2));  // 3.14
+print(format(vec2(1.0, 2.5), 1));  // (1.0, 2.5)
+```
+
 ## Structs
 
 Structs are values too. A literal has to give every field, in any order.
@@ -593,7 +602,7 @@ fn main() {
 | Math on `real` or `complex` | `sqrt exp log sin cos tan asin acos atan sinh cosh tanh` |
 | Other numbers | `abs pow cbrt floor ceil round atan2 hypot min max clamp is_nan is_inf lerp smoothstep` |
 | Complex | `re im arg conj` |
-| Conversion | `real int complex string bytes` |
+| Conversion | `real int complex string bytes format` |
 | Vectors | `vec2 vec3 vec4 dot length distance normalize cross` |
 | Arrays and strings | `length push concat chars` |
 | Output | `print` |

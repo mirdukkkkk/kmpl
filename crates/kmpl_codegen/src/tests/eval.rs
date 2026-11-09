@@ -1641,6 +1641,44 @@ fn bad_sleeps_are_errors() {
 }
 
 #[test]
+fn format_shows_this_many_digits() {
+    let out = output(
+        "print(format(3.14159, 2));
+         print(format(3.7, 0));
+         print(format(-0.5, 1));
+         print(format(5, 2));
+         print(format(5, 0));
+         print(format(9223372036854775807, 1));
+         print(format(1.0 + 2.5i, 1));
+         print(format(1.0 - 2.5i, 1));
+         print(format(vec3(1.0, 2.5, 3.25), 2));
+         print(format(0.0 / 0.0, 2));
+         print(format(1.0 / 0.0, 2));
+         print(format(2.675, 2));
+         print(\"x = \" + format(1.5, 3));",
+    );
+    assert_eq!(
+        out,
+        "3.14\n4\n-0.5\n5.00\n5\n9223372036854775807.0\n1.0+2.5i\n1.0-2.5i\n\
+         (1.00, 2.50, 3.25)\nNaN\ninf\n2.67\nx = 1.500\n"
+    );
+}
+
+#[test]
+fn format_refuses_a_bad_number_of_digits() {
+    let message = |digits: &str| {
+        run(&format!("fn main() {{ print(format(1.0, {digits})); }}"))
+            .unwrap_err()
+            .0
+    };
+    assert_eq!(message("-1"), "`format` takes from 0 to 100 digits, got -1");
+    assert_eq!(
+        message("101"),
+        "`format` takes from 0 to 100 digits, got 101"
+    );
+}
+
+#[test]
 fn array_writes_in_a_loop_do_not_copy() {
     // Quadratic copying would make this take far too long to finish.
     let src = "fn main() {

@@ -446,6 +446,28 @@ static BUILTINS: &[Builtin] = &[
             ok(value.unwrap_or_else(|| std::mem::replace(&mut a[1], Value::Int(0))))
         },
     },
+    Builtin {
+        name: "format",
+        generic: &[
+            Type::Int,
+            Type::Real,
+            Type::Complex,
+            Type::Vec2,
+            Type::Vec3,
+            Type::Vec4,
+        ],
+        params: &[ParamType::T, ParamType::Exact(Type::Int)],
+        ret: RetType::Exact(Type::Str),
+        func: |a, _| {
+            let digits = a[1].as_int();
+            if !(0..=MAX_FORMAT_DIGITS).contains(&digits) {
+                return Err(format!(
+                    "`format` takes from 0 to {MAX_FORMAT_DIGITS} digits, got {digits}"
+                ));
+            }
+            ok(Value::Str(formatted(&a[0], digits as usize).into()))
+        },
+    },
     // Arrays are values, so these return a new array and leave the
     // argument alone: `a = push(a, x);`. If nothing else holds the array it
     // grows in place, so a loop of pushes does not copy it each time.
@@ -595,6 +617,27 @@ fn take_optional(argument: &mut Value) -> Option<Value> {
 /// `some(value)` or `none`.
 pub(crate) fn optional(value: Option<Value>) -> Value {
     Value::Optional(value.map(Arc::new))
+}
+
+const MAX_FORMAT_DIGITS: i64 = 100;
+
+/// The text of a number or vector with this many digits after the point.
+fn formatted(value: &Value, digits: usize) -> String {
+    let real = |x: f64| format!("{x:.digits$}");
+    match value {
+        // Written out, because a large `int` does not fit a `real` exactly.
+        Value::Int(v) if digits == 0 => v.to_string(),
+        Value::Int(v) => format!("{v}.{}", "0".repeat(digits)),
+        Value::Real(v) => real(*v),
+        Value::Complex { re, im } => {
+            let sign = if im.is_sign_negative() { '-' } else { '+' };
+            format!("{}{sign}{}i", real(*re), real(im.abs()))
+        }
+        vector => {
+            let parts: Vec<String> = vector.components().iter().map(|c| real(*c)).collect();
+            format!("({})", parts.join(", "))
+        }
+    }
 }
 
 pub(crate) fn pair(a: Value, b: Value) -> Value {
