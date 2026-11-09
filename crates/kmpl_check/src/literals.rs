@@ -135,6 +135,7 @@ impl Rewriter<'_> {
                 }
             }
             ExprKind::Some(value) => self.expr(value),
+            ExprKind::Lambda(l) => self.block(&mut l.body),
             ExprKind::Unary { operand, .. } => self.expr(operand),
             ExprKind::Binary { lhs, rhs, .. } => {
                 self.expr(lhs);

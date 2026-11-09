@@ -25,7 +25,7 @@ pub fn check_returns(program: &Program) -> Vec<CheckError> {
     errors
 }
 
-fn always_returns(block: &Block) -> bool {
+pub(crate) fn always_returns(block: &Block) -> bool {
     block.iter().any(stmt_always_returns)
 }
 

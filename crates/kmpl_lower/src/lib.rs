@@ -28,6 +28,29 @@ use kmpl_ir::{
 const INT: Ty = Ty::Prim(Type::Int);
 const BOOL: Ty = Ty::Prim(Type::Bool);
 
+/// One function a value can hold.
+///
+/// A function value is a value of a hidden enum with one variant per
+/// candidate, carrying what the function captured. A call through a variable
+/// tests which variant it holds, among the functions with that signature,
+/// and calls that function directly. All functions are known at compile
+/// time, so nothing new is needed in the back end.
+struct Candidate {
+    func: FuncId,
+    /// A function without a name gets the value itself as its first
+    /// argument, to read what it captured.
+    takes_itself: bool,
+    signature: Ty,
+}
+
+struct Pending<'p> {
+    func: FuncId,
+    lambda: &'p ast::Lambda,
+    item: usize,
+    captured: Vec<(&'p str, Ty)>,
+    signature: Ty,
+}
+
 /// What every function being lowered needs to know about the program.
 struct Context<'p> {
     types: &'p TypeInfo,
@@ -43,6 +66,18 @@ struct Context<'p> {
     /// Name of a struct or enum -> its generic names, which appear in
     /// `field_types` and `variant_types` until they are replaced.
     type_params: HashMap<&'p str, Vec<String>>,
+    /// The types of the constants, by name.
+    const_types: HashMap<&'p str, Ty>,
+    /// Everything a function value can be, in the whole program.
+    candidates: Vec<Candidate>,
+    /// A named function used as a value -> its index in `candidates`.
+    named: HashMap<&'p str, usize>,
+    /// A function without a name, by item and span -> index in `candidates`.
+    lambdas: HashMap<(usize, Span), usize>,
+    /// Index in `layouts` of the layout function values use.
+    function_layout: usize,
+    /// Functions without a name found while lowering, waiting for their turn.
+    pending: Vec<Pending<'p>>,
     builtins: Vec<String>,
 }
 
@@ -65,6 +100,10 @@ fn to_ty(ty: &TypeExpr) -> Ty {
         TypeExpr::Param(name) => Ty::Struct(name.name.clone()),
         TypeExpr::Array(elem) => Ty::Array(Box::new(to_ty(elem))),
         TypeExpr::Optional(inner) => Ty::Optional(Box::new(to_ty(inner))),
+        TypeExpr::Function { params, ret } => Ty::Function {
+            params: params.iter().map(to_ty).collect(),
+            ret: ret.as_ref().map(|t| Box::new(to_ty(t))),
+        },
         TypeExpr::Applied { name, args } => Ty::Instance {
             name: name.name.clone(),
             args: args.iter().map(to_ty).collect(),
@@ -98,7 +137,244 @@ fn substitute(ty: &Ty, params: &[String], args: &[Ty]) -> Ty {
             name: name.clone(),
             args: each(inner),
         },
+        Ty::Function { params: inner, ret } => Ty::Function {
+            params: each(inner),
+            ret: ret.as_ref().map(|t| Box::new(substitute(t, params, args))),
+        },
     }
+}
+
+fn signature_of(params: &[ast::Param], ret: Option<&TypeExpr>) -> Ty {
+    Ty::Function {
+        params: params.iter().map(|p| to_ty(&p.ty)).collect(),
+        ret: ret.map(|t| Box::new(to_ty(t))),
+    }
+}
+
+/// Calls `f` with every expression in `block`, also inside functions without
+/// a name.
+fn visit_block<'p>(block: &'p ast::Block, f: &mut impl FnMut(&'p Expr)) {
+    for stmt in block {
+        match &stmt.kind {
+            StmtKind::Let { init, .. } => {
+                if let Some(init) = init {
+                    visit_expr(init, f);
+                }
+            }
+            StmtKind::LetTuple { value, .. } | StmtKind::Assign { value, .. } => {
+                visit_expr(value, f);
+            }
+            StmtKind::PathAssign { path, value, .. } => {
+                for step in path {
+                    if let PathStep::Index(index) = step {
+                        visit_expr(index, f);
+                    }
+                }
+                visit_expr(value, f);
+            }
+            StmtKind::If {
+                cond,
+                then,
+                otherwise,
+            } => {
+                visit_expr(cond, f);
+                visit_block(then, f);
+                if let Some(otherwise) = otherwise {
+                    visit_block(otherwise, f);
+                }
+            }
+            StmtKind::While { cond, body } => {
+                visit_expr(cond, f);
+                visit_block(body, f);
+            }
+            StmtKind::For {
+                start,
+                end,
+                step,
+                body,
+                ..
+            } => {
+                visit_expr(start, f);
+                visit_expr(end, f);
+                if let Some(step) = step {
+                    visit_expr(step, f);
+                }
+                visit_block(body, f);
+            }
+            StmtKind::ForEach { array, body, .. } => {
+                visit_expr(array, f);
+                visit_block(body, f);
+            }
+            StmtKind::Match { value, arms } => {
+                visit_expr(value, f);
+                for arm in arms {
+                    visit_block(&arm.body, f);
+                }
+            }
+            StmtKind::Return(value) => {
+                if let Some(value) = value {
+                    visit_expr(value, f);
+                }
+            }
+            StmtKind::Expr(e) => visit_expr(e, f),
+            StmtKind::Break | StmtKind::Continue => {}
+        }
+    }
+}
+
+fn visit_expr<'p>(e: &'p Expr, f: &mut impl FnMut(&'p Expr)) {
+    f(e);
+    match &e.kind {
+        ExprKind::Int(_)
+        | ExprKind::Real(_)
+        | ExprKind::Complex { .. }
+        | ExprKind::Bool(_)
+        | ExprKind::Str(_)
+        | ExprKind::Var(_)
+        | ExprKind::None => {}
+        ExprKind::Unary { operand, .. } => visit_expr(operand, f),
+        ExprKind::Binary { lhs, rhs, .. } => {
+            visit_expr(lhs, f);
+            visit_expr(rhs, f);
+        }
+        ExprKind::Call { args, .. }
+        | ExprKind::Variant { args, .. }
+        | ExprKind::Tuple(args)
+        | ExprKind::Array(args) => {
+            for arg in args {
+                visit_expr(arg, f);
+            }
+        }
+        ExprKind::Swizzle { base, .. } | ExprKind::Field { base, .. } | ExprKind::Some(base) => {
+            visit_expr(base, f);
+        }
+        ExprKind::StructLit { fields, .. } => {
+            for (_, value) in fields {
+                visit_expr(value, f);
+            }
+        }
+        ExprKind::ArrayFill { value, len } => {
+            visit_expr(value, f);
+            visit_expr(len, f);
+        }
+        ExprKind::Index { base, index } => {
+            visit_expr(base, f);
+            visit_expr(index, f);
+        }
+        ExprKind::Slice {
+            base, start, end, ..
+        } => {
+            visit_expr(base, f);
+            for bound in [start, end].into_iter().flatten() {
+                visit_expr(bound, f);
+            }
+        }
+        ExprKind::Lambda(l) => visit_block(&l.body, f),
+    }
+}
+
+/// Finds every function used as a value. A name that is really a local
+/// variable only adds a candidate nobody chooses.
+fn collect_candidates<'p>(ctx: &mut Context<'p>, program: &'p Program, first_lambda: u32) {
+    let mut next = first_lambda;
+    let definitions: HashMap<&str, &ast::Function> = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Function(f) => Some((f.name.name.as_str(), f)),
+            _ => None,
+        })
+        .collect();
+
+    for (index, item) in program.items.iter().enumerate() {
+        let mut visit = |e: &'p Expr| match &e.kind {
+            ExprKind::Var(name) => {
+                if let Some(definition) = definitions.get(name.name.as_str())
+                    && !ctx.named.contains_key(name.name.as_str())
+                {
+                    ctx.named.insert(&name.name, ctx.candidates.len());
+                    ctx.candidates.push(Candidate {
+                        func: ctx.functions[name.name.as_str()],
+                        takes_itself: false,
+                        signature: signature_of(&definition.params, definition.ret.as_ref()),
+                    });
+                }
+            }
+            ExprKind::Lambda(l) => {
+                ctx.lambdas.insert((index, e.span), ctx.candidates.len());
+                ctx.candidates.push(Candidate {
+                    func: FuncId(next),
+                    takes_itself: true,
+                    signature: signature_of(&l.params, l.ret.as_ref()),
+                });
+                next += 1;
+            }
+            _ => {}
+        };
+        match item {
+            Item::Const(c) => visit_expr(&c.value, &mut visit),
+            Item::Function(f) => visit_block(&f.body, &mut visit),
+            Item::Struct(_) | Item::Enum(_) => {}
+        }
+    }
+}
+
+/// A function without a name: the value itself comes first, and what it
+/// captured is read from that.
+fn lower_lambda<'p>(ctx: &mut Context<'p>, pending: Pending<'p>) -> Function {
+    let Pending {
+        lambda,
+        item,
+        captured,
+        signature,
+        ..
+    } = pending;
+    let mut b = Builder::new(ctx, item, "<fn>", lambda.ret.as_ref().map(to_ty));
+
+    let itself = b.new_reg(signature);
+    let mut params = vec![itself];
+    let mut named = Vec::with_capacity(lambda.params.len());
+    for param in &lambda.params {
+        let reg = b.new_reg(to_ty(&param.ty));
+        params.push(reg);
+        named.push((param.name.name.as_str(), reg));
+    }
+    b.func.blocks[0].params.clone_from(&params);
+    b.func.params = params;
+
+    let span = lambda.body.first().map_or(Span::new(0, 0), |s| s.span);
+    for (index, (name, ty)) in captured.into_iter().enumerate() {
+        let field = Op::VariantField {
+            base: itself,
+            index,
+        };
+        let value = b.value(field, ty, span);
+        b.declare(name, Some(value));
+    }
+    for (name, reg) in named {
+        b.declare(name, Some(reg));
+    }
+
+    b.block(&lambda.body);
+    b.finish()
+}
+
+/// A function that is never created, because the code making it can never
+/// run. It only has to have the right parameters.
+fn unused_lambda<'p>(ctx: &mut Context<'p>, candidate: usize) -> Function {
+    let signature = ctx.candidates[candidate].signature.clone();
+    let Ty::Function { params, ret } = signature.clone() else {
+        panic!("a candidate has a function type");
+    };
+    let mut b = Builder::new(ctx, 0, "<fn>", ret.map(|t| *t));
+    let mut registers = vec![b.new_reg(signature)];
+    for ty in params {
+        registers.push(b.new_reg(ty));
+    }
+    b.func.blocks[0].params.clone_from(&registers);
+    b.func.params = registers;
+    b.terminate(Terminator::Unreachable);
+    b.func
 }
 
 /// The result still needs `kmpl_ir::annotate` before it can run.
@@ -112,6 +388,12 @@ pub fn lower(program: &Program, types: &TypeInfo) -> Module {
         field_types: Vec::new(),
         variant_types: HashMap::new(),
         type_params: HashMap::new(),
+        const_types: HashMap::new(),
+        candidates: Vec::new(),
+        named: HashMap::new(),
+        lambdas: HashMap::new(),
+        function_layout: 0,
+        pending: Vec::new(),
         builtins: Vec::new(),
     };
 
@@ -124,6 +406,7 @@ pub fn lower(program: &Program, types: &TypeInfo) -> Module {
             Item::Const(c) => {
                 let id = ctx.globals.len();
                 ctx.globals.insert(&c.name.name, id);
+                ctx.const_types.insert(&c.name.name, to_ty(&c.ty));
             }
             Item::Struct(s) => {
                 let params = s.generics.iter().map(|g| g.name.clone()).collect();
@@ -155,6 +438,15 @@ pub fn lower(program: &Program, types: &TypeInfo) -> Module {
         }
     }
 
+    ctx.function_layout = ctx.layouts.len();
+    ctx.layouts.push(StructLayout {
+        name: "<fn>".to_owned(),
+        fields: Vec::new(),
+    });
+    // After the ordinary functions and the one computing the constants.
+    let first_lambda = ctx.functions.len() as u32 + 1;
+    collect_candidates(&mut ctx, program, first_lambda);
+
     let mut functions = Vec::new();
     for (index, item) in program.items.iter().enumerate() {
         if let Item::Function(f) = item {
@@ -163,6 +455,22 @@ pub fn lower(program: &Program, types: &TypeInfo) -> Module {
     }
     let init = FuncId(functions.len() as u32);
     functions.push(lower_constants(&mut ctx, program));
+
+    // Lowering one of them can find more.
+    let mut lambdas = HashMap::new();
+    while let Some(pending) = ctx.pending.pop() {
+        let id = pending.func;
+        lambdas.insert(id.0, lower_lambda(&mut ctx, pending));
+    }
+    for candidate in 0..ctx.candidates.len() {
+        if ctx.candidates[candidate].takes_itself {
+            let id = ctx.candidates[candidate].func.0;
+            functions.push(match lambdas.remove(&id) {
+                Some(function) => function,
+                None => unused_lambda(&mut ctx, candidate),
+            });
+        }
+    }
 
     let main = ctx.functions["main"];
     Module {
@@ -1054,6 +1362,7 @@ impl<'c, 'p> Builder<'c, 'p> {
                 self.value(Op::MakeSome(value), ty, e.span)
             }
             ExprKind::None => self.value(Op::MakeNone, ty, e.span),
+            ExprKind::Lambda(l) => self.lambda(l, ty, e.span),
             ExprKind::Tuple(items) => {
                 let items = items.iter().map(|item| self.expr(item)).collect();
                 self.value(Op::MakeTuple(items), ty, e.span)
@@ -1109,6 +1418,9 @@ impl<'c, 'p> Builder<'c, 'p> {
         if let Some(&id) = self.ctx.globals.get(name.name.as_str()) {
             return self.value(Op::GetGlobal(id), ty, span);
         }
+        if let Some(&variant) = self.ctx.named.get(name.name.as_str()) {
+            return self.function_value(variant, Vec::new(), ty, span);
+        }
 
         let builtin = kmpl_builtins::lookup_const(&name.name).expect("checked by resolve");
         let Value::Real(value) = builtin.value else {
@@ -1156,8 +1468,160 @@ impl<'c, 'p> Builder<'c, 'p> {
     }
 
     /// With no `ty` the result is dropped: the call is a statement.
+    fn function_value(&mut self, variant: usize, values: Vec<Reg>, ty: Ty, span: Span) -> Reg {
+        let id = self.ctx.function_layout;
+        self.value(
+            Op::MakeEnum {
+                id,
+                variant,
+                values,
+            },
+            ty,
+            span,
+        )
+    }
+
+    /// Remembers what the function reads from around it, in the order of
+    /// the names, and leaves its body for later.
+    fn lambda(&mut self, l: &'p ast::Lambda, ty: Ty, span: Span) -> Reg {
+        let mut names = Vec::new();
+        visit_block(&l.body, &mut |e: &'p Expr| match &e.kind {
+            ExprKind::Var(name) | ExprKind::Call { name, .. } => names.push(name.name.as_str()),
+            _ => {}
+        });
+        names.sort_unstable();
+        names.dedup();
+
+        let mut values = Vec::new();
+        let mut captured = Vec::new();
+        for name in names {
+            if let Some(reg) = self.lookup(name).and_then(|var| self.vars[var]) {
+                values.push(reg);
+                captured.push((name, self.reg_type(reg)));
+            }
+        }
+
+        let variant = self.ctx.lambdas[&(self.item, span)];
+        let func = self.ctx.candidates[variant].func;
+        self.ctx.pending.push(Pending {
+            func,
+            lambda: l,
+            item: self.item,
+            captured,
+            signature: self.ctx.candidates[variant].signature.clone(),
+        });
+        self.function_value(variant, values, ty, span)
+    }
+
+    /// The function value held by `name`, if that is what it holds.
+    fn held_function(&mut self, name: &Ident, span: Span) -> Option<Reg> {
+        let is_function = |ty: &Ty| matches!(ty, Ty::Function { .. });
+        if let Some(var) = self.lookup(&name.name) {
+            let reg = self.register_of(var);
+            return is_function(&self.reg_type(reg)).then_some(reg);
+        }
+        let ty = self.ctx.const_types.get(name.name.as_str())?.clone();
+        if !is_function(&ty) {
+            return None;
+        }
+        let id = self.ctx.globals[name.name.as_str()];
+        Some(self.value(Op::GetGlobal(id), ty, span))
+    }
+
+    /// Chooses among the functions with this signature by the variant the
+    /// value holds. The last one needs no test.
+    fn call_value(
+        &mut self,
+        callee: Reg,
+        args: Vec<Reg>,
+        ty: Option<Ty>,
+        span: Span,
+    ) -> Option<Reg> {
+        let signature = self.reg_type(callee);
+        let choices: Vec<usize> = (0..self.ctx.candidates.len())
+            .filter(|&c| self.ctx.candidates[c].signature == signature)
+            .collect();
+
+        let result = ty.as_ref().map(|ty| self.new_reg(ty.clone()));
+        let join = self.new_block(result.into_iter().collect());
+        let tag = self.value(Op::VariantOf(callee), INT, span);
+
+        for (position, &choice) in choices.iter().enumerate() {
+            if position + 1 < choices.len() {
+                let wanted = self.value(Op::Const(Constant::Int(choice as i64)), INT, span);
+                let cond = self.value(
+                    Op::Binary {
+                        op: BinOp::Eq,
+                        a: tag,
+                        b: wanted,
+                    },
+                    BOOL,
+                    span,
+                );
+                let then_block = self.new_block(Vec::new());
+                let else_block = self.new_block(Vec::new());
+                self.terminate(Terminator::Branch {
+                    cond,
+                    then: Target {
+                        block: then_block,
+                        args: Vec::new(),
+                    },
+                    otherwise: Target {
+                        block: else_block,
+                        args: Vec::new(),
+                    },
+                });
+                self.switch_to(then_block);
+                self.call_choice(choice, callee, &args, ty.as_ref(), join, span);
+                self.switch_to(else_block);
+            } else {
+                self.call_choice(choice, callee, &args, ty.as_ref(), join, span);
+            }
+        }
+        if choices.is_empty() {
+            // No function of this type exists, so there cannot be a value.
+            self.terminate(Terminator::Unreachable);
+        }
+
+        self.switch_to(join);
+        result
+    }
+
+    fn call_choice(
+        &mut self,
+        choice: usize,
+        callee: Reg,
+        args: &[Reg],
+        ty: Option<&Ty>,
+        join: BlockId,
+        span: Span,
+    ) {
+        let func = self.ctx.candidates[choice].func;
+        let mut all = Vec::with_capacity(args.len() + 1);
+        if self.ctx.candidates[choice].takes_itself {
+            all.push(callee);
+        }
+        all.extend_from_slice(args);
+
+        let op = Op::Call { func, args: all };
+        match ty {
+            Some(ty) => {
+                let value = self.value(op, ty.clone(), span);
+                self.jump(join, vec![value]);
+            }
+            None => {
+                self.effect(op, span);
+                self.jump(join, Vec::new());
+            }
+        }
+    }
+
     fn call(&mut self, name: &Ident, args: &'p [Expr], ty: Option<Ty>, span: Span) -> Option<Reg> {
+        let held = self.held_function(name, span);
         let args: Vec<Reg> = args.iter().map(|arg| self.expr(arg)).collect();
+        if let Some(callee) = held {
+            return self.call_value(callee, args, ty, span);
+        }
 
         let op = match self.ctx.functions.get(name.name.as_str()) {
             Some(&func) => Op::Call { func, args },

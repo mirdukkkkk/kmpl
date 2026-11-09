@@ -395,6 +395,14 @@ impl Linker<'_> {
         match ty {
             TypeExpr::Known(_) => {}
             TypeExpr::Array(elem) | TypeExpr::Optional(elem) => self.ty(elem),
+            TypeExpr::Function { params, ret } => {
+                for param in params {
+                    self.ty(param);
+                }
+                if let Some(ret) = ret {
+                    self.ty(ret);
+                }
+            }
             TypeExpr::Applied { name, args } => {
                 if name.name.contains('.') {
                     self.module_item(name);
@@ -553,6 +561,18 @@ impl Linker<'_> {
                 }
             }
             ExprKind::Some(value) => self.expr(value),
+            ExprKind::Lambda(l) => {
+                for param in &mut l.params {
+                    self.ty(&mut param.ty);
+                }
+                if let Some(ret) = &mut l.ret {
+                    self.ty(ret);
+                }
+                let params = l.params.iter().map(|p| p.name.name.clone()).collect();
+                self.scopes.push(params);
+                self.block(&mut l.body);
+                self.scopes.pop();
+            }
             ExprKind::Var(name) => self.variable(name),
             ExprKind::Unary { operand, .. } => self.expr(operand),
             ExprKind::Binary { lhs, rhs, .. } => {

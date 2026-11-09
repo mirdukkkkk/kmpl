@@ -871,6 +871,32 @@ fn a_carriage_return_can_be_written() {
 }
 
 #[test]
+fn arrays_through_functions() {
+    let out = run(
+        "std_array",
+        "import (map, filter, fold, any, all) from \"std:array\";
+         fn square(x: int) -> int { return x * x; }
+         fn main() {
+             let a = [1, 2, 3];
+             let k = 1;
+             print(a.map(square));
+             print(a.filter(fn(x: int) -> bool { return x > k; }));
+             print(a.fold(0, fn(s: int, x: int) -> int { return s + x; }));
+             print(a.any(fn(x: int) -> bool { return x == 3; }));
+             print(a.all(fn(x: int) -> bool { return x == 3; }));
+             print(a.map(fn(x: int) -> string { return string(x); }));
+             print([\"a\"].map(fn(s: string) -> [string] { return [s, s]; }));
+         }",
+    );
+    assert_eq!(
+        stdout(&out),
+        "[1, 4, 9]\n[2, 3]\n6\ntrue\nfalse\n[1, 2, 3]\n[[a, a]]\n",
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
 fn every_std_library_can_be_imported() {
     let out = run(
         "std_all",
@@ -930,7 +956,7 @@ fn an_unknown_library_lists_the_known_ones() {
     assert_eq!(out.status.code(), Some(1));
     assert!(
         stderr(&out).contains(
-            "there is no library `std:nope`, there are: bits, fs, io, linalg, random, stats, text, time"
+            "there is no library `std:nope`, there are: array, bits, fs, io, linalg, random, stats, text, time"
         ),
         "{}",
         stderr(&out)

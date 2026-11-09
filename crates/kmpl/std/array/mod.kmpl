@@ -1,0 +1,48 @@
+// Working with arrays through functions.
+
+// A new array of what `f` gives for each element.
+pub fn map<T, U>(items: [T], f: fn(T) -> U) -> [U] {
+    let result: [U] = [];
+    for item in items {
+        result = push(result, f(item));
+    }
+    return result;
+}
+
+// The elements for which `keep` is true.
+pub fn filter<T>(items: [T], keep: fn(T) -> bool) -> [T] {
+    let result: [T] = [];
+    for item in items {
+        if keep(item) {
+            result = push(result, item);
+        }
+    }
+    return result;
+}
+
+// Combines the elements into one value, starting from `start`.
+pub fn fold<T, A>(items: [T], start: A, f: fn(A, T) -> A) -> A {
+    let result = start;
+    for item in items {
+        result = f(result, item);
+    }
+    return result;
+}
+
+pub fn any<T>(items: [T], test: fn(T) -> bool) -> bool {
+    for item in items {
+        if test(item) {
+            return true;
+        }
+    }
+    return false;
+}
+
+pub fn all<T>(items: [T], test: fn(T) -> bool) -> bool {
+    for item in items {
+        if !test(item) {
+            return false;
+        }
+    }
+    return true;
+}

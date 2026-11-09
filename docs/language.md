@@ -391,6 +391,40 @@ fn main() {
 `match` is a statement, and it works on enums and optionals only. In another
 module an enum is written `geometry.Shape::Circle(1.0)`.
 
+## Functions as values
+
+A function can be kept in a variable, a field or an array, passed along and
+returned. Its type is written `fn(real) -> real`. A function without a name has
+the types of its parameters and result written out. It reads the variables around
+it as they were when it was created, and cannot change them.
+
+```kmpl
+fn square(x: real) -> real {
+    return x * x;
+}
+
+fn apply(f: fn(real) -> real, x: real) -> real {
+    return f(x);
+}
+
+fn adder(n: int) -> fn(int) -> int {
+    return fn(x: int) -> int { return x + n; };
+}
+
+fn main() {
+    print(apply(square, 3.0));  // 9.0
+    let add2 = adder(2);
+    print(add2(1));  // 3
+    print(square);  // <fn>
+}
+```
+
+`std:array` has `map`, `filter`, `fold`, `any` and `all`. Functions cannot be
+compared. A generic function or a built-in has to be wrapped in a function without
+a name to become a value, and a function without a name cannot call itself. A
+constant cannot call a function held in a variable. A call through a variable is
+slower than a direct one.
+
 ## Generic structs and enums
 
 A struct or an enum can take types as arguments, written `<T>`. They are usually
@@ -529,6 +563,7 @@ Libraries that come with `kmpl` are imported from `std:`:
 | `std:io` | `args read_line` |
 | `std:text` | `parse_int parse_real split join trim starts_with ends_with contains find replace repeat to_upper to_lower is_digit is_letter is_space code from_code` |
 | `std:bits` | `shr_logical` |
+| `std:array` | `map filter fold any all` |
 | `std:linalg` | `solve det inverse transpose identity trace norm` |
 | `std:stats` | `mean median variance stddev quantile correlation histogram linear_fit` |
 | `std:random` | `seed real int normal shuffle` |

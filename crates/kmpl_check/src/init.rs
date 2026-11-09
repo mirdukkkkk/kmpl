@@ -275,6 +275,16 @@ impl<'a> InitChecker<'a> {
                 }
             }
             ExprKind::Some(value) => self.expr(value),
+            ExprKind::Lambda(l) => {
+                let before = self.init.len();
+                self.scopes.push(HashMap::new());
+                for param in &l.params {
+                    self.declare(&param.name, true);
+                }
+                self.block(&l.body);
+                self.scopes.pop();
+                self.init.truncate(before);
+            }
             ExprKind::Var(name) => self.read(name),
             ExprKind::Unary { operand, .. } => self.expr(operand),
             ExprKind::Binary { lhs, rhs, .. } => {

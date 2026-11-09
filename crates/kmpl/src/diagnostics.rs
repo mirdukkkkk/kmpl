@@ -139,7 +139,8 @@ fn string_error_message(rest: &str) -> String {
     while let Some(c) = chars.next() {
         match c {
             '"' => {
-                return r#"unknown escape in string, use `\n`, `\t`, `\r`, `\"` or `\\`"#.to_owned();
+                return r#"unknown escape in string, use `\n`, `\t`, `\r`, `\"` or `\\`"#
+                    .to_owned();
             }
             '\n' => break,
             '\\' => {

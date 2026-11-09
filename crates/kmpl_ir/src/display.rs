@@ -41,6 +41,13 @@ fn type_text(ty: &Ty) -> String {
         }
         Ty::Struct(name) => name.clone(),
         Ty::Optional(inner) => format!("{}?", type_text(inner)),
+        Ty::Function { params, ret } => {
+            let parts: Vec<String> = params.iter().map(type_text).collect();
+            match ret {
+                Some(ret) => format!("fn({}) -> {}", parts.join(", "), type_text(ret)),
+                None => format!("fn({})", parts.join(", ")),
+            }
+        }
         Ty::Instance { name, args } => {
             let parts: Vec<String> = args.iter().map(type_text).collect();
             format!("{name}<{}>", parts.join(", "))
@@ -140,7 +147,10 @@ impl Module {
                 values,
             } => {
                 let layout = &self.structs[*id];
-                let name = &layout.fields[*variant];
+                let name = match layout.fields.get(*variant) {
+                    Some(name) => name.clone(),
+                    None => variant.to_string(),
+                };
                 format!("enum {}::{name}({})", layout.name, list(values))
             }
             Op::MakeSome(value) => format!("some {value}"),

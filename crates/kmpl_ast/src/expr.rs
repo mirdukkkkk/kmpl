@@ -1,4 +1,12 @@
-use crate::{Ident, Span};
+use crate::{Block, Ident, Param, Span, TypeExpr};
+
+/// `fn(x: real) -> real { ... }`, a function without a name.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Lambda {
+    pub params: Vec<Param>,
+    pub ret: Option<TypeExpr>,
+    pub body: Block,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Expr {
@@ -39,6 +47,7 @@ pub enum ExprKind {
     Some(Box<Expr>),
     /// `none`
     None,
+    Lambda(Box<Lambda>),
     /// `base[start..end]`, a copy of that part. A missing `start` is 0, a
     /// missing `end` is the length. `inclusive` is `..=`.
     Slice {

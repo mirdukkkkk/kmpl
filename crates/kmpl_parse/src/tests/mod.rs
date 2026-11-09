@@ -231,6 +231,11 @@ fn sexp_ty(ty: &TypeExpr) -> String {
         TypeExpr::Param(name) => name.name.clone(),
         TypeExpr::Array(elem) => format!("[{}]", sexp_ty(elem)),
         TypeExpr::Optional(inner) => format!("{}?", sexp_ty(inner)),
+        TypeExpr::Function { params, ret } => {
+            let params: Vec<String> = params.iter().map(sexp_ty).collect();
+            let ret = ret.as_ref().map_or("_".to_owned(), |t| sexp_ty(t));
+            format!("fn({}) {ret}", params.join(", "))
+        }
         TypeExpr::Applied { name, args } => {
             let args: Vec<String> = args.iter().map(sexp_ty).collect();
             format!("{}<{}>", name.name, args.join(", "))
@@ -330,5 +335,6 @@ fn sexp(e: &Expr) -> String {
         }
         ExprKind::Some(value) => format!("(some {})", sexp(value)),
         ExprKind::None => "none".to_owned(),
+        ExprKind::Lambda(l) => format!("(fn {} {})", l.params.len(), sexp_block(&l.body)),
     }
 }

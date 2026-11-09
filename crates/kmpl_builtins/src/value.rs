@@ -252,6 +252,8 @@ impl std::fmt::Display for Value {
                 let parts: Vec<String> = items.iter().map(Value::to_string).collect();
                 write!(f, "({})", parts.join(", "))
             }
+            // A function value, see `kmpl_lower`.
+            Value::Enum(e) if e.layout.name == "<fn>" => write!(f, "<fn>"),
             Value::Enum(e) => {
                 let name = e.layout.name.rsplit('.').next().unwrap_or_default();
                 let variant = &e.layout.fields[e.variant];

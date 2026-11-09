@@ -33,7 +33,7 @@ const ALL: [Type; 9] = [
 ];
 
 impl TypeSet {
-    pub const ANY: TypeSet = TypeSet(0b1_1111_1111_1111);
+    pub const ANY: TypeSet = TypeSet(0b11_1111_1111_1111);
     /// The set of a variable known to be an array. The bit after the
     /// nine types in `ALL`.
     pub const ARRAY: TypeSet = TypeSet(1 << 9);
@@ -43,6 +43,8 @@ impl TypeSet {
     pub const STRUCT: TypeSet = TypeSet(1 << 11);
     /// The set of a variable known to be `T?`.
     pub const OPTIONAL: TypeSet = TypeSet(1 << 12);
+    /// The set of a variable known to be a function.
+    pub const FUNCTION: TypeSet = TypeSet(1 << 13);
     /// Type of an integer literal like `1`.
     pub const NUMBER: TypeSet = TypeSet::of(&[Type::Int, Type::Real, Type::Complex]);
     /// Type of a real literal like `1.0`.
@@ -182,6 +184,9 @@ enum Slot {
     /// A generic struct or enum: the id as for `Struct`, and the type
     /// arguments as an index into `Unifier::tuples`.
     Instance(usize, usize),
+    /// A function: its parameters as an index into `Unifier::tuples`, and
+    /// what it returns.
+    Function(usize, Option<TyVar>),
 }
 
 /// Union-find over type variables.
@@ -235,6 +240,20 @@ impl Unifier {
         TyVar(self.slots.len() - 1)
     }
 
+    pub fn new_function(&mut self, params: Vec<TyVar>, ret: Option<TyVar>) -> TyVar {
+        self.tuples.push(params);
+        self.slots.push(Slot::Function(self.tuples.len() - 1, ret));
+        TyVar(self.slots.len() - 1)
+    }
+
+    /// The parameters and the result, if `var` is known to be a function.
+    pub fn function_parts(&self, var: TyVar) -> Option<(Vec<TyVar>, Option<TyVar>)> {
+        match self.slots[self.root(var)] {
+            Slot::Function(params, ret) => Some((self.tuples[params].clone(), ret)),
+            _ => None,
+        }
+    }
+
     pub fn new_instance(&mut self, id: usize, args: Vec<TyVar>) -> TyVar {
         self.tuples.push(args);
         self.slots.push(Slot::Instance(id, self.tuples.len() - 1));
@@ -272,6 +291,7 @@ impl Unifier {
             Slot::Array(_) => TypeSet::ARRAY,
             Slot::Tuple(_) => TypeSet::TUPLE,
             Slot::Struct(_) | Slot::Instance(..) => TypeSet::STRUCT,
+            Slot::Function(..) => TypeSet::FUNCTION,
             Slot::Optional(_) => TypeSet::OPTIONAL,
             Slot::Link(_) => unreachable!("root() returns a root"),
         }
@@ -321,6 +341,22 @@ impl Unifier {
                 self.unify_tuples(ta, tb)?;
                 self.slots[rb] = Slot::Link(ra);
             }
+            (Slot::Function(pa, ra_ret), Slot::Function(pb, rb_ret)) => {
+                let saved = self.slots.clone();
+                self.unify_tuples(pa, pb)?;
+                let results = match (ra_ret, rb_ret) {
+                    (Some(x), Some(y)) => self.unify(x, y),
+                    (None, None) => Ok(()),
+                    _ => Err(Mismatch),
+                };
+                if results.is_err() {
+                    self.slots = saved;
+                    return Err(Mismatch);
+                }
+                self.slots[rb] = Slot::Link(ra);
+            }
+            (Slot::Root(set), Slot::Function(..)) => self.bind(ra, set, rb, TypeSet::FUNCTION)?,
+            (Slot::Function(..), Slot::Root(set)) => self.bind(rb, set, ra, TypeSet::FUNCTION)?,
             (Slot::Root(set), Slot::Instance(..)) => self.bind(ra, set, rb, TypeSet::STRUCT)?,
             (Slot::Instance(..), Slot::Root(set)) => self.bind(rb, set, ra, TypeSet::STRUCT)?,
             (Slot::Optional(ia), Slot::Optional(ib)) => {
@@ -379,6 +415,10 @@ impl Unifier {
         found == root
             || match self.slots[found] {
                 Slot::Array(elem) | Slot::Optional(elem) => self.occurs(root, elem),
+                Slot::Function(params, ret) => {
+                    self.tuples[params].iter().any(|&e| self.occurs(root, e))
+                        || ret.is_some_and(|r| self.occurs(root, r))
+                }
                 Slot::Tuple(t) | Slot::Instance(_, t) => {
                     self.tuples[t].iter().any(|&e| self.occurs(root, e))
                 }
@@ -406,6 +446,10 @@ impl Unifier {
         match self.slots[self.root(var)] {
             Slot::Root(set) => set.default_type().is_some(),
             Slot::Array(elem) | Slot::Optional(elem) => self.is_resolved(elem),
+            Slot::Function(params, ret) => {
+                self.tuples[params].iter().all(|&e| self.is_resolved(e))
+                    && ret.is_none_or(|r| self.is_resolved(r))
+            }
             Slot::Tuple(t) | Slot::Instance(_, t) => {
                 self.tuples[t].iter().all(|&e| self.is_resolved(e))
             }
@@ -420,6 +464,15 @@ impl Unifier {
             Slot::Root(set) => set.default_type().map(Ty::Prim),
             Slot::Array(elem) => Some(Ty::Array(Box::new(self.resolve(elem)?))),
             Slot::Optional(inner) => Some(Ty::Optional(Box::new(self.resolve(inner)?))),
+            Slot::Function(params, ret) => {
+                let parts = self.tuples[params].iter().map(|&e| self.resolve(e));
+                let params = parts.collect::<Option<_>>()?;
+                let ret = match ret {
+                    Some(r) => Some(Box::new(self.resolve(r)?)),
+                    None => None,
+                };
+                Some(Ty::Function { params, ret })
+            }
             Slot::Tuple(t) => {
                 let items = self.tuples[t].iter().map(|&e| self.resolve(e));
                 Some(Ty::Tuple(items.collect::<Option<_>>()?))
@@ -454,6 +507,14 @@ impl Unifier {
                 .map_or("_".to_owned(), |ty| type_name(ty).to_owned()),
             Slot::Array(elem) => format!("[{}]", self.name(elem)),
             Slot::Optional(inner) => format!("{}?", self.name(inner)),
+            Slot::Function(params, ret) => {
+                let names: Vec<String> =
+                    self.tuples[params].iter().map(|&e| self.name(e)).collect();
+                match ret {
+                    Some(r) => format!("fn({}) -> {}", names.join(", "), self.name(r)),
+                    None => format!("fn({})", names.join(", ")),
+                }
+            }
             Slot::Tuple(t) => {
                 let names: Vec<String> = self.tuples[t].iter().map(|&e| self.name(e)).collect();
                 format!("({})", names.join(", "))

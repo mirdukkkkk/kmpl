@@ -38,6 +38,10 @@ fn type_text(ty: &TypeExpr) -> String {
         TypeExpr::Optional(inner) => format!("{}?", type_text(inner)),
         TypeExpr::Tuple(items) => format!("({})", list_text(items)),
         TypeExpr::Applied { name, args } => format!("{}<{}>", name.name, list_text(args)),
+        TypeExpr::Function { params, ret } => match ret {
+            Some(ret) => format!("fn({}) -> {}", list_text(params), type_text(ret)),
+            None => format!("fn({})", list_text(params)),
+        },
     }
 }
 
@@ -57,6 +61,10 @@ pub fn type_expr(ty: &Ty, span: Span) -> TypeExpr {
         Ty::Instance { name, args } => TypeExpr::Applied {
             name: name_of(name),
             args: each(args),
+        },
+        Ty::Function { params, ret } => TypeExpr::Function {
+            params: each(params),
+            ret: ret.as_ref().map(|t| Box::new(type_expr(t, span))),
         },
     }
 }
@@ -197,6 +205,14 @@ fn substitute(ty: &mut TypeExpr, mapping: &HashMap<&str, TypeExpr>) {
         TypeExpr::Applied { args, .. } => {
             for arg in args {
                 substitute(arg, mapping);
+            }
+        }
+        TypeExpr::Function { params, ret } => {
+            for param in params {
+                substitute(param, mapping);
+            }
+            if let Some(ret) = ret {
+                substitute(ret, mapping);
             }
         }
         TypeExpr::Array(elem) | TypeExpr::Optional(elem) => substitute(elem, mapping),
