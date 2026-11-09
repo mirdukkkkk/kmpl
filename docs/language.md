@@ -382,6 +382,45 @@ fn main() {
 `match` is a statement, and it works on enums and optionals only. In another
 module an enum is written `geometry.Shape::Circle(1.0)`.
 
+## Generic structs and enums
+
+A struct or an enum can take types as arguments, written `<T>`. They are usually
+found from the values. Where a value says too little, as `Res::Good(1)` says nothing
+about the error, the type comes from a `return`, an annotation or an argument.
+
+```kmpl
+struct Pair<T> {
+    first: T,
+    second: T,
+}
+
+enum Res<T, F> {
+    Good(T),
+    Bad(F),
+}
+
+fn half(n: int) -> Res<int, string> {
+    if n % 2 == 1 {
+        return Res::Bad("odd");
+    }
+    return Res::Good(n / 2);
+}
+
+fn swap<T>(p: Pair<T>) -> Pair<T> {
+    return Pair { first: p.second, second: p.first };
+}
+
+fn main() {
+    print(half(3));  // Res::Bad(odd)
+    print(swap(Pair { first: 1, second: 2 }));  // Pair { first: 2, second: 1 }
+    let q: Pair<[real]> = Pair { first: [], second: [1.0] };
+    print(q.second);  // [1.0]
+}
+```
+
+A `T` with no bound can be any type, an array or a struct too. A struct or an enum
+cannot limit its arguments the way a function can with `T: int | real`.
+
 ## Modules
 
 `import` goes at the top of a file. `from` says where the module is, relative to

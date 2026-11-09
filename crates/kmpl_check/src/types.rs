@@ -179,6 +179,9 @@ enum Slot {
     Struct(usize),
     /// A representative variable known to be `T?` of this `T`.
     Optional(TyVar),
+    /// A generic struct or enum: the id as for `Struct`, and the type
+    /// arguments as an index into `Unifier::tuples`.
+    Instance(usize, usize),
 }
 
 /// Union-find over type variables.
@@ -232,11 +235,25 @@ impl Unifier {
         TyVar(self.slots.len() - 1)
     }
 
+    pub fn new_instance(&mut self, id: usize, args: Vec<TyVar>) -> TyVar {
+        self.tuples.push(args);
+        self.slots.push(Slot::Instance(id, self.tuples.len() - 1));
+        TyVar(self.slots.len() - 1)
+    }
+
     /// The struct id, if `var` is known to be a struct.
     pub fn struct_id(&self, var: TyVar) -> Option<usize> {
         match self.slots[self.root(var)] {
-            Slot::Struct(id) => Some(id),
+            Slot::Struct(id) | Slot::Instance(id, _) => Some(id),
             _ => None,
+        }
+    }
+
+    /// The type arguments of `var`, none unless it is a generic struct.
+    pub fn instance_args(&self, var: TyVar) -> Vec<TyVar> {
+        match self.slots[self.root(var)] {
+            Slot::Instance(_, args) => self.tuples[args].clone(),
+            _ => Vec::new(),
         }
     }
 
@@ -254,7 +271,7 @@ impl Unifier {
             Slot::Root(set) => set,
             Slot::Array(_) => TypeSet::ARRAY,
             Slot::Tuple(_) => TypeSet::TUPLE,
-            Slot::Struct(_) => TypeSet::STRUCT,
+            Slot::Struct(_) | Slot::Instance(..) => TypeSet::STRUCT,
             Slot::Optional(_) => TypeSet::OPTIONAL,
             Slot::Link(_) => unreachable!("root() returns a root"),
         }
@@ -300,6 +317,12 @@ impl Unifier {
             (Slot::Struct(sa), Slot::Struct(sb)) if sa == sb => self.slots[rb] = Slot::Link(ra),
             (Slot::Root(set), Slot::Struct(_)) => self.bind(ra, set, rb, TypeSet::STRUCT)?,
             (Slot::Struct(_), Slot::Root(set)) => self.bind(rb, set, ra, TypeSet::STRUCT)?,
+            (Slot::Instance(ia, ta), Slot::Instance(ib, tb)) if ia == ib => {
+                self.unify_tuples(ta, tb)?;
+                self.slots[rb] = Slot::Link(ra);
+            }
+            (Slot::Root(set), Slot::Instance(..)) => self.bind(ra, set, rb, TypeSet::STRUCT)?,
+            (Slot::Instance(..), Slot::Root(set)) => self.bind(rb, set, ra, TypeSet::STRUCT)?,
             (Slot::Optional(ia), Slot::Optional(ib)) => {
                 self.unify(ia, ib)?;
                 self.slots[rb] = Slot::Link(ra);
@@ -356,7 +379,9 @@ impl Unifier {
         found == root
             || match self.slots[found] {
                 Slot::Array(elem) | Slot::Optional(elem) => self.occurs(root, elem),
-                Slot::Tuple(t) => self.tuples[t].iter().any(|&e| self.occurs(root, e)),
+                Slot::Tuple(t) | Slot::Instance(_, t) => {
+                    self.tuples[t].iter().any(|&e| self.occurs(root, e))
+                }
                 _ => false,
             }
     }
@@ -381,7 +406,9 @@ impl Unifier {
         match self.slots[self.root(var)] {
             Slot::Root(set) => set.default_type().is_some(),
             Slot::Array(elem) | Slot::Optional(elem) => self.is_resolved(elem),
-            Slot::Tuple(t) => self.tuples[t].iter().all(|&e| self.is_resolved(e)),
+            Slot::Tuple(t) | Slot::Instance(_, t) => {
+                self.tuples[t].iter().all(|&e| self.is_resolved(e))
+            }
             Slot::Struct(_) => true,
             Slot::Link(_) => unreachable!("root() returns a root"),
         }
@@ -398,6 +425,13 @@ impl Unifier {
                 Some(Ty::Tuple(items.collect::<Option<_>>()?))
             }
             Slot::Struct(id) => Some(Ty::Struct(self.struct_names[id].clone())),
+            Slot::Instance(id, t) => {
+                let args = self.tuples[t].iter().map(|&e| self.resolve(e));
+                Some(Ty::Instance {
+                    name: self.struct_names[id].clone(),
+                    args: args.collect::<Option<_>>()?,
+                })
+            }
             Slot::Link(_) => unreachable!("root() returns a root"),
         }
     }
@@ -425,6 +459,10 @@ impl Unifier {
                 format!("({})", names.join(", "))
             }
             Slot::Struct(id) => self.struct_names[id].clone(),
+            Slot::Instance(id, t) => {
+                let names: Vec<String> = self.tuples[t].iter().map(|&e| self.name(e)).collect();
+                format!("{}<{}>", self.struct_names[id], names.join(", "))
+            }
             Slot::Link(_) => unreachable!("root() returns a root"),
         }
     }

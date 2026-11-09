@@ -494,8 +494,20 @@ fn ty_kind(ts: &mut TokenStream) -> PResult<TypeExpr> {
     }
 
     let name = dotted_name(ts)?;
-    Ok(match Type::from_name(&name.name) {
-        Some(ty) => TypeExpr::Known(ty),
-        None => TypeExpr::Param(name),
-    })
+    if let Some(ty) = Type::from_name(&name.name) {
+        return Ok(TypeExpr::Known(ty));
+    }
+    if ts.eat(&Token::Lt).is_none() {
+        return Ok(TypeExpr::Param(name));
+    }
+
+    let mut args = Vec::new();
+    loop {
+        args.push(ty(ts)?);
+        if ts.eat(&Token::Comma).is_none() || ts.peek() == Some(&Token::Gt) {
+            break;
+        }
+    }
+    ts.expect_type_close()?;
+    Ok(TypeExpr::Applied { name, args })
 }

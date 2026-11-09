@@ -9,9 +9,10 @@ imported    ::= IDENT ('as' IDENT)?
 
 (* items *)
 item        ::= const | function | struct | enum
-struct      ::= 'struct' IDENT '{' (field (',' field)* ','?)? '}'
+typeparams  ::= '<' IDENT (',' IDENT)* ','? '>'
+struct      ::= 'struct' IDENT typeparams? '{' (field (',' field)* ','?)? '}'
 field       ::= IDENT ':' type
-enum        ::= 'enum' IDENT '{' variant (',' variant)* ','? '}'
+enum        ::= 'enum' IDENT typeparams? '{' variant (',' variant)* ','? '}'
 variant     ::= IDENT ('(' type (',' type)* ','? ')')?
 const       ::= 'const' IDENT ':' type '=' expr ';'
 function    ::= 'fn' IDENT generics? '(' params? ')' ('->' type)? block
@@ -23,7 +24,7 @@ params      ::= param (',' param)* ','?
 param       ::= IDENT ':' type
 
 type        ::= basetype '?'*               (* '?': a value or nothing *)
-basetype    ::= name                        (* a built-in type, a generic parameter, a struct or an enum *)
+basetype    ::= name ('<' type (',' type)* ','? '>')?   (* a built-in type, a generic parameter, a struct or an enum *)
               | '[' type ']'                (* an array of any length *)
               | '(' type (',' type)+ ','? ')'
 

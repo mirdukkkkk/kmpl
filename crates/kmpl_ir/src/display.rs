@@ -41,6 +41,10 @@ fn type_text(ty: &Ty) -> String {
         }
         Ty::Struct(name) => name.clone(),
         Ty::Optional(inner) => format!("{}?", type_text(inner)),
+        Ty::Instance { name, args } => {
+            let parts: Vec<String> = args.iter().map(type_text).collect();
+            format!("{name}<{}>", parts.join(", "))
+        }
     }
 }
 

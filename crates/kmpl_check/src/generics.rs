@@ -8,9 +8,9 @@
 //! copy they use, and the generic originals are dropped: the interpreter
 //! (and later the compiler) only sees ordinary functions.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use kmpl_ast::{Block, Function, Item, Program, StmtKind, Type, TypeExpr};
+use kmpl_ast::{Block, Function, Ident, Item, Program, Span, StmtKind, Ty, Type, TypeExpr};
 
 use crate::error::CheckError;
 use crate::types::type_name;
@@ -21,9 +21,88 @@ pub const MAX_INSTANCES: usize = 256;
 
 /// The name of the copy for these types: `lerp<vec2>`, `f<int, real>`.
 /// `<` cannot appear in an identifier, so it never clashes with user names.
-pub fn instance_name(base: &str, types: &[Type]) -> String {
-    let names: Vec<&str> = types.iter().map(|t| type_name(*t)).collect();
-    format!("{base}<{}>", names.join(", "))
+pub fn instance_name(base: &str, types: &[TypeExpr]) -> String {
+    format!("{base}<{}>", list_text(types))
+}
+
+fn list_text(types: &[TypeExpr]) -> String {
+    let names: Vec<String> = types.iter().map(type_text).collect();
+    names.join(", ")
+}
+
+fn type_text(ty: &TypeExpr) -> String {
+    match ty {
+        TypeExpr::Known(ty) => type_name(*ty).to_owned(),
+        TypeExpr::Param(name) => name.name.clone(),
+        TypeExpr::Array(element) => format!("[{}]", type_text(element)),
+        TypeExpr::Optional(inner) => format!("{}?", type_text(inner)),
+        TypeExpr::Tuple(items) => format!("({})", list_text(items)),
+        TypeExpr::Applied { name, args } => format!("{}<{}>", name.name, list_text(args)),
+    }
+}
+
+/// A final type, as if it had been written in the source at `span`.
+pub fn type_expr(ty: &Ty, span: Span) -> TypeExpr {
+    let name_of = |name: &str| Ident {
+        name: name.to_owned(),
+        span,
+    };
+    let each = |items: &[Ty]| items.iter().map(|t| type_expr(t, span)).collect::<Vec<_>>();
+    match ty {
+        Ty::Prim(ty) => TypeExpr::Known(*ty),
+        Ty::Array(element) => TypeExpr::Array(Box::new(type_expr(element, span))),
+        Ty::Optional(inner) => TypeExpr::Optional(Box::new(type_expr(inner, span))),
+        Ty::Tuple(items) => TypeExpr::Tuple(each(items)),
+        Ty::Struct(name) => TypeExpr::Param(name_of(name)),
+        Ty::Instance { name, args } => TypeExpr::Applied {
+            name: name_of(name),
+            args: each(args),
+        },
+    }
+}
+
+/// Adds the copies that calls with arrays, structs and the like need. These
+/// cannot be made in advance, as there is no end to such types. Returns
+/// whether any were added: the new copies have to be checked in their turn.
+pub fn add_composite(
+    program: &mut Program,
+    calls: &[(String, Vec<Ty>)],
+) -> Result<bool, Vec<CheckError>> {
+    let mut names: HashSet<String> = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Function(f) => Some(f.name.name.clone()),
+            _ => None,
+        })
+        .collect();
+
+    let mut copies = Vec::new();
+    for (base, types) in calls {
+        let original = program.items.iter().find_map(|item| match item {
+            Item::Function(f) if f.name.name == *base => Some(f),
+            _ => None,
+        });
+        let f = original.expect("a call names a function that exists");
+
+        let written: Vec<TypeExpr> = types.iter().map(|t| type_expr(t, f.name.span)).collect();
+        if !names.insert(instance_name(base, &written)) {
+            continue;
+        }
+
+        let prefix = format!("{base}<");
+        if names.iter().filter(|n| n.starts_with(&prefix)).count() > 2 * MAX_INSTANCES {
+            return Err(vec![CheckError::new(
+                format!("`{base}` needs too many copies, its calls keep making new types"),
+                f.name.span,
+            )]);
+        }
+        copies.push(instantiate(f, &written));
+    }
+
+    let added = !copies.is_empty();
+    program.items.extend(copies.into_iter().map(Item::Function));
+    Ok(added)
 }
 
 /// Builds the copies of every generic function in `program`.
@@ -55,7 +134,8 @@ pub fn instances(program: &Program) -> Result<Vec<Function>, Vec<CheckError>> {
                 .map(|g| g.bound.as_slice())
                 .collect::<Vec<_>>(),
         ) {
-            copies.push(instantiate(f, &types));
+            let written: Vec<TypeExpr> = types.into_iter().map(TypeExpr::Known).collect();
+            copies.push(instantiate(f, &written));
         }
     }
 
@@ -86,12 +166,12 @@ fn combinations(bounds: &[&[Type]]) -> Vec<Vec<Type>> {
 }
 
 /// A copy of generic `f` with its parameters set to `types`.
-fn instantiate(f: &Function, types: &[Type]) -> Function {
-    let mapping: HashMap<&str, Type> = f
+fn instantiate(f: &Function, types: &[TypeExpr]) -> Function {
+    let mapping: HashMap<&str, TypeExpr> = f
         .generics
         .iter()
         .zip(types)
-        .map(|(g, ty)| (g.name.name.as_str(), *ty))
+        .map(|(g, ty)| (g.name.name.as_str(), ty.clone()))
         .collect();
 
     let mut copy = f.clone();
@@ -107,11 +187,16 @@ fn instantiate(f: &Function, types: &[Type]) -> Function {
     copy
 }
 
-fn substitute(ty: &mut TypeExpr, mapping: &HashMap<&str, Type>) {
+fn substitute(ty: &mut TypeExpr, mapping: &HashMap<&str, TypeExpr>) {
     match ty {
         TypeExpr::Param(name) => {
             if let Some(known) = mapping.get(name.name.as_str()) {
-                *ty = TypeExpr::Known(*known);
+                *ty = known.clone();
+            }
+        }
+        TypeExpr::Applied { args, .. } => {
+            for arg in args {
+                substitute(arg, mapping);
             }
         }
         TypeExpr::Array(elem) | TypeExpr::Optional(elem) => substitute(elem, mapping),
@@ -125,7 +210,7 @@ fn substitute(ty: &mut TypeExpr, mapping: &HashMap<&str, Type>) {
 }
 
 /// Generic names appear in a body only in `let x: T` annotations.
-fn substitute_block(block: &mut Block, mapping: &HashMap<&str, Type>) {
+fn substitute_block(block: &mut Block, mapping: &HashMap<&str, TypeExpr>) {
     for stmt in block {
         match &mut stmt.kind {
             StmtKind::Let { ty: Some(ty), .. } => substitute(ty, mapping),

@@ -67,7 +67,22 @@ pub fn check(program: &mut Program) -> Result<TypeInfo, Vec<CheckError>> {
     }
 
     let earlier_ok = errors.is_empty();
-    let inference = infer::infer(program, earlier_ok);
+    // A call with a composite type needs a copy that a new round then checks,
+    // and that copy may in turn make such calls.
+    let inference = loop {
+        let inference = infer::infer(program, earlier_ok);
+        if !inference.errors.is_empty() {
+            break inference;
+        }
+        match generics::add_composite(program, &inference.composite_calls) {
+            Ok(true) => {}
+            Ok(false) => break inference,
+            Err(e) => {
+                errors.extend(e);
+                return Err(errors);
+            }
+        }
+    };
     errors.extend(inference.errors.iter().cloned());
     if !errors.is_empty() {
         return Err(errors);

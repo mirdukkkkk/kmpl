@@ -205,17 +205,21 @@ impl Linker<'_> {
             Item::Function(f) => self.function(f),
             Item::Struct(s) => {
                 self.declared(&mut s.name);
+                self.type_params = s.generics.iter().map(|g| g.name.clone()).collect();
                 for field in &mut s.fields {
                     self.ty(&mut field.ty);
                 }
+                self.type_params.clear();
             }
             Item::Enum(e) => {
                 self.declared(&mut e.name);
+                self.type_params = e.generics.iter().map(|g| g.name.clone()).collect();
                 for variant in &mut e.variants {
                     for field in &mut variant.fields {
                         self.ty(field);
                     }
                 }
+                self.type_params.clear();
             }
         }
     }
@@ -358,6 +362,16 @@ impl Linker<'_> {
         match ty {
             TypeExpr::Known(_) => {}
             TypeExpr::Array(elem) | TypeExpr::Optional(elem) => self.ty(elem),
+            TypeExpr::Applied { name, args } => {
+                if name.name.contains('.') {
+                    self.module_item(name);
+                } else {
+                    self.plain_item(name);
+                }
+                for arg in args {
+                    self.ty(arg);
+                }
+            }
             TypeExpr::Tuple(items) => {
                 for item in items {
                     self.ty(item);

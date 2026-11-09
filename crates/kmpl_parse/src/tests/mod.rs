@@ -231,6 +231,10 @@ fn sexp_ty(ty: &TypeExpr) -> String {
         TypeExpr::Param(name) => name.name.clone(),
         TypeExpr::Array(elem) => format!("[{}]", sexp_ty(elem)),
         TypeExpr::Optional(inner) => format!("{}?", sexp_ty(inner)),
+        TypeExpr::Applied { name, args } => {
+            let args: Vec<String> = args.iter().map(sexp_ty).collect();
+            format!("{}<{}>", name.name, args.join(", "))
+        }
         TypeExpr::Tuple(items) => {
             let items: Vec<String> = items.iter().map(sexp_ty).collect();
             format!("({})", items.join(", "))

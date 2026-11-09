@@ -92,6 +92,26 @@ impl TokenStream {
         }
     }
 
+    /// Eats the `>` that ends a list of type arguments. In `Pair<Pair<int>>`
+    /// the lexer has seen `>>`, and in `let p: Pair<int>= x` it has seen
+    /// `>=`, so the first character of such a token is taken off it.
+    pub fn expect_type_close(&mut self) -> PResult<()> {
+        let rest = match self.peek() {
+            Some(Token::Gt) => {
+                self.next();
+                return Ok(());
+            }
+            Some(Token::Shr) => Token::Gt,
+            Some(Token::Ge) => Token::Assign,
+            Some(Token::ShrEq) => Token::Ge,
+            _ => return Err(self.error_expected("`>`")),
+        };
+        let (token, span) = &mut self.tokens[self.pos];
+        *token = rest;
+        span.start += 1;
+        Ok(())
+    }
+
     pub fn expect_ident(&mut self) -> PResult<Ident> {
         if let Some(Token::Ident(_)) = self.peek()
             && let Some((Token::Ident(name), span)) = self.next()

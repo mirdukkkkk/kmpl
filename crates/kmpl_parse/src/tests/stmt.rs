@@ -3,6 +3,19 @@ use kmpl_ast::{Item, Span};
 use super::{body, body_error, parse_program};
 
 #[test]
+fn type_arguments_may_end_in_one_token() {
+    assert_eq!(body("let x: A<int> = 1;"), "[(let x A<int> 1)]");
+    assert_eq!(body("let x: A<B<int>> = 1;"), "[(let x A<B<int>> 1)]");
+    assert_eq!(body("let x: A<int>= 1;"), "[(let x A<int> 1)]");
+    assert_eq!(body("let x: A<B<int>>= 1;"), "[(let x A<B<int>> 1)]");
+    assert_eq!(
+        body("let x: [A<int, real?>]? = 1;"),
+        "[(let x [A<int, real?>]? 1)]"
+    );
+    assert_eq!(body_error("let x: A<int; "), "expected `>`, found `;`");
+}
+
+#[test]
 fn if_let_is_a_match() {
     assert_eq!(
         body("if let some(x) = y { a; } else { b; }"),

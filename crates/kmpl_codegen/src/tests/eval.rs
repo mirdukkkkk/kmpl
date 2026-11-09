@@ -1456,6 +1456,112 @@ fn text_functions_refuse_what_makes_no_sense() {
     );
 }
 
+const GENERIC: &str = "struct Pair<T> { first: T, second: T }
+    enum Res<T, F> { Good(T), Bad(F) }
+    fn swap<T>(p: Pair<T>) -> Pair<T> { return Pair { first: p.second, second: p.first }; }
+    fn id<T>(x: T) -> T { return x; }
+    fn check(n: int) -> Res<int, string> {
+        if n < 0 { return Res::Bad(\"negative\"); }
+        return Res::Good(n * 2);
+    }
+    fn value(r: Res<int, string>) -> int {
+        match r {
+            Res::Good(v) => { return v; }
+            Res::Bad(_) => { return 0; }
+        }
+    }";
+
+#[test]
+fn generic_types_hold_what_they_are_given() {
+    let src = format!(
+        "{GENERIC}
+         fn main() {{
+             print(swap(Pair {{ first: 1, second: 2 }}));
+             print(swap(Pair {{ first: \"a\", second: \"b\" }}));
+             print(value(check(4)));
+             print(value(check(-4)));
+             print(check(-1));
+             print(Pair {{ first: 1.5, second: 2.5 }} == Pair {{ first: 1.5, second: 2.5 }});
+             let nested: Pair<Pair<int>>= Pair {{
+                 first: Pair {{ first: 1, second: 2 }},
+                 second: Pair {{ first: 3, second: 4 }},
+             }};
+             print(nested.second.first + 1);
+             nested.first.second = 9;
+             print(nested.first);
+         }}"
+    );
+    assert_eq!(
+        run(&src).unwrap(),
+        "Pair { first: 2, second: 1 }\nPair { first: b, second: a }\n8\n0\n\
+         Res::Bad(negative)\ntrue\n4\nPair { first: 1, second: 9 }\n"
+    );
+}
+
+#[test]
+fn a_flat_array_stays_flat_inside_a_generic_type() {
+    let src = format!(
+        "{GENERIC}
+         fn main() {{
+             let q: Pair<[real]> = Pair {{ first: [], second: [1.0] }};
+             q.first = push(q.first, 2.0);
+             q.second[0] = 5.0;
+             print(q);
+             print(q.second[0] + 1.0);
+         }}"
+    );
+    assert_eq!(
+        run(&src).unwrap(),
+        "Pair {{ first: [2.0], second: [5.0] }}\n6.0\n"
+            .replace("{{", "{")
+            .replace("}}", "}")
+    );
+}
+
+#[test]
+fn generic_functions_take_composite_types() {
+    let src = format!(
+        "{GENERIC}
+         struct P {{ x: int }}
+         fn twice<T>(x: T) -> [T] {{ return [id(x), id(x)]; }}
+         fn main() {{
+             print(id([1.0, 2.0]));
+             print(id((1, true)));
+             print(id(P {{ x: 3 }}));
+             print(id(Pair {{ first: [1], second: [2] }}));
+             print(twice([1]));
+             print(twice(P {{ x: 1 }}));
+             let o: int? = some(1);
+             print(id(o));
+         }}"
+    );
+    assert_eq!(
+        run(&src).unwrap(),
+        "[1.0, 2.0]\n(1, true)\nP { x: 3 }\nPair { first: [1], second: [2] }\n\
+         [[1], [1]]\n[P { x: 1 }, P { x: 1 }]\nsome(1)\n"
+    );
+}
+
+#[test]
+fn recursive_generic_enums() {
+    let src = "enum List<T> { Nil, Cons(T, List<T>) }
+               fn total(l: List<int>) -> int {
+                   match l {
+                       List::Cons(v, rest) => { return v + total(rest); }
+                       List::Nil => { return 0; }
+                   }
+               }
+               fn main() {
+                   let l: List<int> = List::Cons(1, List::Cons(2, List::Nil));
+                   print(total(l));
+                   print(l);
+               }";
+    assert_eq!(
+        run(src).unwrap(),
+        "3\nList::Cons(1, List::Cons(2, List::Nil))\n"
+    );
+}
+
 #[test]
 fn array_writes_in_a_loop_do_not_copy() {
     // Quadratic copying would make this take far too long to finish.

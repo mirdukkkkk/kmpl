@@ -43,6 +43,8 @@ pub enum Item {
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumDef {
     pub name: Ident,
+    /// `<T, E>`. Empty for an ordinary enum.
+    pub generics: Vec<Ident>,
     pub variants: Vec<EnumVariant>,
 }
 
@@ -57,6 +59,8 @@ pub struct EnumVariant {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructDef {
     pub name: Ident,
+    /// `<T, E>`. Empty for an ordinary struct.
+    pub generics: Vec<Ident>,
     pub fields: Vec<StructField>,
 }
 

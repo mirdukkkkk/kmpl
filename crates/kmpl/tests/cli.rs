@@ -718,6 +718,20 @@ fn text_through_the_library_and_a_dot() {
 }
 
 #[test]
+fn generic_types_with_dot_calls() {
+    let out = run(
+        "generic_dot",
+        "struct Box2<T> { value: T }
+         fn get<T>(b: Box2<T>) -> T { return b.value; }
+         fn main() {
+             let b = Box2 { value: [1, 2, 3] };
+             print(b.get().length());
+         }",
+    );
+    assert_eq!(stdout(&out), "3\n", "{}", stderr(&out));
+}
+
+#[test]
 fn every_std_library_can_be_imported() {
     let out = run(
         "std_all",
