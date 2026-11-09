@@ -109,6 +109,8 @@ name = "kmpl_codegen"
 version = "0.1.0"
 dependencies = [
  "inkwell",
+ "kmpl_ast",
+ "kmpl_builtins",
  "kmpl_ir",
 ]
 
@@ -150,6 +152,9 @@ dependencies = [
 [[package]]
 name = "kmpl_rt"
 version = "0.1.0"
+dependencies = [
+ "kmpl_builtins",
+]
 
 [[package]]
 name = "kmpl_vm"

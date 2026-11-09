@@ -8,5 +8,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+kmpl_ast.workspace = true
+kmpl_builtins.workspace = true
 kmpl_ir.workspace = true
 inkwell.workspace = true

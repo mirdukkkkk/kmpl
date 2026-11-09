@@ -3,12 +3,26 @@
 
 mod link;
 mod llvm;
+mod supported;
+mod translate;
 
 use std::path::Path;
 
-/// Compiles `module` into an executable at `output`. The error is a message
-/// for the user.
-pub fn build(module: &kmpl_ir::Module, output: &Path) -> Result<(), String> {
-    let object = llvm::object_code(module)?;
+use kmpl_ast::Span;
+
+pub use supported::UNSUPPORTED;
+
+/// Compiles `module` into an executable at `output`. `locate` gives the text
+/// shown under a runtime error at that span. The error is a message for the
+/// user.
+pub fn build(
+    module: &kmpl_ir::Module,
+    output: &Path,
+    locate: &dyn Fn(Span) -> String,
+) -> Result<(), String> {
+    if !supported::is_supported(module) {
+        return Err(UNSUPPORTED.to_owned());
+    }
+    let object = llvm::object_code(module, locate)?;
     link::link(&object, output)
 }

@@ -129,7 +129,8 @@ fn run() {
     kmpl_ir::annotate(&mut module);
 
     if let Some(output) = output {
-        if let Err(message) = kmpl_codegen::build(&module, &output) {
+        if let Err(message) = kmpl_codegen::build(&module, &output, &|span| sources.location(span))
+        {
             fail(&message);
         }
         return;

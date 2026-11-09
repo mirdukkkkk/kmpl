@@ -10,10 +10,12 @@ fn main() {
     let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let crates = manifest.parent().unwrap();
     let workspace = crates.parent().unwrap();
-    println!(
-        "cargo:rerun-if-changed={}",
-        crates.join("kmpl_rt").display()
-    );
+    for runtime_crate in ["kmpl_rt", "kmpl_builtins", "kmpl_ast"] {
+        println!(
+            "cargo:rerun-if-changed={}",
+            crates.join(runtime_crate).display()
+        );
+    }
     println!("cargo:rerun-if-changed=build.rs");
 
     let target_dir = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("rt");

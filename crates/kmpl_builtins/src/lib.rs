@@ -4,6 +4,7 @@
 //! interpreter calls `func`. Adding a built-in means adding one entry
 //! to `BUILTINS`.
 
+pub mod abi;
 mod complex;
 mod math;
 pub mod ops;

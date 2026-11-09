@@ -1,35 +1,33 @@
 //! IR to LLVM to object code.
 
+use std::sync::OnceLock;
+
 use inkwell::OptimizationLevel;
 use inkwell::context::Context;
 use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
 };
-use kmpl_ir::{Module, Terminator};
+use kmpl_ast::Span;
+use kmpl_ir::Module;
 
-/// The symbol `kmpl_rt` calls to start the program.
-const ENTRY: &str = "kmpl_program";
+use crate::translate::Translator;
 
-pub fn object_code(module: &Module) -> Result<Vec<u8>, String> {
-    for function in [module.init, module.main] {
-        let function = &module.functions[function.0 as usize];
-        let empty = matches!(&function.blocks[..], [block] if block.insts.is_empty()
-            && block.term == Terminator::Return(None));
-        if !empty {
-            return Err("kmpl build: this program is not supported yet".to_owned());
-        }
-    }
-
+pub fn object_code(module: &Module, locate: &dyn Fn(Span) -> String) -> Result<Vec<u8>, String> {
     let context = Context::create();
-    let llvm = context.create_module("kmpl");
-    let builder = context.create_builder();
-    let entry = llvm.add_function(ENTRY, context.void_type().fn_type(&[], false), None);
-    builder.position_at_end(context.append_basic_block(entry, "start"));
-    builder.build_return(None).map_err(|e| e.to_string())?;
+    let llvm = Translator::new(&context, module, locate)
+        .translate()
+        .map_err(|e| e.to_string())?;
 
     let machine = target_machine()?;
     llvm.set_triple(&machine.get_triple());
     llvm.set_data_layout(&machine.get_target_data().get_data_layout());
+    llvm.verify().map_err(|e| {
+        format!(
+            "kmpl build: generated invalid code, this is a bug in kmpl: {}",
+            e.to_string()
+        )
+    })?;
+
     let object = machine
         .write_to_memory_buffer(&llvm, FileType::Object)
         .map_err(|e| e.to_string())?;
@@ -39,7 +37,12 @@ pub fn object_code(module: &Module) -> Result<Vec<u8>, String> {
 /// Code for a generic CPU of this architecture, so a built program also runs
 /// on other machines. Position independent, as linkers expect by default.
 fn target_machine() -> Result<TargetMachine, String> {
-    Target::initialize_native(&InitializationConfig::default())?;
+    // Once per process: builds may run at the same time in tests.
+    static INITIALIZED: OnceLock<Result<(), String>> = OnceLock::new();
+    INITIALIZED
+        .get_or_init(|| Target::initialize_native(&InitializationConfig::default()))
+        .clone()?;
+
     let triple = TargetMachine::get_default_triple();
     let target = Target::from_triple(&triple).map_err(|e| e.to_string())?;
     target

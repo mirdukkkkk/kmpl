@@ -9,3 +9,6 @@ crate-type = ["staticlib"]
 
 [lints]
 workspace = true
+
+[dependencies]
+kmpl_builtins.workspace = true

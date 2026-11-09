@@ -47,6 +47,11 @@ impl Sources {
 
     /// Formats one error, with `span` in positions given out by `add`.
     pub fn render(&self, message: &str, span: Span) -> String {
+        format!("error: {message}\n{}", self.location(span))
+    }
+
+    /// The part of an error under its first line.
+    pub fn location(&self, span: Span) -> String {
         let file = self
             .files
             .iter()
@@ -54,13 +59,18 @@ impl Sources {
             .find(|file| file.start <= span.start)
             .expect("a span comes from a file");
         let local = Span::new(span.start - file.start, span.end.saturating_sub(file.start));
-        render(&file.path, &file.text, message, local)
+        location(&file.path, &file.text, local)
     }
 }
 
 /// Formats one error. `span` is in bytes of `src`; line and column are
 /// 1-based, and the column counts characters, not bytes.
 pub fn render(path: &str, src: &str, message: &str, span: Span) -> String {
+    format!("error: {message}\n{}", location(path, src, span))
+}
+
+/// The lines of an error that point into the source.
+fn location(path: &str, src: &str, span: Span) -> String {
     let start = floor_char_boundary(src, span.start);
     let end = floor_char_boundary(src, span.end.max(start));
 
@@ -83,8 +93,7 @@ pub fn render(path: &str, src: &str, message: &str, span: Span) -> String {
     let num = line_no.to_string();
     let pad = " ".repeat(num.len());
     format!(
-        "error: {message}\n\
-         {pad}--> {path}:{line_no}:{col}\n\
+        "{pad}--> {path}:{line_no}:{col}\n\
          {pad} |\n\
          {num} | {line}\n\
          {pad} | {indent}{carets}\n"

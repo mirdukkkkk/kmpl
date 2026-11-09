@@ -6,9 +6,7 @@ use kmpl_ir::{Block, Constant, FuncId, Function, Module, Op, Reg, Step, Target, 
 
 use crate::RuntimeError;
 
-/// Deepest allowed chain of function calls. Deeper recursion stops with an
-/// error instead of using up all memory.
-pub const MAX_CALL_DEPTH: usize = 10_000;
+pub use kmpl_builtins::ops::MAX_CALL_DEPTH;
 
 type Result<T> = std::result::Result<T, RuntimeError>;
 
@@ -256,10 +254,7 @@ impl<'m> Vm<'m, '_> {
 
             if let Op::Call { func, args } = &inst.op {
                 if self.frames.len() + 1 >= MAX_CALL_DEPTH {
-                    return Err(error(
-                        format!("stack overflow: more than {MAX_CALL_DEPTH} nested calls"),
-                        inst.span,
-                    ));
+                    return Err(error(ops::stack_overflow_message(), inst.span));
                 }
 
                 let callee = &module.functions[func.0 as usize];
@@ -451,7 +446,7 @@ impl<'m> Vm<'m, '_> {
             Op::Swizzle { base: value, mask } => ops::swizzle(self.reg(base, *value).clone(), mask),
             Op::CheckStep(step) => {
                 if as_int(self.reg(base, *step)) == 0 {
-                    return Err(error("loop step cannot be zero", span));
+                    return Err(error(ops::ZERO_STEP, span));
                 }
                 return Ok(None);
             }

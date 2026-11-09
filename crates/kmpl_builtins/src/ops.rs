@@ -194,7 +194,17 @@ fn sum_of_products<'v>(x: &[Value], y: impl Iterator<Item = &'v Value>) -> Resul
     Ok(total.expect("the caller checked there is at least one column"))
 }
 
-const OVERFLOW: &str = "integer overflow";
+pub const OVERFLOW: &str = "integer overflow";
+pub const DIVISION_BY_ZERO: &str = "division by zero";
+pub const ZERO_STEP: &str = "loop step cannot be zero";
+
+/// Deepest allowed chain of function calls. Deeper recursion stops with an
+/// error instead of using up all memory.
+pub const MAX_CALL_DEPTH: usize = 10_000;
+
+pub fn stack_overflow_message() -> String {
+    format!("stack overflow: more than {MAX_CALL_DEPTH} nested calls")
+}
 
 #[inline]
 pub fn int_op(op: BinOp, a: i64, b: i64) -> Result<Value, String> {
@@ -204,7 +214,7 @@ pub fn int_op(op: BinOp, a: i64, b: i64) -> Result<Value, String> {
         BinOp::Add => checked(a.checked_add(b)),
         BinOp::Sub => checked(a.checked_sub(b)),
         BinOp::Mul => checked(a.checked_mul(b)),
-        BinOp::Div if b == 0 => Err("division by zero".to_owned()),
+        BinOp::Div if b == 0 => Err(DIVISION_BY_ZERO.to_owned()),
         // Truncates toward zero; only `i64::MIN / -1` overflows.
         BinOp::Div => checked(a.checked_div(b)),
         BinOp::Lt => Ok(Value::Bool(a < b)),

@@ -53,3 +53,88 @@ fn extra_arguments_are_a_usage_error() {
     assert_eq!(out.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&out.stderr).contains("kmpl build"));
 }
+
+/// Builds `src` and runs the result.
+fn build_and_run(test: &str, src: &str) -> Output {
+    let dir = project(test, src);
+    let out = kmpl_in(&dir, &["build", "program.kmpl", "-o", "made"]);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    Command::new(dir.join("made")).output().unwrap()
+}
+
+fn stdout(out: &Output) -> String {
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+fn stderr(out: &Output) -> String {
+    String::from_utf8_lossy(&out.stderr).into_owned()
+}
+
+#[test]
+fn numbers_branches_loops_and_calls() {
+    let out = build_and_run(
+        "numbers",
+        "const K: int = 3;
+        fn fib(n: int) -> int {
+            if n < 2 { return n; }
+            return fib(n - 1) + fib(n - 2);
+        }
+        fn main() {
+            let sum = 0.0;
+            for i in 0..=4 { sum += sqrt(real(i * i)); }
+            print(sum);
+            print(fib(10) * K);
+            print(7 / -2);
+            print(1.0 / 0.0 > 1e308 && !false);
+        }",
+    );
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    assert_eq!(stdout(&out), "10.0\n165\n-3\ntrue\n");
+}
+
+#[test]
+fn a_runtime_error_looks_like_the_vm_one_after_flushing_output() {
+    let out = build_and_run(
+        "division",
+        "fn main() {\n    print(1);\n    let z = 0;\n    print(1 / z);\n}\n",
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(stdout(&out), "1\n");
+    assert_eq!(
+        stderr(&out),
+        "error: division by zero\n --> program.kmpl:4:11\n  |\n4 |     print(1 / z);\n  |           ^^^^^\n"
+    );
+}
+
+#[test]
+fn integer_overflow_is_an_error() {
+    let out = build_and_run(
+        "overflow",
+        "fn main() { let a = 9223372036854775807; print(a + 1); }",
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).starts_with("error: integer overflow\n"),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn the_call_depth_limit_matches_the_vm() {
+    let out = build_and_run(
+        "depth",
+        "fn down(n: int) -> int { return down(n + 1); } fn main() { print(down(0)); }",
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).starts_with("error: stack overflow: more than 10000 nested calls\n"),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn a_failing_built_in_reports_its_error() {
+    let out = build_and_run("builtin", "fn main() { print(int(0.0 / 0.0)); }");
+    assert_eq!(out.status.code(), Some(1));
+    assert!(stderr(&out).contains("--> program.kmpl:1:"), "{out:?}");
+}
