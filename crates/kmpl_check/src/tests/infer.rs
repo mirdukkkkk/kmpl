@@ -828,19 +828,124 @@ fn structs_infer_through_empty_arrays() {
 #[test]
 fn input_built_ins() {
     assert_ok("fn f() { let a: [string] = _io_args(); let s: string = a[0]; }");
-    assert_ok(
-        "fn f() { let (line, ok) = _io_read_line(); let s: string = line; let b: bool = ok; }",
-    );
-    assert_ok(
-        r#"fn f() { let (n, ok) = _text_parse_int("1"); let i: int = n; let b: bool = ok; }"#,
-    );
-    assert_ok(r#"fn f() { let (x, ok) = _text_parse_real("1"); let r: real = x; }"#);
+    assert_ok("fn f() { let line: string? = _io_read_line(); }");
+    assert_ok(r#"fn f() { let n: int? = _text_parse_int("1"); }"#);
+    assert_ok(r#"fn f() { let x: real? = _text_parse_real("1"); }"#);
     assert_error(
         "fn f() { _text_parse_int(1); }",
         "mismatched types: expected `string`, found `int`, `real` or `complex`",
     );
     assert_error(
         "fn f() { let (a, b, c) = _io_read_line(); }",
-        "expected a tuple of 3 elements, found `(string, bool)`",
+        "expected a tuple of 3 elements, found `string?`",
+    );
+}
+
+const SHAPE: &str = "enum Shape { Circle(real), Rect(real, real), Empty } ";
+
+fn with_shape(rest: &str) -> String {
+    format!("{SHAPE}{rest}")
+}
+
+#[test]
+fn enums_and_optionals_are_typed() {
+    assert_ok(&with_shape(
+        "fn f() { let s = Shape::Circle(1); let e: Shape = Shape::Empty; }",
+    ));
+    assert_ok(
+        "fn f() { let a: real? = some(1); let b: int? = none; let c: [int?] = [none, some(1)]; }",
+    );
+    assert_ok("fn f(x: int?) -> bool { return x == none; }");
+    assert_error(
+        &with_shape("fn f() { let s = Shape::Circle(true); }"),
+        "mismatched types: expected `real`, found `bool`",
+    );
+    assert_error(
+        "fn f() { let a: int? = 1; }",
+        "mismatched types: expected `int?`, found `int`, `real` or `complex`",
+    );
+    assert_error(
+        "fn f() { print(none); }",
+        "cannot infer the type of this `none`, add a type annotation",
+    );
+    assert_error(
+        &with_shape("fn f(s: Shape) -> real { return s.x; }"),
+        "only a struct has fields, found `Shape`",
+    );
+}
+
+#[test]
+fn match_binds_the_values_of_a_variant() {
+    assert_ok(&with_shape(
+        "fn f(s: Shape) -> real {
+             match s {
+                 Shape::Circle(r) => { return r; }
+                 Shape::Rect(w, _) => { return w; }
+                 Shape::Empty => { return 0.0; }
+             }
+         }",
+    ));
+    assert_ok(
+        "fn f(x: int?) -> int { match x { some(v) => { return v; } none => { return 0; } } }",
+    );
+    assert_error(
+        "fn f(x: int?) { match x { some(v) => { let s: string = v; } none => { } } }",
+        "mismatched types: expected `string`, found `int`",
+    );
+}
+
+#[test]
+fn match_must_handle_every_case() {
+    assert_error(
+        &with_shape("fn f(s: Shape) { match s { Shape::Empty => { } } }"),
+        "this `match` does not handle `Shape::Circle`, `Shape::Rect`; add it or `_`",
+    );
+    assert_error(
+        "fn f(x: int?) { match x { none => { } } }",
+        "this `match` does not handle `some`; add it or `_`",
+    );
+    assert_ok(&with_shape(
+        "fn f(s: Shape) { match s { Shape::Empty => { } _ => { } } }",
+    ));
+}
+
+#[test]
+fn bad_match_arms() {
+    assert_error(
+        &with_shape(
+            "fn f(s: Shape) { match s { Shape::Empty => { } Shape::Empty => { } _ => { } } }",
+        ),
+        "`Empty` is already handled above",
+    );
+    assert_error(
+        &with_shape("fn f(s: Shape) { match s { _ => { } Shape::Empty => { } } }"),
+        "this arm comes after `_`, so it can never run",
+    );
+    assert_error(
+        &with_shape("fn f(s: Shape) { match s { none => { } _ => { } } }"),
+        "this pattern does not fit a value of `Shape`",
+    );
+    assert_error(
+        "fn f(x: int) { match x { _ => { } } }",
+        "`match` needs an enum or an optional value, found `int`",
+    );
+}
+
+#[test]
+fn match_and_panic_end_paths() {
+    assert_ok("fn f() -> int { panic(\"no\"); }");
+    assert_ok(
+        "fn f(x: int?) -> int { match x { some(v) => { return v; } none => { panic(\"no\"); } } }",
+    );
+    assert_error(
+        "fn f(x: int?) -> int { match x { some(v) => { return v; } none => { } } }",
+        "`f` may finish without returning a value",
+    );
+    assert_ok(
+        "fn f(x: int?) { let y: int; match x { some(v) => { y = v; } none => { panic(\"no\"); } } print(y); }",
+    );
+    assert_error(
+        "fn f(x: int?) { let y: int; match x { some(v) => { y = v; } none => { } } print(y); }",
+        "`y` is used before being assigned",
     );
 }

@@ -9,6 +9,8 @@ use kmpl_ast::{
     BinOp, Block, Expr, ExprKind, Item, PathStep, Program, Stmt, StmtKind, Type, TypeExpr, UnOp,
 };
 
+use kmpl_ast::Pattern;
+
 use crate::ParseError;
 
 fn lex(src: &str) -> Vec<(kmpl_lexer::Token, kmpl_ast::Span)> {
@@ -52,6 +54,17 @@ fn sexp_item(item: &Item) -> String {
             sexp_ty(&c.ty),
             sexp(&c.value)
         ),
+        Item::Enum(e) => {
+            let variants: Vec<String> = e
+                .variants
+                .iter()
+                .map(|v| {
+                    let fields: Vec<String> = v.fields.iter().map(sexp_ty).collect();
+                    format!("({} {})", v.name.name, fields.join(" "))
+                })
+                .collect();
+            format!("(enum {} [{}])", e.name.name, variants.join(" "))
+        }
         Item::Struct(s) => {
             let fields: Vec<String> = s
                 .fields
@@ -82,6 +95,17 @@ fn sexp_item(item: &Item) -> String {
 fn sexp_block(block: &Block) -> String {
     let stmts: Vec<String> = block.iter().map(sexp_stmt).collect();
     format!("[{}]", stmts.join(" "))
+}
+
+fn arm_name(pattern: &Pattern) -> String {
+    let bindings: Vec<&str> = pattern.bindings().iter().map(|n| n.name.as_str()).collect();
+    let head = match pattern {
+        Pattern::Variant { name, variant, .. } => format!("{}::{}", name.name, variant.name),
+        Pattern::Some(_) => "some".to_owned(),
+        Pattern::None => "none".to_owned(),
+        Pattern::Wildcard => "_".to_owned(),
+    };
+    format!("{head}{bindings:?}")
 }
 
 fn sexp_stmt(s: &Stmt) -> String {
@@ -158,6 +182,13 @@ fn sexp_stmt(s: &Stmt) -> String {
                 sexp_block(body)
             )
         }
+        StmtKind::Match { value, arms } => {
+            let arms: Vec<String> = arms
+                .iter()
+                .map(|arm| format!("({:?} {})", arm_name(&arm.pattern), sexp_block(&arm.body)))
+                .collect();
+            format!("(match {} {})", sexp(value), arms.join(" "))
+        }
         StmtKind::Break => "break".to_owned(),
         StmtKind::Continue => "continue".to_owned(),
         StmtKind::Return(Some(e)) => format!("(return {})", sexp(e)),
@@ -199,6 +230,7 @@ fn sexp_ty(ty: &TypeExpr) -> String {
         TypeExpr::Known(ty) => type_name(*ty),
         TypeExpr::Param(name) => name.name.clone(),
         TypeExpr::Array(elem) => format!("[{}]", sexp_ty(elem)),
+        TypeExpr::Optional(inner) => format!("{}?", sexp_ty(inner)),
         TypeExpr::Tuple(items) => {
             let items: Vec<String> = items.iter().map(sexp_ty).collect();
             format!("({})", items.join(", "))
@@ -284,5 +316,15 @@ fn sexp(e: &Expr) -> String {
                 .collect();
             format!("(new {} [{}])", name.name, fields.join(" "))
         }
+        ExprKind::Variant {
+            name,
+            variant,
+            args,
+        } => {
+            let args: Vec<String> = args.iter().map(sexp).collect();
+            format!("({}::{} {})", name.name, variant.name, args.join(" "))
+        }
+        ExprKind::Some(value) => format!("(some {})", sexp(value)),
+        ExprKind::None => "none".to_owned(),
     }
 }

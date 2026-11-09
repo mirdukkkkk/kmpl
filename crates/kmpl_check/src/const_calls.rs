@@ -22,7 +22,7 @@ pub fn check_const_calls(program: &Program) -> Vec<CheckError> {
             Item::Const(c) => {
                 constants.insert(c.name.name.as_str(), index);
             }
-            Item::Struct(_) => {}
+            Item::Struct(_) | Item::Enum(_) => {}
         }
     }
 
@@ -192,6 +192,17 @@ impl<'a> Walk<'a> {
                 self.expr(array);
                 self.loop_body(var, body);
             }
+            StmtKind::Match { value, arms } => {
+                self.expr(value);
+                for arm in arms {
+                    self.scopes.push(HashSet::new());
+                    for name in arm.pattern.bindings() {
+                        self.declare(&name.name);
+                    }
+                    self.block(&arm.body);
+                    self.scopes.pop();
+                }
+            }
             StmtKind::Return(Some(value)) | StmtKind::Expr(value) => self.expr(value),
             StmtKind::Return(None) | StmtKind::Break | StmtKind::Continue => {}
         }
@@ -216,7 +227,14 @@ impl<'a> Walk<'a> {
             | ExprKind::Real(_)
             | ExprKind::Complex { .. }
             | ExprKind::Bool(_)
-            | ExprKind::Str(_) => {}
+            | ExprKind::Str(_)
+            | ExprKind::None => {}
+            ExprKind::Variant { args, .. } => {
+                for arg in args {
+                    self.expr(arg);
+                }
+            }
+            ExprKind::Some(value) => self.expr(value),
             ExprKind::Var(name) => self.variable(name),
             ExprKind::Unary { operand, .. } => self.expr(operand),
             ExprKind::Binary { lhs, rhs, .. } => {

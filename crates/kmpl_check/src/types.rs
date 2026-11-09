@@ -33,7 +33,7 @@ const ALL: [Type; 9] = [
 ];
 
 impl TypeSet {
-    pub const ANY: TypeSet = TypeSet(0b1111_1111_1111);
+    pub const ANY: TypeSet = TypeSet(0b1_1111_1111_1111);
     /// The set of a variable known to be an array. The bit after the
     /// nine types in `ALL`.
     pub const ARRAY: TypeSet = TypeSet(1 << 9);
@@ -41,6 +41,8 @@ impl TypeSet {
     pub const TUPLE: TypeSet = TypeSet(1 << 10);
     /// The set of a variable known to be a struct.
     pub const STRUCT: TypeSet = TypeSet(1 << 11);
+    /// The set of a variable known to be `T?`.
+    pub const OPTIONAL: TypeSet = TypeSet(1 << 12);
     /// Type of an integer literal like `1`.
     pub const NUMBER: TypeSet = TypeSet::of(&[Type::Int, Type::Real, Type::Complex]);
     /// Type of a real literal like `1.0`.
@@ -171,8 +173,10 @@ enum Slot {
     /// `Unifier::tuples`. Keeps `Slot` small and `Copy`.
     Tuple(usize),
     /// A representative variable known to be this struct: an index into
-    /// `Unifier::struct_names`.
+    /// `Unifier::struct_names`. An enum is the same to the unifier.
     Struct(usize),
+    /// A representative variable known to be `T?` of this `T`.
+    Optional(TyVar),
 }
 
 /// Union-find over type variables.
@@ -194,6 +198,19 @@ impl Unifier {
     pub fn new_array(&mut self, elem: TyVar) -> TyVar {
         self.slots.push(Slot::Array(elem));
         TyVar(self.slots.len() - 1)
+    }
+
+    pub fn new_optional(&mut self, inner: TyVar) -> TyVar {
+        self.slots.push(Slot::Optional(inner));
+        TyVar(self.slots.len() - 1)
+    }
+
+    /// The `T`, if `var` is known to be `T?`.
+    pub fn optional_inner(&self, var: TyVar) -> Option<TyVar> {
+        match self.slots[self.root(var)] {
+            Slot::Optional(inner) => Some(inner),
+            _ => None,
+        }
     }
 
     pub fn new_tuple(&mut self, elems: Vec<TyVar>) -> TyVar {
@@ -236,6 +253,7 @@ impl Unifier {
             Slot::Array(_) => TypeSet::ARRAY,
             Slot::Tuple(_) => TypeSet::TUPLE,
             Slot::Struct(_) => TypeSet::STRUCT,
+            Slot::Optional(_) => TypeSet::OPTIONAL,
             Slot::Link(_) => unreachable!("root() returns a root"),
         }
     }
@@ -280,6 +298,12 @@ impl Unifier {
             (Slot::Struct(sa), Slot::Struct(sb)) if sa == sb => self.slots[rb] = Slot::Link(ra),
             (Slot::Root(set), Slot::Struct(_)) => self.bind(ra, set, rb, TypeSet::STRUCT)?,
             (Slot::Struct(_), Slot::Root(set)) => self.bind(rb, set, ra, TypeSet::STRUCT)?,
+            (Slot::Optional(ia), Slot::Optional(ib)) => {
+                self.unify(ia, ib)?;
+                self.slots[rb] = Slot::Link(ra);
+            }
+            (Slot::Root(set), Slot::Optional(_)) => self.bind(ra, set, rb, TypeSet::OPTIONAL)?,
+            (Slot::Optional(_), Slot::Root(set)) => self.bind(rb, set, ra, TypeSet::OPTIONAL)?,
             (Slot::Link(_), _) | (_, Slot::Link(_)) => unreachable!("root() returns a root"),
             // Two different kinds, or two different structs.
             _ => return Err(Mismatch),
@@ -329,7 +353,7 @@ impl Unifier {
         let found = self.root(var);
         found == root
             || match self.slots[found] {
-                Slot::Array(elem) => self.occurs(root, elem),
+                Slot::Array(elem) | Slot::Optional(elem) => self.occurs(root, elem),
                 Slot::Tuple(t) => self.tuples[t].iter().any(|&e| self.occurs(root, e)),
                 _ => false,
             }
@@ -354,7 +378,7 @@ impl Unifier {
     pub fn is_resolved(&self, var: TyVar) -> bool {
         match self.slots[self.root(var)] {
             Slot::Root(set) => set.default_type().is_some(),
-            Slot::Array(elem) => self.is_resolved(elem),
+            Slot::Array(elem) | Slot::Optional(elem) => self.is_resolved(elem),
             Slot::Tuple(t) => self.tuples[t].iter().all(|&e| self.is_resolved(e)),
             Slot::Struct(_) => true,
             Slot::Link(_) => unreachable!("root() returns a root"),
@@ -366,6 +390,7 @@ impl Unifier {
         match self.slots[self.root(var)] {
             Slot::Root(set) => set.default_type().map(Ty::Prim),
             Slot::Array(elem) => Some(Ty::Array(Box::new(self.resolve(elem)?))),
+            Slot::Optional(inner) => Some(Ty::Optional(Box::new(self.resolve(inner)?))),
             Slot::Tuple(t) => {
                 let items = self.tuples[t].iter().map(|&e| self.resolve(e));
                 Some(Ty::Tuple(items.collect::<Option<_>>()?))
@@ -392,6 +417,7 @@ impl Unifier {
                 .default_type()
                 .map_or("_".to_owned(), |ty| type_name(ty).to_owned()),
             Slot::Array(elem) => format!("[{}]", self.name(elem)),
+            Slot::Optional(inner) => format!("{}?", self.name(inner)),
             Slot::Tuple(t) => {
                 let names: Vec<String> = self.tuples[t].iter().map(|&e| self.name(e)).collect();
                 format!("({})", names.join(", "))

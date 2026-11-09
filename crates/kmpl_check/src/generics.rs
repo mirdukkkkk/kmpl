@@ -114,7 +114,7 @@ fn substitute(ty: &mut TypeExpr, mapping: &HashMap<&str, Type>) {
                 *ty = TypeExpr::Known(*known);
             }
         }
-        TypeExpr::Array(elem) => substitute(elem, mapping),
+        TypeExpr::Array(elem) | TypeExpr::Optional(elem) => substitute(elem, mapping),
         TypeExpr::Tuple(items) => {
             for item in items {
                 substitute(item, mapping);
@@ -140,6 +140,11 @@ fn substitute_block(block: &mut Block, mapping: &HashMap<&str, Type>) {
             StmtKind::While { body, .. }
             | StmtKind::For { body, .. }
             | StmtKind::ForEach { body, .. } => substitute_block(body, mapping),
+            StmtKind::Match { arms, .. } => {
+                for arm in arms {
+                    substitute_block(&mut arm.body, mapping);
+                }
+            }
             _ => {}
         }
     }

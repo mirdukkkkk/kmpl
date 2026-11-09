@@ -33,6 +33,12 @@ pub enum ExprKind {
     Field { base: Box<Expr>, name: Ident },
     /// `Point { x: 1.0, y: 2.0 }`, fields in the order they are written.
     StructLit { name: Ident, fields: Vec<(Ident, Expr)> },
+    /// `Shape::Circle(1.0)` or `Shape::Empty`. `name` is the enum.
+    Variant { name: Ident, variant: Ident, args: Vec<Expr> },
+    /// `some(value)`
+    Some(Box<Expr>),
+    /// `none`
+    None,
     /// `base[start..end]`, a copy of that part. A missing `start` is 0, a
     /// missing `end` is the length. `inclusive` is `..=`.
     Slice {

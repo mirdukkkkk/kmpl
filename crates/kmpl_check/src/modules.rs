@@ -20,8 +20,8 @@
 use std::collections::{HashMap, HashSet};
 
 use kmpl_ast::{
-    Block, Expr, ExprKind, Function, Ident, ImportNames, Item, PathStep, Program, Stmt, StmtKind,
-    Type, TypeExpr,
+    Block, Expr, ExprKind, Function, Ident, ImportNames, Item, PathStep, Pattern, Program, Stmt,
+    StmtKind, Type, TypeExpr,
 };
 
 use crate::error::CheckError;
@@ -92,6 +92,7 @@ fn item_names(program: &Program) -> HashSet<String> {
             Item::Const(c) => c.name.name.clone(),
             Item::Function(f) => f.name.name.clone(),
             Item::Struct(s) => s.name.name.clone(),
+            Item::Enum(e) => e.name.name.clone(),
         })
         .collect()
 }
@@ -208,6 +209,14 @@ impl Linker<'_> {
                     self.ty(&mut field.ty);
                 }
             }
+            Item::Enum(e) => {
+                self.declared(&mut e.name);
+                for variant in &mut e.variants {
+                    for field in &mut variant.fields {
+                        self.ty(field);
+                    }
+                }
+            }
         }
     }
 
@@ -318,7 +327,7 @@ impl Linker<'_> {
     fn ty(&mut self, ty: &mut TypeExpr) {
         match ty {
             TypeExpr::Known(_) => {}
-            TypeExpr::Array(elem) => self.ty(elem),
+            TypeExpr::Array(elem) | TypeExpr::Optional(elem) => self.ty(elem),
             TypeExpr::Tuple(items) => {
                 for item in items {
                     self.ty(item);
@@ -423,6 +432,19 @@ impl Linker<'_> {
                 self.expr(array);
                 self.loop_body(var, body);
             }
+            StmtKind::Match { value, arms } => {
+                self.expr(value);
+                for arm in arms {
+                    if let Pattern::Variant { name, .. } = &mut arm.pattern {
+                        self.item_name(name);
+                    }
+                    let bindings = arm.pattern.bindings();
+                    self.scopes
+                        .push(bindings.iter().map(|n| n.name.clone()).collect());
+                    self.block(&mut arm.body);
+                    self.scopes.pop();
+                }
+            }
             StmtKind::Break | StmtKind::Continue => {}
             StmtKind::Return(value) => {
                 if let Some(value) = value {
@@ -445,7 +467,15 @@ impl Linker<'_> {
             | ExprKind::Real(_)
             | ExprKind::Complex { .. }
             | ExprKind::Bool(_)
-            | ExprKind::Str(_) => {}
+            | ExprKind::Str(_)
+            | ExprKind::None => {}
+            ExprKind::Variant { name, args, .. } => {
+                self.item_name(name);
+                for arg in args {
+                    self.expr(arg);
+                }
+            }
+            ExprKind::Some(value) => self.expr(value),
             ExprKind::Var(name) => self.variable(name),
             ExprKind::Unary { operand, .. } => self.expr(operand),
             ExprKind::Binary { lhs, rhs, .. } => {

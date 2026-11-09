@@ -17,8 +17,8 @@
 use std::collections::{HashMap, HashSet};
 
 use kmpl_ast::{
-    BinOp, Block, Expr, ExprKind, Function, Ident, Item, PathStep, Program, Span, Stmt, StmtKind,
-    StructDef, Ty, Type, TypeExpr, UnOp,
+    BinOp, Block, EnumDef, Expr, ExprKind, Function, Ident, Item, MatchArm, PathStep, Pattern,
+    Program, Span, Stmt, StmtKind, StructDef, Ty, Type, TypeExpr, UnOp,
 };
 use kmpl_builtins::{ParamType, RetType};
 
@@ -39,9 +39,10 @@ struct Infer<'a> {
     u: Unifier,
     functions: HashMap<&'a str, &'a Function>,
     consts: HashMap<&'a str, &'a TypeExpr>,
-    /// Name -> id in `Unifier` and in `struct_defs`.
+    /// Name of a struct or enum -> id in `Unifier`.
     struct_ids: HashMap<&'a str, usize>,
-    struct_defs: Vec<&'a StructDef>,
+    struct_defs: HashMap<usize, &'a StructDef>,
+    enum_defs: HashMap<usize, &'a EnumDef>,
     /// Name -> type of a local. Innermost scope is last.
     scopes: Vec<HashMap<&'a str, TyVar>>,
     /// Every `let` variable, to check at the end that its type is known.
@@ -49,6 +50,8 @@ struct Infer<'a> {
     /// Every array literal, to check at the end that its element type is
     /// known: `print([]);` has no variable to report.
     array_literals: Vec<(Span, TyVar)>,
+    /// Every `none`, for the same reason.
+    nones: Vec<(Span, TyVar)>,
     /// Every `1` and `1.0` literal with its item index, to pick its final
     /// type at the end. Copies of a generic function share spans, so the
     /// span alone is not unique.
@@ -86,10 +89,12 @@ pub fn infer(program: &Program, report_unknown: bool) -> Inference {
         functions: HashMap::new(),
         consts: HashMap::new(),
         struct_ids: HashMap::new(),
-        struct_defs: Vec::new(),
+        struct_defs: HashMap::new(),
+        enum_defs: HashMap::new(),
         scopes: Vec::new(),
         locals: Vec::new(),
         array_literals: Vec::new(),
+        nones: Vec::new(),
         current_fn: None,
         literals: Vec::new(),
         expr_vars: Vec::new(),
@@ -110,7 +115,12 @@ pub fn infer(program: &Program, report_unknown: bool) -> Inference {
             Item::Struct(s) => {
                 let id = inf.u.add_struct(&s.name.name);
                 inf.struct_ids.insert(&s.name.name, id);
-                inf.struct_defs.push(s);
+                inf.struct_defs.insert(id, s);
+            }
+            Item::Enum(e) => {
+                let id = inf.u.add_struct(&e.name.name);
+                inf.struct_ids.insert(&e.name.name, id);
+                inf.enum_defs.insert(id, e);
             }
         }
     }
@@ -124,7 +134,7 @@ pub fn infer(program: &Program, report_unknown: bool) -> Inference {
                 inf.unify(value, expected, c.value.span);
             }
             Item::Function(f) if f.generics.is_empty() => inf.function(f),
-            Item::Function(_) | Item::Struct(_) => {}
+            Item::Function(_) | Item::Struct(_) | Item::Enum(_) => {}
         }
     }
 
@@ -192,6 +202,10 @@ impl<'a> Infer<'a> {
             TypeExpr::Array(elem) => {
                 let elem = self.type_var(elem, generics);
                 self.u.new_array(elem)
+            }
+            TypeExpr::Optional(inner) => {
+                let inner = self.type_var(inner, generics);
+                self.u.new_optional(inner)
             }
             TypeExpr::Tuple(items) => {
                 let elems = items.iter().map(|t| self.type_var(t, generics)).collect();
@@ -336,6 +350,7 @@ impl<'a> Infer<'a> {
                 let var_ty = self.array_elem(array_ty, array.span);
                 self.for_body(var, var_ty, body);
             }
+            StmtKind::Match { value, arms } => self.match_stmt(value, arms),
             StmtKind::Break | StmtKind::Continue => {}
             StmtKind::Return(value) => self.return_stmt(value.as_ref(), stmt.span),
             StmtKind::Expr(e) => match &e.kind {
@@ -347,6 +362,133 @@ impl<'a> Infer<'a> {
                     self.expr(e);
                 }
             },
+        }
+    }
+
+    /// `resolve` already checked that every pattern names a real variant
+    /// with the right number of bindings.
+    fn match_stmt(&mut self, value: &'a Expr, arms: &'a [MatchArm]) {
+        let ty = self.expr(value);
+        let inner = self.u.optional_inner(ty);
+        let matched = self
+            .u
+            .struct_id(ty)
+            .and_then(|id| self.enum_defs.get(&id).copied());
+        if inner.is_none() && matched.is_none() {
+            let message = if self.u.set(ty) == TypeSet::ANY {
+                "cannot tell the type of this value, add a type annotation".to_owned()
+            } else {
+                let found = self.u.describe(ty);
+                format!("`match` needs an enum or an optional value, found {found}")
+            };
+            self.error(message, value.span);
+        }
+
+        let mut seen: HashSet<&str> = HashSet::new();
+        let mut wildcard = false;
+        for arm in arms {
+            if wildcard {
+                self.error(
+                    "this arm comes after `_`, so it can never run".to_owned(),
+                    arm.span,
+                );
+            }
+            let vars = self.arm_bindings(arm, inner, matched, ty);
+            match &arm.pattern {
+                Pattern::Wildcard => wildcard = true,
+                pattern => {
+                    let name = match pattern {
+                        Pattern::Variant { variant, .. } => variant.name.as_str(),
+                        Pattern::Some(_) => "some",
+                        _ => "none",
+                    };
+                    if !seen.insert(name) {
+                        self.error(format!("`{name}` is already handled above"), arm.span);
+                    }
+                }
+            }
+
+            let scope = arm
+                .pattern
+                .bindings()
+                .iter()
+                .zip(vars)
+                .filter(|(name, _)| name.name != "_")
+                .map(|(name, var)| (name.name.as_str(), var))
+                .collect();
+            self.scopes.push(scope);
+            self.block(&arm.body);
+            self.scopes.pop();
+        }
+
+        if !wildcard {
+            let missing: Vec<String> = match (inner, matched) {
+                (Some(_), _) => ["some", "none"]
+                    .into_iter()
+                    .filter(|name| !seen.contains(name))
+                    .map(|name| format!("`{name}`"))
+                    .collect(),
+                (None, Some(def)) => {
+                    let short = def.name.name.rsplit('.').next().unwrap_or_default();
+                    def.variants
+                        .iter()
+                        .filter(|v| !seen.contains(v.name.name.as_str()))
+                        .map(|v| format!("`{short}::{}`", v.name.name))
+                        .collect()
+                }
+                (None, None) => Vec::new(),
+            };
+            if !missing.is_empty() {
+                self.error(
+                    format!(
+                        "this `match` does not handle {}; add it or `_`",
+                        missing.join(", ")
+                    ),
+                    value.span,
+                );
+            }
+        }
+    }
+
+    /// The types of the variables `arm` creates. Reports a pattern that does
+    /// not fit the value.
+    fn arm_bindings(
+        &mut self,
+        arm: &'a MatchArm,
+        inner: Option<TyVar>,
+        matched: Option<&'a EnumDef>,
+        ty: TyVar,
+    ) -> Vec<TyVar> {
+        let fits = match &arm.pattern {
+            Pattern::Wildcard => true,
+            Pattern::Some(_) | Pattern::None => inner.is_some(),
+            Pattern::Variant { name, .. } => matched.is_some_and(|def| def.name.name == name.name),
+        };
+        let known_kind = inner.is_some() || matched.is_some();
+        if !fits && known_kind {
+            let found = self.u.describe(ty);
+            self.error(
+                format!("this pattern does not fit a value of {found}"),
+                arm.span,
+            );
+        }
+
+        let declared = match (&arm.pattern, matched) {
+            (Pattern::Variant { variant, .. }, Some(def)) if fits => def
+                .variants
+                .iter()
+                .find(|v| v.name.name == variant.name)
+                .map(|v| v.fields.as_slice()),
+            _ => None,
+        };
+        match (&arm.pattern, declared, inner) {
+            (_, Some(fields), _) => fields.iter().map(|ty| self.annotated(ty)).collect(),
+            (Pattern::Some(_), _, Some(inner)) => vec![inner],
+            (pattern, _, _) => pattern
+                .bindings()
+                .iter()
+                .map(|_| self.u.new_var(TypeSet::ANY))
+                .collect(),
         }
     }
 
@@ -480,6 +622,21 @@ impl<'a> Infer<'a> {
                 self.field_type(base_ty, name, base.span)
             }
             ExprKind::StructLit { name, fields } => self.struct_literal(name, fields),
+            ExprKind::Variant {
+                name,
+                variant,
+                args,
+            } => self.variant_value(name, variant, args),
+            ExprKind::Some(value) => {
+                let inner = self.expr(value);
+                self.u.new_optional(inner)
+            }
+            ExprKind::None => {
+                let inner = self.u.new_var(TypeSet::ANY);
+                let optional = self.u.new_optional(inner);
+                self.nones.push((e.span, optional));
+                optional
+            }
             ExprKind::Tuple(items) => {
                 let elems = items.iter().map(|item| self.expr(item)).collect();
                 self.u.new_tuple(elems)
@@ -519,7 +676,8 @@ impl<'a> Infer<'a> {
 
     /// The type of field `field` of `ty`, which must be a known struct.
     fn field_type(&mut self, ty: TyVar, field: &Ident, base_span: Span) -> TyVar {
-        let Some(id) = self.u.struct_id(ty) else {
+        let id = self.u.struct_id(ty);
+        let Some(id) = id.filter(|id| self.struct_defs.contains_key(id)) else {
             let message = if self.u.set(ty) == TypeSet::ANY {
                 "cannot tell the type of this value, add a type annotation".to_owned()
             } else {
@@ -529,7 +687,7 @@ impl<'a> Infer<'a> {
             return self.u.new_var(TypeSet::ANY);
         };
 
-        let def = self.struct_defs[id];
+        let def = self.struct_defs[&id];
         match def.fields.iter().find(|f| f.name.name == field.name) {
             Some(declared) => self.annotated(&declared.ty),
             None => {
@@ -545,13 +703,30 @@ impl<'a> Infer<'a> {
     /// `resolve` already checked that the fields match the definition.
     fn struct_literal(&mut self, name: &'a Ident, fields: &'a [(Ident, Expr)]) -> TyVar {
         let id = self.struct_ids[name.name.as_str()];
-        let def = self.struct_defs[id];
+        let def = self.struct_defs[&id];
         for (field, value) in fields {
             let ty = self.expr(value);
             if let Some(declared) = def.fields.iter().find(|f| f.name.name == field.name) {
                 let expected = self.annotated(&declared.ty);
                 self.unify(ty, expected, value.span);
             }
+        }
+        self.u.new_struct(id)
+    }
+
+    /// `resolve` already checked the variant and the number of arguments.
+    fn variant_value(&mut self, name: &'a Ident, variant: &Ident, args: &'a [Expr]) -> TyVar {
+        let id = self.struct_ids[name.name.as_str()];
+        let def = self.enum_defs[&id];
+        let declared = def
+            .variants
+            .iter()
+            .find(|v| v.name.name == variant.name)
+            .expect("checked by resolve");
+        for (arg, field) in args.iter().zip(&declared.fields) {
+            let ty = self.expr(arg);
+            let expected = self.annotated(field);
+            self.unify(ty, expected, arg.span);
         }
         self.u.new_struct(id)
     }
@@ -801,6 +976,10 @@ impl<'a> Infer<'a> {
                 let elem = self.known(ty);
                 Some(self.u.new_array(elem))
             }
+            RetType::Optional(ty) => {
+                let inner = self.known(ty);
+                Some(self.u.new_optional(inner))
+            }
             RetType::Pair(a, b) => {
                 let elems = vec![self.known(a), self.known(b)];
                 Some(self.u.new_tuple(elems))
@@ -910,7 +1089,9 @@ impl<'a> Infer<'a> {
                         "cannot infer the type of `{}`, add a type annotation",
                         name.name
                     )
-                } else if [TypeSet::ARRAY, TypeSet::TUPLE].contains(&self.u.set(var)) {
+                } else if [TypeSet::ARRAY, TypeSet::TUPLE, TypeSet::OPTIONAL]
+                    .contains(&self.u.set(var))
+                {
                     format!(
                         "cannot infer the element type of `{}`, add a type annotation",
                         name.name
@@ -932,6 +1113,15 @@ impl<'a> Infer<'a> {
             if !self.u.is_resolved(var) {
                 self.error(
                     "cannot infer the element type of this array".to_owned(),
+                    span,
+                );
+            }
+        }
+
+        for (span, var) in std::mem::take(&mut self.nones) {
+            if !self.u.is_resolved(var) {
+                self.error(
+                    "cannot infer the type of this `none`, add a type annotation".to_owned(),
                     span,
                 );
             }

@@ -277,7 +277,54 @@ fn main() {
 
 In the header of `if`, `while` and `for` a literal needs brackets, as above,
 because `{` would start the body. A struct can hold itself only through an
-array: `children: [Node]`.
+array or an optional: `children: [Node]`, `next: Node?`.
+
+## Enums and optionals
+
+An enum holds one of its variants, and a variant can carry values. `match` runs
+the arm of the variant it finds and has to handle all of them; `_` takes the
+rest, and a name `_` skips a value.
+
+`T?` is a value of type `T` or nothing: `some(value)` or `none`.
+
+`panic("message")` stops the program with an error, and the checker knows that
+nothing runs after it.
+
+```kmpl
+enum Shape {
+    Circle(real),
+    Rect(real, real),
+    Empty,
+}
+
+fn width(s: Shape) -> real {
+    match s {
+        Shape::Circle(r) => { return 2.0 * r; }
+        Shape::Rect(w, _) => { return w; }
+        Shape::Empty => { return 0.0; }
+    }
+}
+
+fn first(a: [int]) -> int? {
+    if len(a) == 0 {
+        return none;
+    }
+    return some(a[0]);
+}
+
+fn main() {
+    print(width(Shape::Rect(2.0, 3.0)));  // 2.0
+    print(Shape::Circle(1.0));  // Shape::Circle(1.0)
+    match first([7, 8]) {
+        some(x) => { print(x); }  // 7
+        none => { panic("empty"); }
+    }
+    print(first([]));  // none
+}
+```
+
+`match` is a statement, and it works on enums and optionals only. In another
+module an enum is written `geometry.Shape::Circle(1.0)`.
 
 ## Modules
 
@@ -391,17 +438,15 @@ fn main() {
 
 `kmpl program.kmpl a b` gives the program its arguments through `args()`.
 A program compiled with `kmpl build program.kmpl` gets its own: `./program a b`.
-`read_line` returns a line and `false` at the end of input. `parse_int` and
-`parse_real` return a value and whether the text was a number.
+`read_line` returns a line, or `none` at the end of input. `parse_int` and
+`parse_real` return a number, or `none` if the text is not one.
 
 ```kmpl
 import (parse_int, parse_real) from "std:text";
 
 fn main() {
-    let (n, ok) = parse_int("42");
-    print(n + 1);  // 43
-    print(ok);  // true
-    print(parse_real("abc"));  // (0.0, false)
+    print(parse_int("42"));  // some(42)
+    print(parse_real("abc"));  // none
 }
 ```
 
@@ -410,7 +455,10 @@ import (args, read_line) from "std:io";
 
 fn main() {
     for arg in args() { print(arg); }
-    let (line, more) = read_line();
+    match read_line() {
+        some(line) => { print(line); }
+        none => { print("no input"); }
+    }
 }
 ```
 

@@ -54,7 +54,7 @@ fn function_span() {
 fn errors() {
     assert_eq!(
         error("let x = 1;"),
-        "expected `const`, `fn` or `struct`, found `let`"
+        "expected `const`, `fn`, `struct` or `enum`, found `let`"
     );
     assert_eq!(error("const N = 1;"), "expected `:`, found `=`");
     assert_eq!(error("fn f(a) { }"), "expected `:`, found `)`");
@@ -159,7 +159,7 @@ fn import_errors() {
     );
     assert_eq!(
         error(r#"fn f() { } import a from "x";"#),
-        "expected `const`, `fn` or `struct`, found `import`"
+        "expected `const`, `fn`, `struct` or `enum`, found `import`"
     );
 }
 

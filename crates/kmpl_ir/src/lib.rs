@@ -145,6 +145,24 @@ pub enum Op {
         base: Reg,
         index: usize,
     },
+    /// `id` is an index into `Module::structs`, whose `fields` are the names
+    /// of the variants.
+    MakeEnum {
+        id: usize,
+        variant: usize,
+        values: Vec<Reg>,
+    },
+    MakeSome(Reg),
+    MakeNone,
+    /// Which variant an enum holds: its position. For an optional, `none`
+    /// is 0 and `some` is 1.
+    VariantOf(Reg),
+    /// A value carried by the variant `base` holds. Only valid after
+    /// `VariantOf` has shown which one that is, so it must not be moved.
+    VariantField {
+        base: Reg,
+        index: usize,
+    },
     PathGet {
         base: Reg,
         path: Vec<Step>,
@@ -223,8 +241,13 @@ impl Op {
         }
 
         match self {
-            Op::Const(_) | Op::GetGlobal(_) => {}
-            Op::Unary { a, .. } | Op::ArrayLen(a) | Op::CheckStep(a) | Op::SetGlobal(_, a) => f(*a),
+            Op::Const(_) | Op::GetGlobal(_) | Op::MakeNone => {}
+            Op::Unary { a, .. }
+            | Op::ArrayLen(a)
+            | Op::CheckStep(a)
+            | Op::SetGlobal(_, a)
+            | Op::MakeSome(a)
+            | Op::VariantOf(a) => f(*a),
             Op::Binary { a, b, .. } | Op::AddOverflows { a, b } => {
                 f(*a);
                 f(*b);
@@ -233,7 +256,8 @@ impl Op {
             | Op::Builtin { args, .. }
             | Op::MakeArray(args)
             | Op::MakeTuple(args)
-            | Op::MakeStruct { values: args, .. } => args.iter().copied().for_each(f),
+            | Op::MakeStruct { values: args, .. }
+            | Op::MakeEnum { values: args, .. } => args.iter().copied().for_each(f),
             Op::ArrayFill { value, len } => {
                 f(*value);
                 f(*len);
@@ -252,6 +276,7 @@ impl Op {
             }
             Op::TupleGet { tuple: base, .. }
             | Op::FieldGet { base, .. }
+            | Op::VariantField { base, .. }
             | Op::Swizzle { base, .. } => f(*base),
             Op::PathGet { base, path } => {
                 f(*base);
@@ -288,8 +313,13 @@ impl Op {
         }
 
         match self {
-            Op::Const(_) | Op::GetGlobal(_) => {}
-            Op::Unary { a, .. } | Op::ArrayLen(a) | Op::CheckStep(a) | Op::SetGlobal(_, a) => f(a),
+            Op::Const(_) | Op::GetGlobal(_) | Op::MakeNone => {}
+            Op::Unary { a, .. }
+            | Op::ArrayLen(a)
+            | Op::CheckStep(a)
+            | Op::SetGlobal(_, a)
+            | Op::MakeSome(a)
+            | Op::VariantOf(a) => f(a),
             Op::Binary { a, b, .. } | Op::AddOverflows { a, b } => {
                 f(a);
                 f(b);
@@ -298,7 +328,8 @@ impl Op {
             | Op::Builtin { args, .. }
             | Op::MakeArray(args)
             | Op::MakeTuple(args)
-            | Op::MakeStruct { values: args, .. } => args.iter_mut().for_each(f),
+            | Op::MakeStruct { values: args, .. }
+            | Op::MakeEnum { values: args, .. } => args.iter_mut().for_each(f),
             Op::ArrayFill { value, len } => {
                 f(value);
                 f(len);
@@ -317,6 +348,7 @@ impl Op {
             }
             Op::TupleGet { tuple: base, .. }
             | Op::FieldGet { base, .. }
+            | Op::VariantField { base, .. }
             | Op::Swizzle { base, .. } => f(base),
             Op::PathGet { base, path } => {
                 f(base);

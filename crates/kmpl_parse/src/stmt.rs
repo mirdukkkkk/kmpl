@@ -1,7 +1,8 @@
 //! Statements and blocks.
 
 use kmpl_ast::{
-    BinOp, Block, Expr, ExprKind, Ident, PathStep, Span, Stmt, StmtKind, Type, TypeExpr,
+    BinOp, Block, Expr, ExprKind, Ident, MatchArm, PathStep, Pattern, Span, Stmt, StmtKind, Type,
+    TypeExpr,
 };
 use kmpl_lexer::Token;
 
@@ -38,6 +39,7 @@ fn stmt_kind(ts: &mut TokenStream) -> PResult<Stmt> {
         Some(Token::If) => if_stmt(ts),
         Some(Token::While) => while_stmt(ts),
         Some(Token::For) => for_stmt(ts),
+        Some(Token::Match) => match_stmt(ts),
         Some(Token::Break) => keyword_stmt(ts, StmtKind::Break),
         Some(Token::Continue) => keyword_stmt(ts, StmtKind::Continue),
         Some(Token::Return) => return_stmt(ts),
@@ -172,6 +174,74 @@ fn for_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
             body,
         },
         span: first.to(last),
+    })
+}
+
+/// `'match' expr '{' (pattern '=>' block ','?)* '}'`
+fn match_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
+    let start = ts.expect(Token::Match)?;
+    let value = header_expr(ts)?;
+    ts.expect(Token::LBrace)?;
+
+    let mut arms = Vec::new();
+    while ts.peek() != Some(&Token::RBrace) {
+        if ts.at_end() {
+            return Err(ts.error_expected("`}`"));
+        }
+        let span = ts.peek_span();
+        let pattern = pattern(ts)?;
+        ts.expect(Token::FatArrow)?;
+        let (body, _) = block(ts)?;
+        ts.eat(&Token::Comma);
+        arms.push(MatchArm {
+            pattern,
+            span,
+            body,
+        });
+    }
+    let end = ts.expect(Token::RBrace)?;
+
+    Ok(Stmt {
+        kind: StmtKind::Match { value, arms },
+        span: start.to(end),
+    })
+}
+
+/// `'some' '(' IDENT ')' | 'none' | '_' | name '::' IDENT bindings?`
+fn pattern(ts: &mut TokenStream) -> PResult<Pattern> {
+    if ts.eat(&Token::KwNone).is_some() {
+        return Ok(Pattern::None);
+    }
+    if ts.eat(&Token::KwSome).is_some() {
+        ts.expect(Token::LParen)?;
+        let name = ts.expect_ident()?;
+        ts.expect(Token::RParen)?;
+        return Ok(Pattern::Some(name));
+    }
+    if matches!(ts.peek(), Some(Token::Ident(word)) if word == "_")
+        && ts.peek_nth(1) == Some(&Token::FatArrow)
+    {
+        ts.next();
+        return Ok(Pattern::Wildcard);
+    }
+
+    let name = dotted_name(ts)?;
+    ts.expect(Token::ColonColon)?;
+    let variant = ts.expect_ident()?;
+    let mut bindings = Vec::new();
+    if ts.eat(&Token::LParen).is_some() {
+        loop {
+            bindings.push(ts.expect_ident()?);
+            if ts.eat(&Token::Comma).is_none() || ts.peek() == Some(&Token::RParen) {
+                break;
+            }
+        }
+        ts.expect(Token::RParen)?;
+    }
+    Ok(Pattern::Variant {
+        name,
+        variant,
+        bindings,
     })
 }
 
@@ -328,9 +398,12 @@ fn two_or_more<T>(
 /// generic parameter, a struct or a typo), and the checker decides which.
 pub fn ty(ts: &mut TokenStream) -> PResult<TypeExpr> {
     ts.enter()?;
-    let parsed = ty_kind(ts);
+    let mut parsed = ty_kind(ts)?;
+    while ts.eat(&Token::Question).is_some() {
+        parsed = TypeExpr::Optional(Box::new(parsed));
+    }
     ts.leave();
-    parsed
+    Ok(parsed)
 }
 
 fn ty_kind(ts: &mut TokenStream) -> PResult<TypeExpr> {

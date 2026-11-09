@@ -25,6 +25,10 @@ pub(super) fn is_pure(op: &Op, f: &Function) -> bool {
         | Op::MakeTuple(_)
         | Op::TupleGet { .. }
         | Op::MakeStruct { .. }
+        | Op::MakeEnum { .. }
+        | Op::MakeSome(_)
+        | Op::MakeNone
+        | Op::VariantOf(_)
         | Op::FieldGet { .. }
         | Op::Swizzle { .. }
         | Op::RangeContinues { .. }
@@ -48,6 +52,7 @@ pub(super) fn is_pure(op: &Op, f: &Function) -> bool {
         | Op::SetGlobal(..)
         | Op::ArrayFill { .. }
         | Op::Index { .. }
+        | Op::VariantField { .. }
         | Op::Slice { .. }
         | Op::PathGet { .. }
         | Op::PathSet { .. }

@@ -1,9 +1,9 @@
-// Working with text. The second value says whether the text was a number.
+// Working with text. The result is `none` if the text is not a number.
 
-fn parse_int(text: string) -> (int, bool) {
+fn parse_int(text: string) -> int? {
     return _text_parse_int(text);
 }
 
-fn parse_real(text: string) -> (real, bool) {
+fn parse_real(text: string) -> real? {
     return _text_parse_real(text);
 }

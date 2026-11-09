@@ -1042,17 +1042,18 @@ fn args_are_strings() {
 fn read_line_goes_through_the_input() {
     let src = "fn main() {
                    while true {
-                       let (line, ok) = _io_read_line();
-                       if !ok { break; }
-                       print(\"<\" + line + \">\");
+                       match _io_read_line() {
+                           some(line) => { print(\"<\" + line + \">\"); }
+                           none => { break; }
+                       }
                    }
                    print(_io_read_line());
                }";
     assert_eq!(
         run_with(src, &[], b"one\r\ntwo\n\nlast").unwrap(),
-        "<one>\n<two>\n<>\n<last>\n(, false)\n"
+        "<one>\n<two>\n<>\n<last>\nnone\n"
     );
-    assert_eq!(run(src).unwrap(), "(, false)\n");
+    assert_eq!(run(src).unwrap(), "none\n");
 }
 
 #[test]
@@ -1064,23 +1065,178 @@ fn input_that_is_not_text_is_an_error() {
 #[test]
 fn parsing_numbers() {
     let parsed = |call: &str| output(&format!("print({call});"));
-    assert_eq!(parsed(r#"_text_parse_int("42")"#), "(42, true)\n");
-    assert_eq!(parsed(r#"_text_parse_int(" -7 ")"#), "(-7, true)\n");
-    assert_eq!(parsed(r#"_text_parse_int("4.5")"#), "(0, false)\n");
-    assert_eq!(parsed(r#"_text_parse_int("")"#), "(0, false)\n");
+    assert_eq!(parsed(r#"_text_parse_int("42")"#), "some(42)\n");
+    assert_eq!(parsed(r#"_text_parse_int(" -7 ")"#), "some(-7)\n");
+    assert_eq!(parsed(r#"_text_parse_int("4.5")"#), "none\n");
+    assert_eq!(parsed(r#"_text_parse_int("")"#), "none\n");
     assert_eq!(
         parsed(r#"_text_parse_int("9223372036854775808")"#),
-        "(0, false)\n"
+        "none\n"
     );
 
-    assert_eq!(parsed(r#"_text_parse_real("1.5")"#), "(1.5, true)\n");
-    assert_eq!(parsed(r#"_text_parse_real("1e3")"#), "(1000.0, true)\n");
-    assert_eq!(parsed(r#"_text_parse_real(".5")"#), "(0.5, true)\n");
-    assert_eq!(parsed(r#"_text_parse_real("2")"#), "(2.0, true)\n");
-    assert_eq!(parsed(r#"_text_parse_real("abc")"#), "(0.0, false)\n");
-    assert_eq!(parsed(r#"_text_parse_real("nan")"#), "(0.0, false)\n");
-    assert_eq!(parsed(r#"_text_parse_real("inf")"#), "(0.0, false)\n");
-    assert_eq!(parsed(r#"_text_parse_real("1e400")"#), "(0.0, false)\n");
+    assert_eq!(parsed(r#"_text_parse_real("1.5")"#), "some(1.5)\n");
+    assert_eq!(parsed(r#"_text_parse_real("1e3")"#), "some(1000.0)\n");
+    assert_eq!(parsed(r#"_text_parse_real(".5")"#), "some(0.5)\n");
+    assert_eq!(parsed(r#"_text_parse_real("2")"#), "some(2.0)\n");
+    assert_eq!(parsed(r#"_text_parse_real("abc")"#), "none\n");
+    assert_eq!(parsed(r#"_text_parse_real("nan")"#), "none\n");
+    assert_eq!(parsed(r#"_text_parse_real("inf")"#), "none\n");
+    assert_eq!(parsed(r#"_text_parse_real("1e400")"#), "none\n");
+}
+
+const SHAPE: &str = "enum Shape { Circle(real), Rect(real, real), Named(string, vec2), Empty }
+    fn area(s: Shape) -> real {
+        match s {
+            Shape::Circle(r) => { return 3.0 * r * r; }
+            Shape::Rect(w, h) => { return w * h; }
+            Shape::Named(_, v) => { return v:x * v:y; }
+            Shape::Empty => { return 0.0; }
+        }
+    }";
+
+#[test]
+fn enums_carry_values_of_every_kind() {
+    let src = format!(
+        "{SHAPE}
+         fn main() {{
+             print(area(Shape::Circle(2.0)));
+             print(area(Shape::Rect(2.0, 5.0)));
+             print(area(Shape::Named(\"n\", vec2(3.0, 4.0))));
+             print(area(Shape::Empty));
+             print(Shape::Rect(1.0, 2.0));
+             print(Shape::Empty);
+             print(Shape::Empty == Shape::Empty);
+             print(Shape::Circle(1.0) == Shape::Circle(2.0));
+             print([Shape::Empty, Shape::Circle(1.0)]);
+         }}"
+    );
+    assert_eq!(
+        run(&src).unwrap(),
+        "12.0\n10.0\n12.0\n0.0\nShape::Rect(1.0, 2.0)\nShape::Empty\ntrue\nfalse\n\
+         [Shape::Empty, Shape::Circle(1.0)]\n"
+    );
+}
+
+#[test]
+fn optionals_hold_anything() {
+    let out = output(
+        "let a: int? = some(1);
+         let b: int? = none;
+         print(a); print(b); print(a == some(1)); print(a == b);
+         let flat: [real]? = some([1.0, 2.0]);
+         match flat {
+             some(v) => { v[0] = 9.0; print(v); }
+             none => { }
+         }
+         print(flat);
+         let nested: int?? = some(none);
+         print(nested);
+         match nested {
+             some(inner) => { print(inner); }
+             none => { print(\"nothing\"); }
+         }",
+    );
+    assert_eq!(
+        out,
+        "some(1)\nnone\ntrue\nfalse\n[9.0, 2.0]\nsome([1.0, 2.0])\nsome(none)\nnone\n"
+    );
+}
+
+#[test]
+fn match_joins_variables_like_if() {
+    let out = output(
+        "let total = 0;
+         for x in [some(1), none, some(5)] {
+             let add;
+             match x {
+                 some(v) => { if v > 3 { continue; } add = v; }
+                 none => { add = 10; }
+             }
+             total += add;
+         }
+         print(total);",
+    );
+    assert_eq!(out, "11\n");
+}
+
+#[test]
+fn wildcards_take_the_rest() {
+    let src = format!(
+        "{SHAPE}
+         fn name(s: Shape) -> string {{
+             match s {{
+                 Shape::Empty => {{ return \"empty\"; }}
+                 _ => {{ return \"full\"; }}
+             }}
+         }}
+         fn main() {{ print(name(Shape::Empty)); print(name(Shape::Circle(1.0))); }}"
+    );
+    assert_eq!(run(&src).unwrap(), "empty\nfull\n");
+}
+
+#[test]
+fn a_binding_is_not_read_before_its_variant_is_known() {
+    // In a loop the value does not change, so a careless optimizer would
+    // read it before the test.
+    let out = output(
+        "let x: real? = none;
+         let total = 0.0;
+         for i in 0..3 {
+             match x {
+                 some(v) => { total += v; }
+                 none => { total += 1.0; }
+             }
+         }
+         print(total);",
+    );
+    assert_eq!(out, "3.0\n");
+}
+
+#[test]
+fn recursive_enums_and_optionals() {
+    let src = "enum Tree { Leaf(int), Node(Tree, Tree) }
+               struct List { value: int, next: List? }
+               fn sum(t: Tree) -> int {
+                   match t {
+                       Tree::Leaf(v) => { return v; }
+                       Tree::Node(a, b) => { return sum(a) + sum(b); }
+                   }
+               }
+               fn count(l: List?) -> int {
+                   match l {
+                       some(node) => { return 1 + count(node.next); }
+                       none => { return 0; }
+                   }
+               }
+               fn main() {
+                   print(sum(Tree::Node(Tree::Leaf(1), Tree::Node(Tree::Leaf(2), Tree::Leaf(3)))));
+                   print(count(some(List { value: 1, next: some(List { value: 2, next: none }) })));
+               }";
+    assert_eq!(run(src).unwrap(), "6\n2\n");
+}
+
+#[test]
+fn enums_in_constants_and_generics() {
+    let src = "enum Mode { Fast, Slow(int) }
+               const M: Mode = Mode::Slow(3);
+               const N: int? = some(4);
+               fn wrap<T: int | real>(x: T) -> T? { return some(x); }
+               fn main() {
+                   print(M); print(N); print(wrap(1)); print(wrap(1.5));
+                   match M { Mode::Slow(v) => { print(v); } _ => { } }
+               }";
+    assert_eq!(
+        run(src).unwrap(),
+        "Mode::Slow(3)\nsome(4)\nsome(1)\nsome(1.5)\n3\n"
+    );
+}
+
+#[test]
+fn panic_stops_the_program_where_it_is() {
+    let src = "fn f() -> int { print(\"before\"); panic(\"it broke\"); }
+               fn main() { print(f()); print(\"after\"); }";
+    let (message, _) = run(src).unwrap_err();
+    assert_eq!(message, "it broke");
 }
 
 #[test]

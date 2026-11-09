@@ -20,8 +20,8 @@
 use std::collections::{HashMap, HashSet};
 
 use kmpl_ast::{
-    Block, Expr, ExprKind, Function, Ident, Item, PathStep, Program, Stmt, StmtKind, StructDef,
-    Type, TypeExpr,
+    Block, EnumDef, Expr, ExprKind, Function, Ident, Item, PathStep, Pattern, Program, Stmt,
+    StmtKind, StructDef, Type, TypeExpr,
 };
 
 use crate::error::CheckError;
@@ -36,6 +36,10 @@ enum Global<'a> {
     },
     Struct {
         fields: Vec<&'a str>,
+    },
+    Enum {
+        /// The name of every variant and how many values it holds.
+        variants: Vec<(&'a str, usize)>,
     },
 }
 
@@ -74,6 +78,7 @@ pub fn resolve(program: &Program) -> Vec<CheckError> {
             }
             Item::Function(f) => r.function(f),
             Item::Struct(s) => r.struct_def(s),
+            Item::Enum(e) => r.enum_def(e),
         }
     }
     r.recursive_structs(program);
@@ -100,6 +105,16 @@ impl<'a> Resolver<'a> {
                     &s.name,
                     Global::Struct {
                         fields: s.fields.iter().map(|f| f.name.name.as_str()).collect(),
+                    },
+                ),
+                Item::Enum(e) => (
+                    &e.name,
+                    Global::Enum {
+                        variants: e
+                            .variants
+                            .iter()
+                            .map(|v| (v.name.name.as_str(), v.fields.len()))
+                            .collect(),
                     },
                 ),
             };
@@ -132,6 +147,45 @@ impl<'a> Resolver<'a> {
             }
             self.check_type(&field.ty);
         }
+    }
+
+    fn enum_def(&mut self, e: &'a EnumDef) {
+        let mut seen = HashSet::new();
+        for variant in &e.variants {
+            if !seen.insert(variant.name.name.as_str()) {
+                self.error(
+                    format!(
+                        "variant `{}` is already defined in `{}`",
+                        variant.name.name, e.name.name
+                    ),
+                    &variant.name,
+                );
+            }
+            for field in &variant.fields {
+                self.check_type(field);
+            }
+        }
+    }
+
+    /// How many values `name::variant` holds, or `None` after reporting
+    /// that there is no such thing.
+    fn variant_size(&mut self, name: &Ident, variant: &Ident) -> Option<usize> {
+        let n = name.name.as_str();
+        let Some(Global::Enum { variants }) = self.globals.get(n) else {
+            let message = if self.globals.contains_key(n) {
+                format!("`{n}` is not an enum")
+            } else {
+                format!("unknown enum `{n}`")
+            };
+            self.error(message, name);
+            return None;
+        };
+        let found = variants.iter().find(|(v, _)| *v == variant.name);
+        let size = found.map(|(_, size)| *size);
+        if size.is_none() {
+            self.error(format!("`{n}` has no variant `{}`", variant.name), variant);
+        }
+        size
     }
 
     /// `struct A { b: B }` with a `B` that holds an `A` has no finite size.
@@ -189,12 +243,12 @@ impl<'a> Resolver<'a> {
                 if !self.type_params.contains(&name.name.as_str())
                     && !matches!(
                         self.globals.get(name.name.as_str()),
-                        Some(Global::Struct { .. })
+                        Some(Global::Struct { .. } | Global::Enum { .. })
                     ) =>
             {
                 self.error(format!("unknown type `{}`", name.name), name);
             }
-            TypeExpr::Array(elem) => self.check_type(elem),
+            TypeExpr::Array(elem) | TypeExpr::Optional(elem) => self.check_type(elem),
             TypeExpr::Tuple(items) => {
                 for item in items {
                     self.check_type(item);
@@ -309,6 +363,35 @@ impl<'a> Resolver<'a> {
                 self.expr(array);
                 self.for_body(var, body);
             }
+            StmtKind::Match { value, arms } => {
+                self.expr(value);
+                for arm in arms {
+                    if let Pattern::Variant {
+                        name,
+                        variant,
+                        bindings,
+                    } = &arm.pattern
+                        && let Some(size) = self.variant_size(name, variant)
+                        && size != bindings.len()
+                    {
+                        self.error(
+                            format!(
+                                "`{}::{}` holds {size} values, but the pattern names {}",
+                                name.name,
+                                variant.name,
+                                bindings.len()
+                            ),
+                            variant,
+                        );
+                    }
+                    self.scopes.push(HashMap::new());
+                    for name in arm.pattern.bindings().iter().filter(|n| n.name != "_") {
+                        self.declare_local(name);
+                    }
+                    self.block(&arm.body);
+                    self.scopes.pop();
+                }
+            }
             StmtKind::Break | StmtKind::Continue => {
                 if self.loop_depth == 0 {
                     let word = match stmt.kind {
@@ -353,6 +436,7 @@ impl<'a> Resolver<'a> {
         let message = match self.globals.get(n) {
             Some(Global::Const { .. }) => format!("cannot assign to constant `{n}`"),
             Some(Global::Struct { .. }) => format!("cannot assign to struct `{n}`"),
+            Some(Global::Enum { .. }) => format!("cannot assign to enum `{n}`"),
             _ if kmpl_builtins::lookup_const(n).is_some() => {
                 format!("cannot assign to constant `{n}`")
             }
@@ -383,6 +467,30 @@ impl<'a> Resolver<'a> {
             }
             ExprKind::Swizzle { base, .. } | ExprKind::Field { base, .. } => self.expr(base),
             ExprKind::StructLit { name, fields } => self.struct_literal(name, fields),
+            ExprKind::Variant {
+                name,
+                variant,
+                args,
+            } => {
+                for arg in args {
+                    self.expr(arg);
+                }
+                if let Some(size) = self.variant_size(name, variant)
+                    && size != args.len()
+                {
+                    self.error(
+                        format!(
+                            "`{}::{}` holds {size} values, but {} were given",
+                            name.name,
+                            variant.name,
+                            args.len()
+                        ),
+                        variant,
+                    );
+                }
+            }
+            ExprKind::Some(value) => self.expr(value),
+            ExprKind::None => {}
             ExprKind::Array(items) | ExprKind::Tuple(items) => {
                 for item in items {
                     self.expr(item);
@@ -467,6 +575,7 @@ impl<'a> Resolver<'a> {
                 _ => return,
             },
             Some(Global::Struct { .. }) => format!("`{n}` is a struct, not a value"),
+            Some(Global::Enum { .. }) => format!("`{n}` is an enum, not a value"),
             _ if kmpl_builtins::lookup_const(n).is_some() => return,
             _ if self.is_function(n) => {
                 format!("`{n}` is a function, call it with `{n}(...)`")
@@ -534,6 +643,7 @@ fn held_structs<'a>(ty: &'a TypeExpr, out: &mut Vec<&'a str>) {
                 held_structs(item, out);
             }
         }
-        TypeExpr::Known(_) | TypeExpr::Array(_) => {}
+        // These can be empty, so they end the chain.
+        TypeExpr::Known(_) | TypeExpr::Array(_) | TypeExpr::Optional(_) => {}
     }
 }

@@ -14,7 +14,7 @@ mod value;
 #[cfg(test)]
 mod tests;
 
-pub use value::{StructLayout, StructValue, Value};
+pub use value::{EnumValue, StructLayout, StructValue, Value};
 
 use std::io::{BufRead, Write};
 use std::sync::Arc;
@@ -95,6 +95,8 @@ pub enum RetType {
     ArrayOf(Type),
     /// A tuple of two values of these types.
     Pair(Type, Type),
+    /// `T?` of this type.
+    Optional(Type),
 }
 
 const REAL: ParamType = ParamType::Exact(Type::Real);
@@ -470,6 +472,14 @@ static BUILTINS: &[Builtin] = &[
             Ok(None)
         },
     },
+    // The checker and the lowering know that this one never comes back.
+    Builtin {
+        name: "panic",
+        generic: &[],
+        params: &[ParamType::Exact(Type::Str)],
+        ret: RetType::Nothing,
+        func: |a, _| Err(a[0].as_str().to_owned()),
+    },
 ];
 
 /// Every built-in in a fixed order, which generated code and the runtime
@@ -511,6 +521,11 @@ pub fn lookup_const(name: &str) -> Option<&'static BuiltinConst> {
 /// `Ok(Some(value))`, the result of a built-in that cannot fail.
 pub(crate) fn ok(value: Value) -> Result<Option<Value>, String> {
     Ok(Some(value))
+}
+
+/// `some(value)` or `none`.
+pub(crate) fn optional(value: Option<Value>) -> Value {
+    Value::Optional(value.map(Arc::new))
 }
 
 pub(crate) fn pair(a: Value, b: Value) -> Value {

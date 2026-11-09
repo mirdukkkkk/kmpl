@@ -30,8 +30,14 @@ fn always_returns(block: &Block) -> bool {
 }
 
 fn stmt_always_returns(stmt: &Stmt) -> bool {
+    if stmt.is_panic() {
+        return true;
+    }
     match &stmt.kind {
         StmtKind::Return(_) => true,
+        StmtKind::Match { arms, .. } => {
+            !arms.is_empty() && arms.iter().all(|arm| always_returns(&arm.body))
+        }
         StmtKind::If {
             then,
             otherwise: Some(otherwise),
