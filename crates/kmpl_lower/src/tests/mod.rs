@@ -4,8 +4,19 @@ use kmpl_ir::{Function, Module, Reg, Terminator};
 
 use crate::lower;
 
+/// One file through the same steps as a program: `x.f()` needs the linker.
+fn linked(src: &str) -> kmpl_ast::Program {
+    let program = kmpl_parse::parse(kmpl_lexer::lex(src).unwrap()).unwrap();
+    kmpl_check::link(vec![kmpl_check::Module {
+        prefix: String::new(),
+        imports: Vec::new(),
+        program,
+    }])
+    .unwrap()
+}
+
 fn lowered(src: &str) -> Module {
-    let mut program = kmpl_parse::parse(kmpl_lexer::lex(src).unwrap()).unwrap();
+    let mut program = linked(src);
     let types = kmpl_check::check(&mut program).unwrap();
     let mut module = lower(&program, &types);
     kmpl_ir::annotate(&mut module);
@@ -13,7 +24,7 @@ fn lowered(src: &str) -> Module {
 }
 
 fn optimized(src: &str) -> Module {
-    let mut program = kmpl_parse::parse(kmpl_lexer::lex(src).unwrap()).unwrap();
+    let mut program = linked(src);
     let types = kmpl_check::check(&mut program).unwrap();
     let mut module = lower(&program, &types);
     kmpl_ir::optimize(&mut module);

@@ -7,3 +7,75 @@ fn parse_int(text: string) -> int? {
 fn parse_real(text: string) -> real? {
     return _text_parse_real(text);
 }
+
+// The parts between the separators, which must not be empty.
+fn split(text: string, separator: string) -> [string] {
+    return _text_split(text, separator);
+}
+
+fn join(parts: [string], separator: string) -> string {
+    return _text_join(parts, separator);
+}
+
+// Without spaces and line breaks at both ends.
+fn trim(text: string) -> string {
+    return _text_trim(text);
+}
+
+fn starts_with(text: string, start: string) -> bool {
+    return _text_starts_with(text, start);
+}
+
+fn ends_with(text: string, end: string) -> bool {
+    return _text_ends_with(text, end);
+}
+
+fn contains(text: string, part: string) -> bool {
+    return _text_contains(text, part);
+}
+
+// The number of the character where `part` first begins.
+fn find(text: string, part: string) -> int? {
+    return _text_find(text, part);
+}
+
+// Every `from` becomes `to`.
+fn replace(text: string, from: string, to: string) -> string {
+    return _text_replace(text, from, to);
+}
+
+fn repeat(text: string, times: int) -> string {
+    return _text_repeat(text, times);
+}
+
+fn to_upper(text: string) -> string {
+    return _text_to_upper(text);
+}
+
+fn to_lower(text: string) -> string {
+    return _text_to_lower(text);
+}
+
+// These are true if there is at least one character and all of them fit.
+// Digits are 0 to 9. Letters are those of any alphabet.
+fn is_digit(text: string) -> bool {
+    return _text_is_digit(text);
+}
+
+fn is_letter(text: string) -> bool {
+    return _text_is_letter(text);
+}
+
+fn is_space(text: string) -> bool {
+    return _text_is_space(text);
+}
+
+// The Unicode number of one character.
+fn code(character: string) -> int {
+    return _text_code(character);
+}
+
+// `none` if there is no character with this number.
+fn from_code(number: int) -> string? {
+    return _text_from_code(number);
+}

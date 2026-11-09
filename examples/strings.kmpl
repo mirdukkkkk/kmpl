@@ -12,8 +12,8 @@ fn main() {
     let name = "kmpl";
     print("Hello, " + name + "!");
 
-    // `len` counts characters, not bytes.
-    print(len("привет"));
+    // `length` counts characters, not bytes.
+    print("привет".length());
     print(repeat("ab", 3));
 
     print("tab\there");

@@ -335,7 +335,7 @@ fn a_local_variable_is_not_the_constant_of_that_name() {
 #[test]
 fn a_function_that_depends_on_the_run_cannot_give_a_constant() {
     assert_error(
-        "fn f() -> int { return len(_io_args()); } const A: int = f();",
+        "fn f() -> int { return length(_io_args()); } const A: int = f();",
         "a constant cannot call `f`: its value depends on how the program is run",
     );
 }
@@ -479,7 +479,7 @@ fn constants_cannot_depend_on_the_run() {
         "a constant cannot call `_io_args`: its value depends on how the program is run",
     );
     assert_error(
-        "const A: int = len(_io_args());",
+        "const A: int = length(_io_args());",
         "a constant cannot call `_io_args`: its value depends on how the program is run",
     );
     assert_error(
@@ -491,6 +491,6 @@ fn constants_cannot_depend_on_the_run() {
         "fn f() { _io_args(1); }",
         "`_io_args` takes 0 arguments, but 1 was given",
     );
-    assert_error("fn len() { }", "`len` is a built-in function");
+    assert_error("fn length() { }", "`length` is a built-in function");
     assert_ok("fn f() { let args = 1; print(args); }");
 }

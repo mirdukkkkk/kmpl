@@ -148,6 +148,10 @@ unsafe fn slice(flags: u64, args: &[Slot]) -> Result<Value, String> {
     };
     let range = ops::slice_bounds(from, to, inclusive, len)?;
     Ok(match array {
+        Value::Str(text) => {
+            let part: String = text.chars().skip(range.start).take(range.len()).collect();
+            Value::Str(part.into())
+        }
         Value::Reals(items) => Value::Reals(Arc::new(items[range].to_vec())),
         Value::Ints(items) => Value::Ints(Arc::new(items[range].to_vec())),
         Value::Bytes(items) => Value::Bytes(Arc::new(items[range].to_vec())),
@@ -158,6 +162,10 @@ unsafe fn slice(flags: u64, args: &[Slot]) -> Result<Value, String> {
 /// The element at a position already checked to be inside `array`.
 fn element(array: &Value, position: usize) -> Value {
     match array {
+        Value::Str(text) => {
+            let c = text.chars().nth(position).expect("checked to be inside");
+            Value::Str(c.to_string().into())
+        }
         Value::Reals(items) => Value::Real(items[position]),
         Value::Ints(items) => Value::Int(items[position]),
         Value::Bytes(items) => Value::Int(i64::from(items[position])),

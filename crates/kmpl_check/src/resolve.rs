@@ -36,10 +36,13 @@ enum Global<'a> {
     },
     Struct {
         fields: Vec<&'a str>,
+        /// How many type arguments it takes.
+        generics: usize,
     },
     Enum {
         /// The name of every variant and how many values it holds.
         variants: Vec<(&'a str, usize)>,
+        generics: usize,
     },
 }
 
@@ -105,6 +108,7 @@ impl<'a> Resolver<'a> {
                     &s.name,
                     Global::Struct {
                         fields: s.fields.iter().map(|f| f.name.name.as_str()).collect(),
+                        generics: s.generics.len(),
                     },
                 ),
                 Item::Enum(e) => (
@@ -115,6 +119,7 @@ impl<'a> Resolver<'a> {
                             .iter()
                             .map(|v| (v.name.name.as_str(), v.fields.len()))
                             .collect(),
+                        generics: e.generics.len(),
                     },
                 ),
             };
@@ -133,7 +138,21 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    /// Makes these the generic names in scope, reporting duplicates.
+    fn enter_generics(&mut self, generics: impl Iterator<Item = &'a Ident>) {
+        self.type_params.clear();
+        for ident in generics {
+            let name = ident.name.as_str();
+            if self.type_params.contains(&name) {
+                self.error(format!("`{name}` is already defined"), ident);
+            } else {
+                self.type_params.push(name);
+            }
+        }
+    }
+
     fn struct_def(&mut self, s: &'a StructDef) {
+        self.enter_generics(s.generics.iter());
         let mut seen = HashSet::new();
         for field in &s.fields {
             if !seen.insert(field.name.name.as_str()) {
@@ -147,9 +166,11 @@ impl<'a> Resolver<'a> {
             }
             self.check_type(&field.ty);
         }
+        self.type_params.clear();
     }
 
     fn enum_def(&mut self, e: &'a EnumDef) {
+        self.enter_generics(e.generics.iter());
         let mut seen = HashSet::new();
         for variant in &e.variants {
             if !seen.insert(variant.name.name.as_str()) {
@@ -165,13 +186,14 @@ impl<'a> Resolver<'a> {
                 self.check_type(field);
             }
         }
+        self.type_params.clear();
     }
 
     /// How many values `name::variant` holds, or `None` after reporting
     /// that there is no such thing.
     fn variant_size(&mut self, name: &Ident, variant: &Ident) -> Option<usize> {
         let n = name.name.as_str();
-        let Some(Global::Enum { variants }) = self.globals.get(n) else {
+        let Some(Global::Enum { variants, .. }) = self.globals.get(n) else {
             let message = if self.globals.contains_key(n) {
                 format!("`{n}` is not an enum")
             } else {
@@ -213,15 +235,7 @@ impl<'a> Resolver<'a> {
     }
 
     fn function(&mut self, f: &'a Function) {
-        self.type_params.clear();
-        for generic in &f.generics {
-            let name = generic.name.name.as_str();
-            if self.type_params.contains(&name) {
-                self.error(format!("`{name}` is already defined"), &generic.name);
-            } else {
-                self.type_params.push(name);
-            }
-        }
+        self.enter_generics(f.generics.iter().map(|g| &g.name));
 
         self.scopes.push(HashMap::new());
         for param in &f.params {
@@ -236,17 +250,48 @@ impl<'a> Resolver<'a> {
         self.type_params.clear();
     }
 
+    /// How many type arguments the struct or enum `name` takes, if it is one.
+    fn takes_arguments(&self, name: &str) -> Option<usize> {
+        match self.globals.get(name) {
+            Some(Global::Struct { generics, .. } | Global::Enum { generics, .. }) => {
+                Some(*generics)
+            }
+            _ => None,
+        }
+    }
+
     /// A non-built-in type name must be a generic parameter in scope.
     fn check_type(&mut self, ty: &TypeExpr) {
         match ty {
-            TypeExpr::Param(name)
-                if !self.type_params.contains(&name.name.as_str())
-                    && !matches!(
-                        self.globals.get(name.name.as_str()),
-                        Some(Global::Struct { .. } | Global::Enum { .. })
-                    ) =>
-            {
-                self.error(format!("unknown type `{}`", name.name), name);
+            TypeExpr::Param(name) if !self.type_params.contains(&name.name.as_str()) => {
+                match self.takes_arguments(&name.name) {
+                    None => self.error(format!("unknown type `{}`", name.name), name),
+                    Some(0) => {}
+                    Some(n) => self.error(
+                        format!(
+                            "`{}` needs {n} type arguments: `{}<...>`",
+                            name.name, name.name
+                        ),
+                        name,
+                    ),
+                }
+            }
+            TypeExpr::Applied { name, args } => {
+                match self.takes_arguments(&name.name) {
+                    None => self.error(format!("unknown type `{}`", name.name), name),
+                    Some(n) if n != args.len() => self.error(
+                        format!(
+                            "`{}` takes {n} type arguments, but {} were given",
+                            name.name,
+                            args.len()
+                        ),
+                        name,
+                    ),
+                    Some(_) => {}
+                }
+                for arg in args {
+                    self.check_type(arg);
+                }
             }
             TypeExpr::Array(elem) | TypeExpr::Optional(elem) => self.check_type(elem),
             TypeExpr::Tuple(items) => {
@@ -521,7 +566,10 @@ impl<'a> Resolver<'a> {
         }
 
         let n = name.name.as_str();
-        let Some(Global::Struct { fields: declared }) = self.globals.get(n) else {
+        let Some(Global::Struct {
+            fields: declared, ..
+        }) = self.globals.get(n)
+        else {
             let known = self.globals.contains_key(n) || kmpl_builtins::lookup(n).is_some();
             let message = if known {
                 format!("`{n}` is not a struct")
@@ -638,6 +686,12 @@ fn reaches<'a>(
 fn held_structs<'a>(ty: &'a TypeExpr, out: &mut Vec<&'a str>) {
     match ty {
         TypeExpr::Param(name) => out.push(&name.name),
+        TypeExpr::Applied { name, args } => {
+            out.push(&name.name);
+            for arg in args {
+                held_structs(arg, out);
+            }
+        }
         TypeExpr::Tuple(items) => {
             for item in items {
                 held_structs(item, out);

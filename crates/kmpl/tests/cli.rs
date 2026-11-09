@@ -506,7 +506,7 @@ fn deeply_nested_data_is_freed_printed_and_compared() {
             "{build} fn main() {{
                  let a = deep(100000);
                  print(a == deep(100000));
-                 print(len(string(a)) > 100000);
+                 print(length(string(a)) > 100000);
              }}"
         ),
     );
@@ -631,7 +631,7 @@ fn files_through_std_fs() {
              let (text, error) = fs.read_text(path);
              print(text); print(error == \"\");
              let (data, _) = fs.read(path);
-             print(len(data));
+             print(length(data));
              data[0] = 255;
              print(fs.write(path, data) == \"\");
              let (broken, why) = fs.read_text(path);
@@ -652,6 +652,86 @@ fn files_through_std_fs() {
 }
 
 #[test]
+fn a_dot_call_is_a_call_with_the_value_first() {
+    let out = run(
+        "dot_calls",
+        "fn scaled(v: vec2, k: real) -> vec2 { return v * k; }
+         fn add(a: int, b: int) -> int { return a + b; }
+         struct P { x: real, items: [int] }
+         const C: int = 5;
+         fn make() -> vec2 { return vec2(3.0, 4.0); }
+         fn main() {
+             let v = vec2(3.0, 4.0);
+             print(v.length());
+             print(v.scaled(2.0).length());
+             print(make().length());
+             let two = 2;
+             print(two.add(3).add(4));
+             let p = P { x: 4.0, items: [1, 2] };
+             print(p.x.sqrt());
+             print(p.items.length());
+             print(p.items[0].add(1));
+             print(C.add(1));
+             print((1.0 + 3.0).sqrt());
+             print(v.scaled(2.0):yx);
+         }",
+    );
+    assert_eq!(
+        stdout(&out),
+        "5.0\n10.0\n5.0\n9\n2.0\n2\n2\n6\n2.0\n(8.0, 6.0)\n",
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn optionals_read_well_with_a_dot() {
+    let out = run(
+        "dot_unwrap",
+        "import (parse_int) from \"std:text\";
+         fn main() {
+             print(parse_int(\"4\").unwrap());
+             print(parse_int(\"x\").unwrap_or(7));
+             let a: real? = none;
+             print(a.unwrap_or(2.5).sqrt() > 1.0);
+         }",
+    );
+    assert_eq!(stdout(&out), "4\n7\ntrue\n", "{}", stderr(&out));
+}
+
+#[test]
+fn text_through_the_library_and_a_dot() {
+    let out = run(
+        "text_dot",
+        "import (split, join, is_digit, trim) from \"std:text\";
+         fn main() {
+             let s = \" a,b \";
+             print(s.trim().split(\",\").join(\"+\"));
+             let digits = 0;
+             for c in \"a1b22\" { if c.is_digit() { digits += 1; } }
+             print(digits);
+             let c = s.chars();
+             print(c[1]);
+         }",
+    );
+    assert_eq!(stdout(&out), "a+b\n3\na\n", "{}", stderr(&out));
+}
+
+#[test]
+fn generic_types_with_dot_calls() {
+    let out = run(
+        "generic_dot",
+        "struct Box2<T> { value: T }
+         fn get<T>(b: Box2<T>) -> T { return b.value; }
+         fn main() {
+             let b = Box2 { value: [1, 2, 3] };
+             print(b.get().length());
+         }",
+    );
+    assert_eq!(stdout(&out), "3\n", "{}", stderr(&out));
+}
+
+#[test]
 fn every_std_library_can_be_imported() {
     let out = run(
         "std_all",
@@ -659,7 +739,7 @@ fn every_std_library_can_be_imported() {
          import bits from \"std:bits\";
          import io from \"std:io\";
          import fs from \"std:fs\";
-         fn main() { print(parse_int(\"4\")); print(bits.shr_logical(-1, 60)); print(len(io.args())); }",
+         fn main() { print(parse_int(\"4\")); print(bits.shr_logical(-1, 60)); print(length(io.args())); }",
     );
     assert_eq!(stdout(&out), "some(4)\n15\n0\n", "{}", stderr(&out));
 }

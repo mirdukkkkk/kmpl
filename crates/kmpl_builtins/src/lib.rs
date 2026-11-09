@@ -70,13 +70,16 @@ pub enum ParamType {
     T,
     /// Any type. Used by `print`.
     Any,
-    /// An array of any element type, or a string. Used by `len`.
+    /// An array of any element type, a string, `bytes` or a vector. Used
+    /// by `length`.
     Collection,
     /// The element type `E`: any type, arrays included. All `E` positions
     /// in one call are the same type. Used by `push`.
     Elem,
     /// An array of `E`.
     ArrayOfElem,
+    /// `E?`
+    OptionalOfElem,
 }
 
 /// What a built-in returns.
@@ -91,12 +94,16 @@ pub enum RetType {
     Magnitude,
     /// An array of `E`, see `ParamType::Elem`.
     ArrayOfElem,
+    /// `E` itself.
+    Elem,
     /// An array of exactly this element type.
     ArrayOf(Type),
     /// A tuple of two values of these types.
     Pair(Type, Type),
     /// `T?` of this type.
     Optional(Type),
+    /// `real` for a vector, `int` for what is counted. Used by `length`.
+    Length,
 }
 
 const REAL: ParamType = ParamType::Exact(Type::Real);
@@ -343,13 +350,6 @@ static BUILTINS: &[Builtin] = &[
         func: |a, _| ok(Value::Real(math::dot(&a[0], &a[1]))),
     },
     Builtin {
-        name: "length",
-        generic: VECTOR,
-        params: &[ParamType::T],
-        ret: RetType::Exact(Type::Real),
-        func: |a, _| ok(Value::Real(math::dot(&a[0], &a[0]).sqrt())),
-    },
-    Builtin {
         name: "distance",
         generic: REAL_OR_VECTOR,
         params: &[ParamType::T, ParamType::T],
@@ -391,14 +391,37 @@ static BUILTINS: &[Builtin] = &[
     },
     // ----- arrays -----
     Builtin {
-        name: "len",
+        name: "length",
         generic: &[],
         params: &[ParamType::Collection],
-        ret: RetType::Exact(Type::Int),
+        ret: RetType::Length,
         func: |a, _| match &a[0] {
-            // Characters, not bytes: `len("привет")` is 6.
+            // Characters, not bytes: `length("привет")` is 6.
             Value::Str(text) => ok(Value::Int(text.chars().count() as i64)),
+            vector @ (Value::Vec2(_) | Value::Vec3(_) | Value::Vec4(_)) => {
+                ok(Value::Real(math::dot(vector, vector).sqrt()))
+            }
             array => ok(Value::Int(array.array_len() as i64)),
+        },
+    },
+    Builtin {
+        name: "unwrap",
+        generic: &[],
+        params: &[ParamType::OptionalOfElem],
+        ret: RetType::Elem,
+        func: |a, _| match take_optional(&mut a[0]) {
+            Some(value) => ok(value),
+            None => Err("`unwrap` found `none`".to_owned()),
+        },
+    },
+    Builtin {
+        name: "unwrap_or",
+        generic: &[],
+        params: &[ParamType::OptionalOfElem, ParamType::Elem],
+        ret: RetType::Elem,
+        func: |a, _| {
+            let value = take_optional(&mut a[0]);
+            ok(value.unwrap_or_else(|| std::mem::replace(&mut a[1], Value::Int(0))))
         },
     },
     // Arrays are values, so these return a new array and leave the
@@ -439,6 +462,22 @@ static BUILTINS: &[Builtin] = &[
         },
     },
     // ----- strings -----
+    // Each character as its own string, so that a program can jump around
+    // in a text without walking it from the start every time.
+    Builtin {
+        name: "chars",
+        generic: &[],
+        params: &[ParamType::Exact(Type::Str)],
+        ret: RetType::ArrayOf(Type::Str),
+        func: |a, _| {
+            let items = a[0]
+                .as_str()
+                .chars()
+                .map(|c| Value::Str(c.to_string().into()))
+                .collect();
+            ok(Value::Array(Arc::new(items)))
+        },
+    },
     Builtin {
         name: "string",
         generic: &[],
@@ -521,6 +560,14 @@ pub fn lookup_const(name: &str) -> Option<&'static BuiltinConst> {
 /// `Ok(Some(value))`, the result of a built-in that cannot fail.
 pub(crate) fn ok(value: Value) -> Result<Option<Value>, String> {
     Ok(Some(value))
+}
+
+/// What an optional argument holds, moved out if nothing else shares it.
+fn take_optional(argument: &mut Value) -> Option<Value> {
+    match std::mem::replace(argument, Value::Int(0)) {
+        Value::Optional(inner) => inner.map(Arc::unwrap_or_clone),
+        other => panic!("expected an optional, got {other:?}"),
+    }
 }
 
 /// `some(value)` or `none`.

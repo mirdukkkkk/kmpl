@@ -9,9 +9,10 @@ imported    ::= IDENT ('as' IDENT)?
 
 (* items *)
 item        ::= const | function | struct | enum
-struct      ::= 'struct' IDENT '{' (field (',' field)* ','?)? '}'
+typeparams  ::= '<' IDENT (',' IDENT)* ','? '>'
+struct      ::= 'struct' IDENT typeparams? '{' (field (',' field)* ','?)? '}'
 field       ::= IDENT ':' type
-enum        ::= 'enum' IDENT '{' variant (',' variant)* ','? '}'
+enum        ::= 'enum' IDENT typeparams? '{' variant (',' variant)* ','? '}'
 variant     ::= IDENT ('(' type (',' type)* ','? ')')?
 const       ::= 'const' IDENT ':' type '=' expr ';'
 function    ::= 'fn' IDENT generics? '(' params? ')' ('->' type)? block
@@ -23,7 +24,7 @@ params      ::= param (',' param)* ','?
 param       ::= IDENT ':' type
 
 type        ::= basetype '?'*               (* '?': a value or nothing *)
-basetype    ::= name                        (* a built-in type, a generic parameter, a struct or an enum *)
+basetype    ::= name ('<' type (',' type)* ','? '>')?   (* a built-in type, a generic parameter, a struct or an enum *)
               | '[' type ']'                (* an array of any length *)
               | '(' type (',' type)+ ','? ')'
 
@@ -32,8 +33,8 @@ block       ::= '{' stmt* '}'
 stmt        ::= let | if | while | for | match | break | continue | return | assign | pathassign | exprstmt
 let         ::= 'let' IDENT (':' type)? ('=' expr)? ';'
               | 'let' '(' IDENT (',' IDENT)+ ','? ')' '=' expr ';'   (* '_' skips an element *)
-if          ::= 'if' expr block ('else' (if | block))?
-while       ::= 'while' expr block
+if          ::= 'if' ('let' pattern '=')? expr block ('else' (if | block))?
+while       ::= 'while' ('let' pattern '=')? expr block
 for         ::= 'for' IDENT 'in' expr (('..' | '..=') expr step?)? block   (* a range, or an array *)
 step        ::= 'step' expr               (* 'step' is an ordinary IDENT, special only here *)
 match       ::= 'match' expr '{' (pattern '=>' block ','?)* '}'
@@ -60,7 +61,8 @@ shift       ::= add (('<<' | '>>') add)*
 add         ::= mul (('+' | '-') mul)*
 mul         ::= unary (('*' | '/' | '%') unary)*
 unary       ::= ('!' | '-' | '~') unary | postfix
-postfix     ::= primary ('[' (expr | slice) ']' | '.' IDENT)* (':' swizzle)?
+(* 'x.f(a)' is the call 'f(x, a)' *)
+postfix     ::= primary ('[' (expr | slice) ']' | '.' IDENT ('(' (expr (',' expr)* ','?)? ')')?)* (':' swizzle)?
 slice       ::= expr? '..' expr? | expr? '..=' expr
 primary     ::= INT | REAL | IMAG | STRING | 'true' | 'false' | 'none' | IDENT | call | structlit | variant_val | some | array | tuple | '(' expr ')'
 variant_val ::= name '::' IDENT ('(' (expr (',' expr)* ','?)? ')')?

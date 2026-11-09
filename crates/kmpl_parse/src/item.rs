@@ -1,8 +1,8 @@
 //! Top-level items: `const` and `fn`.
 
 use kmpl_ast::{
-    Const, EnumDef, EnumVariant, Function, Generic, Import, ImportNames, ImportedItem, Item, Param,
-    Program, StructDef, StructField, Type,
+    Const, EnumDef, EnumVariant, Function, Generic, Ident, Import, ImportNames, ImportedItem, Item,
+    Param, Program, StructDef, StructField, Type,
 };
 use kmpl_lexer::Token;
 
@@ -95,6 +95,7 @@ fn item(ts: &mut TokenStream) -> PResult<Item> {
 fn enum_def(ts: &mut TokenStream) -> PResult<EnumDef> {
     ts.expect(Token::Enum)?;
     let name = ts.expect_ident()?;
+    let generics = type_params(ts)?;
     ts.expect(Token::LBrace)?;
 
     let mut variants = Vec::new();
@@ -120,13 +121,44 @@ fn enum_def(ts: &mut TokenStream) -> PResult<EnumDef> {
     }
     ts.expect(Token::RBrace)?;
 
-    Ok(EnumDef { name, variants })
+    Ok(EnumDef {
+        name,
+        generics,
+        variants,
+    })
+}
+
+/// `('<' IDENT (',' IDENT)* ','? '>')?`, on a struct or enum.
+fn type_params(ts: &mut TokenStream) -> PResult<Vec<Ident>> {
+    let mut params = Vec::new();
+    if ts.eat(&Token::Lt).is_none() {
+        return Ok(params);
+    }
+    loop {
+        let name = ts.expect_ident()?;
+        if Type::from_name(&name.name).is_some() {
+            return Err(ParseError::new(
+                format!(
+                    "`{}` is a built-in type, choose another name for the generic parameter",
+                    name.name
+                ),
+                name.span,
+            ));
+        }
+        params.push(name);
+        if ts.eat(&Token::Comma).is_none() || ts.peek() == Some(&Token::Gt) {
+            break;
+        }
+    }
+    ts.expect(Token::Gt)?;
+    Ok(params)
 }
 
 /// `'struct' IDENT '{' (IDENT ':' type (',' IDENT ':' type)* ','?)? '}'`
 fn struct_def(ts: &mut TokenStream) -> PResult<StructDef> {
     ts.expect(Token::Struct)?;
     let name = ts.expect_ident()?;
+    let generics = type_params(ts)?;
     ts.expect(Token::LBrace)?;
 
     let mut fields = Vec::new();
@@ -143,7 +175,11 @@ fn struct_def(ts: &mut TokenStream) -> PResult<StructDef> {
     }
     ts.expect(Token::RBrace)?;
 
-    Ok(StructDef { name, fields })
+    Ok(StructDef {
+        name,
+        generics,
+        fields,
+    })
 }
 
 /// `'const' IDENT ':' type '=' expr ';'`

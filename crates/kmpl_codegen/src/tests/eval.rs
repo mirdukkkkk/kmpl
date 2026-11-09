@@ -364,8 +364,8 @@ fn array_literals_get_their_inferred_type() {
 #[test]
 fn array_fill_and_len() {
     assert_eq!(output("print([7; 3]);"), "[7, 7, 7]\n");
-    assert_eq!(output("let n = 0; print(len([1.0; n]));"), "0\n");
-    assert_eq!(output("print(len([[1], [2]]));"), "2\n");
+    assert_eq!(output("let n = 0; print(length([1.0; n]));"), "0\n");
+    assert_eq!(output("print(length([[1], [2]]));"), "2\n");
 }
 
 #[test]
@@ -860,9 +860,12 @@ fn strings_join_and_compare() {
 
 #[test]
 fn string_length_counts_characters() {
-    assert_eq!(output(r#"print(len("")); print(len("abc"));"#), "0\n3\n");
-    assert_eq!(output(r#"print(len("привет"));"#), "6\n");
-    assert_eq!(output(r#"print(len("a\n"));"#), "2\n");
+    assert_eq!(
+        output(r#"print(length("")); print(length("abc"));"#),
+        "0\n3\n"
+    );
+    assert_eq!(output(r#"print(length("привет"));"#), "6\n");
+    assert_eq!(output(r#"print(length("a\n"));"#), "2\n");
 }
 
 #[test]
@@ -960,7 +963,7 @@ fn nested_field_assignment() {
                    print(o.a.v);
                    print(o.list[0].v);
                    o.a = In { v: [] };
-                   print(len(o.a.v));
+                   print(length(o.a.v));
                }";
     assert_eq!(run(src).unwrap(), "[7]\n[2, 13]\n0\n");
 }
@@ -1033,7 +1036,7 @@ fn structs_in_if_headers_with_brackets() {
 
 #[test]
 fn args_are_strings() {
-    let src = "fn main() { print(_io_args()); print(len(_io_args())); }";
+    let src = "fn main() { print(_io_args()); print(length(_io_args())); }";
     assert_eq!(run_with(src, &["a", "b c"], b"").unwrap(), "[a, b c]\n2\n");
     assert_eq!(run(src).unwrap(), "[]\n0\n");
 }
@@ -1237,6 +1240,326 @@ fn panic_stops_the_program_where_it_is() {
                fn main() { print(f()); print(\"after\"); }";
     let (message, _) = run(src).unwrap_err();
     assert_eq!(message, "it broke");
+}
+
+#[test]
+fn length_of_everything() {
+    assert_eq!(
+        output(
+            r#"print(length(vec2(3.0, 4.0)));
+               print(length([1, 2, 3]));
+               print(length("привет"));
+               print(length(bytes("ж")));
+               print(vec3(0.0, 3.0, 4.0).length() + 0.5);
+               print([[1], [2]].length() + 1);"#
+        ),
+        "5.0\n3\n6\n2\n5.5\n3\n"
+    );
+}
+
+#[test]
+fn if_let_takes_the_value_out() {
+    let out = output(
+        "let a: int? = some(4);
+         let b: int? = none;
+         if let some(x) = a { print(x + 1); } else { print(\"no\"); }
+         if let some(x) = b { print(x + 1); } else { print(\"no\"); }
+         if let none = b { print(\"empty\"); }
+         if let some(_) = b { print(\"never\"); } else if let some(y) = a { print(y); }",
+    );
+    assert_eq!(out, "5\nno\nempty\n4\n");
+}
+
+#[test]
+fn if_let_on_an_enum_joins_variables() {
+    let src = "enum Kind { A(int), B }
+               fn f(k: Kind) -> int {
+                   let n = 1;
+                   if let Kind::A(v) = k { n = v; }
+                   return n * 2;
+               }
+               fn g(k: Kind) -> int {
+                   if let Kind::A(v) = k { return v; } else { return 0; }
+               }
+               fn main() {
+                   print(f(Kind::A(5))); print(f(Kind::B));
+                   print(g(Kind::A(7))); print(g(Kind::B));
+               }";
+    assert_eq!(run(src).unwrap(), "10\n2\n7\n0\n");
+}
+
+#[test]
+fn while_let_stops_at_the_first_other_value() {
+    let src = "fn next(i: int) -> int? {
+                   if i < 3 { return some(i); }
+                   return none;
+               }
+               fn main() {
+                   let i = 0;
+                   let total = 0;
+                   while let some(v) = next(i) {
+                       i += 1;
+                       if v == 1 { continue; }
+                       total += 10 + v;
+                   }
+                   print(total);
+                   print(i);
+               }";
+    assert_eq!(run(src).unwrap(), "22\n3\n");
+}
+
+#[test]
+fn break_inside_while_let_leaves_the_loop() {
+    let out = output(
+        "let n = 0;
+         let x: int? = some(1);
+         while let some(v) = x { n += v; if n == 3 { break; } }
+         print(n);",
+    );
+    assert_eq!(out, "3\n");
+}
+
+#[test]
+fn unwrapping() {
+    let out = output(
+        "let a: real? = some(1.5);
+         let b: real? = none;
+         print(unwrap(a));
+         print(unwrap_or(a, 2.0));
+         print(unwrap_or(b, 2.0));
+         let flat: [real]? = some([1.0]);
+         let copy = unwrap(flat);
+         copy[0] = 5.0;
+         print(copy);
+         print(flat);
+         let c: int? = none;
+         print(unwrap_or(c, 3) + 1);",
+    );
+    assert_eq!(out, "1.5\n1.5\n2.0\n[5.0]\nsome([1.0])\n4\n");
+    let (message, _) = run("fn main() { let a: int? = none; print(unwrap(a)); }").unwrap_err();
+    assert_eq!(message, "`unwrap` found `none`");
+}
+
+#[test]
+fn characters_of_a_string() {
+    let out = output(
+        r#"let s = "привет";
+           print(s[0]);
+           print(s[5]);
+           print(s[1..3]);
+           print(s[..2]);
+           print(s[4..]);
+           print(s[1..=2]);
+           print(s[2..2] == "");
+           print(chars("aж"));
+           for c in "aж" { print(c); }
+           print(length(chars(s)));"#,
+    );
+    assert_eq!(out, "п\nт\nри\nпр\nет\nри\ntrue\n[a, ж]\na\nж\n6\n");
+}
+
+#[test]
+fn walking_a_long_string_is_not_quadratic() {
+    let src = r#"fn main() {
+                     let s = "";
+                     for i in 0..1000 { s += "абвгдежзий"; }
+                     for j in 0..2 { s += s; }
+                     let n = 0;
+                     for c in s { if c == "а" { n += 1; } }
+                     print(n);
+                 }"#;
+    assert_eq!(run(src).unwrap(), "4000\n");
+}
+
+#[test]
+fn a_position_outside_a_string_is_an_error() {
+    let message = |body: &str| run(&format!("fn main() {{ {body} }}")).unwrap_err().0;
+    assert!(
+        message(r#"print("ab"[2]);"#).contains("out of bounds"),
+        "{}",
+        message(r#"print("ab"[2]);"#)
+    );
+    assert!(message(r#"print("ab"[-1]);"#).contains("-1"));
+    assert!(!message(r#"print("ab"[1..5]);"#).is_empty());
+}
+
+#[test]
+fn strings_compare_by_character_codes() {
+    let out = output(
+        r#"print("a" < "b");
+           print("b" <= "a");
+           print("я" > "z");
+           print("ab" >= "ab");
+           print("Z" < "a");
+           print("abc" < "abd");
+           print("ab" < "abc");"#,
+    );
+    assert_eq!(out, "true\nfalse\ntrue\ntrue\ntrue\ntrue\ntrue\n");
+}
+
+#[test]
+fn text_functions() {
+    let out = output(
+        r#"print(_text_split("a,b,,c", ","));
+           print(_text_join(["a", "b"], "-"));
+           print(_text_trim("  a b \n") + "|");
+           print(_text_starts_with("abc", "ab"));
+           print(_text_ends_with("abc", "ab"));
+           print(_text_contains("abc", "bc"));
+           print(_text_find("привет", "вет"));
+           print(_text_find("abc", "x"));
+           print(_text_replace("aXbXc", "X", "--"));
+           print(_text_repeat("ab", 3));
+           print(_text_repeat("ab", 0) == "");
+           print(_text_to_upper("aбc"));
+           print(_text_to_lower("AБC"));
+           print(_text_is_digit("12"));
+           print(_text_is_digit("1a"));
+           print(_text_is_digit(""));
+           print(_text_is_letter("aж"));
+           print(_text_is_space(" \n"));
+           print(_text_code("A"));
+           print(_text_code("ж"));
+           print(_text_from_code(1078));
+           print(_text_from_code(-1));
+           print(_text_from_code(55296));"#,
+    );
+    assert_eq!(
+        out,
+        "[a, b, , c]\na-b\na b|\ntrue\nfalse\ntrue\nsome(3)\nnone\na--b--c\nababab\ntrue\n\
+         AБC\naбc\ntrue\nfalse\nfalse\ntrue\ntrue\n65\n1078\nsome(ж)\nnone\nnone\n"
+    );
+}
+
+#[test]
+fn text_functions_refuse_what_makes_no_sense() {
+    let message = |body: &str| run(&format!("fn main() {{ {body} }}")).unwrap_err().0;
+    assert_eq!(
+        message(r#"print(_text_split("a", ""));"#),
+        "`split` needs a separator that is not empty"
+    );
+    assert_eq!(
+        message(r#"print(_text_replace("a", "", "b"));"#),
+        "`replace` needs something to look for"
+    );
+    assert_eq!(
+        message(r#"print(_text_code("ab"));"#),
+        "`code` needs exactly one character, got \"ab\""
+    );
+    assert_eq!(
+        message(r#"print(_text_repeat("a", -1));"#),
+        "cannot repeat a text -1 times"
+    );
+    assert_eq!(
+        message(r#"print(_text_repeat("ab", 9223372036854775807));"#),
+        "repeating this text 9223372036854775807 times is too long"
+    );
+}
+
+const GENERIC: &str = "struct Pair<T> { first: T, second: T }
+    enum Res<T, F> { Good(T), Bad(F) }
+    fn swap<T>(p: Pair<T>) -> Pair<T> { return Pair { first: p.second, second: p.first }; }
+    fn id<T>(x: T) -> T { return x; }
+    fn check(n: int) -> Res<int, string> {
+        if n < 0 { return Res::Bad(\"negative\"); }
+        return Res::Good(n * 2);
+    }
+    fn value(r: Res<int, string>) -> int {
+        match r {
+            Res::Good(v) => { return v; }
+            Res::Bad(_) => { return 0; }
+        }
+    }";
+
+#[test]
+fn generic_types_hold_what_they_are_given() {
+    let src = format!(
+        "{GENERIC}
+         fn main() {{
+             print(swap(Pair {{ first: 1, second: 2 }}));
+             print(swap(Pair {{ first: \"a\", second: \"b\" }}));
+             print(value(check(4)));
+             print(value(check(-4)));
+             print(check(-1));
+             print(Pair {{ first: 1.5, second: 2.5 }} == Pair {{ first: 1.5, second: 2.5 }});
+             let nested: Pair<Pair<int>>= Pair {{
+                 first: Pair {{ first: 1, second: 2 }},
+                 second: Pair {{ first: 3, second: 4 }},
+             }};
+             print(nested.second.first + 1);
+             nested.first.second = 9;
+             print(nested.first);
+         }}"
+    );
+    assert_eq!(
+        run(&src).unwrap(),
+        "Pair { first: 2, second: 1 }\nPair { first: b, second: a }\n8\n0\n\
+         Res::Bad(negative)\ntrue\n4\nPair { first: 1, second: 9 }\n"
+    );
+}
+
+#[test]
+fn a_flat_array_stays_flat_inside_a_generic_type() {
+    let src = format!(
+        "{GENERIC}
+         fn main() {{
+             let q: Pair<[real]> = Pair {{ first: [], second: [1.0] }};
+             q.first = push(q.first, 2.0);
+             q.second[0] = 5.0;
+             print(q);
+             print(q.second[0] + 1.0);
+         }}"
+    );
+    assert_eq!(
+        run(&src).unwrap(),
+        "Pair {{ first: [2.0], second: [5.0] }}\n6.0\n"
+            .replace("{{", "{")
+            .replace("}}", "}")
+    );
+}
+
+#[test]
+fn generic_functions_take_composite_types() {
+    let src = format!(
+        "{GENERIC}
+         struct P {{ x: int }}
+         fn twice<T>(x: T) -> [T] {{ return [id(x), id(x)]; }}
+         fn main() {{
+             print(id([1.0, 2.0]));
+             print(id((1, true)));
+             print(id(P {{ x: 3 }}));
+             print(id(Pair {{ first: [1], second: [2] }}));
+             print(twice([1]));
+             print(twice(P {{ x: 1 }}));
+             let o: int? = some(1);
+             print(id(o));
+         }}"
+    );
+    assert_eq!(
+        run(&src).unwrap(),
+        "[1.0, 2.0]\n(1, true)\nP { x: 3 }\nPair { first: [1], second: [2] }\n\
+         [[1], [1]]\n[P { x: 1 }, P { x: 1 }]\nsome(1)\n"
+    );
+}
+
+#[test]
+fn recursive_generic_enums() {
+    let src = "enum List<T> { Nil, Cons(T, List<T>) }
+               fn total(l: List<int>) -> int {
+                   match l {
+                       List::Cons(v, rest) => { return v + total(rest); }
+                       List::Nil => { return 0; }
+                   }
+               }
+               fn main() {
+                   let l: List<int> = List::Cons(1, List::Cons(2, List::Nil));
+                   print(total(l));
+                   print(l);
+               }";
+    assert_eq!(
+        run(src).unwrap(),
+        "3\nList::Cons(1, List::Cons(2, List::Nil))\n"
+    );
 }
 
 #[test]
@@ -1482,7 +1805,7 @@ fn reading_an_array_does_not_make_the_next_write_copy_it() {
     let src = "fn main() {
                    let n = 200000;
                    let a = [0; n];
-                   for i in 0..n { a[i] = len(a); }
+                   for i in 0..n { a[i] = length(a); }
                    print(a[n - 1]);
                }";
     assert_eq!(run(src).unwrap(), "200000\n");
@@ -1493,7 +1816,7 @@ fn a_loop_of_pushes_does_not_copy() {
     let src = "fn main() {
                    let a: [int] = [];
                    for i in 0..200000 { a = push(a, i); }
-                   print(len(a));
+                   print(length(a));
                    print(a[199999]);
                }";
     assert_eq!(run(src).unwrap(), "200000\n199999\n");
@@ -1572,7 +1895,7 @@ fn writing_a_flat_parameter_does_not_change_the_callers_array() {
 #[test]
 fn flat_arrays_keep_their_form_when_empty() {
     assert_eq!(
-        output("let a: [real] = []; a = push(a, 1.5); print(a); print(len(a));"),
+        output("let a: [real] = []; a = push(a, 1.5); print(a); print(length(a));"),
         "[1.5]\n1\n"
     );
     assert_eq!(
@@ -1718,7 +2041,7 @@ fn bitwise_precedence_follows_rust() {
 fn bytes_read_and_write_like_a_small_array() {
     assert_eq!(
         output(
-            "let b = bytes(\"AB\"); print(b); print(len(b)); print(b[1]); b[0] = 97; print(string(b));"
+            "let b = bytes(\"AB\"); print(b); print(length(b)); print(b[1]); b[0] = 97; print(string(b));"
         ),
         "[65, 66]\n2\n66\naB\n"
     );
@@ -1743,7 +2066,7 @@ fn bytes_slices_push_concat_and_value_semantics() {
 #[test]
 fn bytes_of_a_string_count_bytes_not_characters() {
     assert_eq!(
-        output("print(len(bytes(\"ж\"))); print(len(\"ж\"));"),
+        output("print(length(bytes(\"ж\"))); print(length(\"ж\"));"),
         "2\n1\n"
     );
 }

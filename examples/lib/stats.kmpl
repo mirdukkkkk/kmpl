@@ -3,7 +3,7 @@ fn mean(a: [real]) -> real {
     for x in a {
         sum += x;
     }
-    return sum / real(len(a));
+    return sum / real(a.length());
 }
 
 fn min_max(a: [real]) -> (real, real) {

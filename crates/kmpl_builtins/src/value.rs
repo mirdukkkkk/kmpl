@@ -158,9 +158,11 @@ impl Value {
         }
     }
 
-    /// The length of an array of any form. Panics on other variants.
+    /// The length of an array of any form, or the characters of a string.
+    /// Panics on other variants.
     pub fn array_len(&self) -> usize {
         match self {
+            Value::Str(text) => text.chars().count(),
             Value::Array(items) => items.len(),
             Value::Reals(items) => items.len(),
             Value::Ints(items) => items.len(),

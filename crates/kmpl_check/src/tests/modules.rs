@@ -209,7 +209,7 @@ fn a_local_hides_a_module() {
             module("a", &[], "fn f() { }"),
             module("", &[("a", "a")], "fn main() { let a = 1; a.f(); }"),
         ]),
-        ["`a` is a variable, not a module"]
+        ["undefined function `f`"]
     );
 }
 
@@ -245,7 +245,7 @@ fn local_does_not_hide_a_type() {
         module(
             "",
             &[("g", "g")],
-            "fn main() { let g = 1; let a: [g.P] = []; print(len(a)); }",
+            "fn main() { let g = 1; let a: [g.P] = []; print(length(a)); }",
         ),
     ]);
 }
@@ -464,8 +464,8 @@ fn imported_items_cannot_clash() {
         ),
         (
             MAIN,
-            &[("twice", "len")][..],
-            "`len` is a built-in function",
+            &[("twice", "length")][..],
+            "`length` is a built-in function",
         ),
         (MAIN, &[("twice", "PI")][..], "`PI` is a built-in constant"),
         (

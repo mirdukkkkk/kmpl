@@ -55,6 +55,8 @@ pub enum Ty {
     Struct(String),
     /// `T?`
     Optional(Box<Ty>),
+    /// A generic struct or enum with its type arguments: `Pair<int>`.
+    Instance { name: String, args: Vec<Ty> },
 }
 
 /// A type as written in the source.
@@ -70,4 +72,6 @@ pub enum TypeExpr {
     Tuple(Vec<TypeExpr>),
     /// `T?`: a value of type `T`, or nothing.
     Optional(Box<TypeExpr>),
+    /// `Pair<int>`: a generic struct or enum with its type arguments.
+    Applied { name: Ident, args: Vec<TypeExpr> },
 }

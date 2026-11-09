@@ -10,7 +10,7 @@ fn identity(n: int) -> [[real]] {
 
 // m to the power of k, by repeated squaring.
 fn matrix_pow(m: [[real]], k: int) -> [[real]] {
-    let result = identity(len(m));
+    let result = identity(m.length());
     let base = m;
     let left = k;
     while left > 0 {

@@ -214,10 +214,86 @@ fn tuples_of_generic_parameters() {
     assert_ok(
         "fn first<T: int | real>(p: (T, T)) -> T { let (a, _) = p; return a; } fn g() { let x: real = first((1.5, 2)); }",
     );
+    assert_ok("fn id<T>(x: T) -> T { return x; } fn g() { let t: (int, int) = id((1, 2)); }");
     assert_error(
-        "fn id<T>(x: T) -> T { return x; } fn g() { id((1, 2)); }",
-        "mismatched types: expected `int`, `real`, `complex`, `bool`, `vec2`, `vec3`, `vec4`, `string` or `bytes`, found `(int, int)`",
+        "fn id<T: int | real>(x: T) -> T { return x; } fn g() { id((1, 2)); }",
+        "mismatched types: expected `int` or `real`, found `(int, int)`",
     );
+}
+
+const PAIR: &str = "struct Pair<T> { first: T, second: T } ";
+const RESULT: &str = "enum Res<T, E> { Good(T), Bad(E) } ";
+
+#[test]
+fn generic_types_need_their_arguments() {
+    assert_error(
+        &format!("{PAIR} fn f(p: Pair) {{ }}"),
+        "`Pair` needs 1 type arguments: `Pair<...>`",
+    );
+    assert_error(
+        &format!("{PAIR} fn f(p: Pair<int, int>) {{ }}"),
+        "`Pair` takes 1 type arguments, but 2 were given",
+    );
+    assert_error(
+        "struct Q { } fn f(p: Q<int>) { }",
+        "`Q` takes 0 type arguments, but 1 were given",
+    );
+    assert_error("fn f(p: Z<int>) { }", "unknown type `Z`");
+    assert_error("struct P<T, T> { }", "`T` is already defined");
+    assert_error("struct P<T> { a: U }", "unknown type `U`");
+    assert_error("enum E2<T> { A(U) }", "unknown type `U`");
+}
+
+#[test]
+fn type_arguments_come_from_the_values_and_the_context() {
+    assert_ok(&format!(
+        "{PAIR} fn f() {{ let p = Pair {{ first: 1, second: 2 }}; let n: int = p.first; }}"
+    ));
+    assert_ok(&format!(
+        "{PAIR} fn f() {{ let p: Pair<real> = Pair {{ first: 1, second: 2 }}; let r: real = p.second; }}"
+    ));
+    assert_ok(&format!(
+        "{RESULT} fn f() -> Res<int, string> {{ return Res::Good(1); }}"
+    ));
+    assert_ok(&format!(
+        "{RESULT} fn f() -> Res<int, string> {{ return Res::Bad(\"no\"); }}"
+    ));
+    assert_error(
+        &format!("{RESULT} fn f() {{ print(Res::Good(1)); }}"),
+        "cannot infer the type arguments of this value, add a type annotation",
+    );
+    assert_error(
+        &format!("{PAIR} fn f() {{ let p: Pair<int> = Pair {{ first: true, second: true }}; }}"),
+        "mismatched types: expected `Pair<int>`, found `Pair<bool>`",
+    );
+    assert_error(
+        &format!("{PAIR} fn f(p: Pair<int>) {{ let s: string = p.first; }}"),
+        "mismatched types: expected `string`, found `int`",
+    );
+}
+
+#[test]
+fn patterns_know_the_type_arguments() {
+    assert_ok(&format!(
+        "{RESULT} fn f(r: Res<int, string>) -> int {{
+             match r {{ Res::Good(v) => {{ return v; }} Res::Bad(_) => {{ return 0; }} }}
+         }}"
+    ));
+    assert_error(
+        &format!(
+            "{RESULT} fn f(r: Res<int, string>) {{
+                 match r {{ Res::Good(v) => {{ let s: string = v; }} _ => {{ }} }}
+             }}"
+        ),
+        "mismatched types: expected `string`, found `int`",
+    );
+}
+
+#[test]
+fn endless_new_types_are_refused() {
+    let found = errors("fn f<T>(x: T) { f([x]); } fn main() { f(1); }");
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].contains("needs too many copies"), "{found:?}");
 }
 
 #[test]

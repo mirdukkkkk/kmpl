@@ -66,7 +66,7 @@ fn main() {
 A constant can call functions. It is an error if a call reaches a constant declared
 later, or something that depends on how the program is run, such as `args`.
 
-`bytes` holds raw data. `b[i]` and `for x in b` give `int`s, and slices, `len`,
+`bytes` holds raw data. `b[i]` and `for x in b` give `int`s, and slices, `length`,
 `push`, `concat` and `==` work as on arrays. `string(b)` decodes UTF-8 and stops the
 program if the data is not valid UTF-8, while `print(b)` shows the numbers:
 
@@ -191,7 +191,7 @@ let a = [1.0, 2.0, 3.0];
 let b = a;
 b[0] = 9.0;
 print(a[0]);  // 1.0
-print(len(a));  // 3
+print(length(a));  // 3
 print(a[1..]);  // [2.0, 3.0]
 print(a[..=1]);  // [1.0, 2.0]
 print([0; 2]);  // [0, 0]
@@ -240,14 +240,44 @@ fn main() {
 
 ## Strings
 
-`+` joins strings, and `==` and `!=` compare them. `len` counts characters. The
+`+` joins strings, and `==` and `!=` compare them. `length` counts characters. The
 escapes are `\n`, `\t`, `\"` and `\\`.
 
 ```kmpl
 let name = "мир";
 print("hello, " + name);  // hello, мир
-print(len(name));  // 3
+print(length(name));  // 3
+print(name[0]);  // м
+print(name[1..]);  // ир
+print("a" < "b");  // true
 ```
+
+A character is a string of one. Positions count characters, and a string cannot be
+changed through them. `<`, `<=`, `>` and `>=` compare by character codes, so they
+know nothing about alphabets. `for c in s` goes through a text once. `s[i]` starts
+from the beginning every time, so to jump around in a long text use `chars(s)`,
+which gives an array of its characters.
+
+## Calling with a dot
+
+`x.f(y)` is the same as `f(x, y)`, for any function that can be called here by
+its plain name. It is handy in chains. `p.x` reads a field, `p.x()` calls `x`.
+
+```kmpl
+fn scaled(v: vec2, k: real) -> vec2 {
+    return v * k;
+}
+
+fn main() {
+    let v = vec2(3.0, 4.0);
+    print(v.scaled(2.0).length());  // 10.0
+    print(sqrt(v.length()));  // 2.23606797749979
+    print([1, 2, 3].length());  // 3
+}
+```
+
+`length` is the length of a vector as a `real`, and the number of elements of an
+array or `bytes` or of characters of a string as an `int`.
 
 ## Structs
 
@@ -306,7 +336,7 @@ fn width(s: Shape) -> real {
 }
 
 fn first(a: [int]) -> int? {
-    if len(a) == 0 {
+    if length(a) == 0 {
         return none;
     }
     return some(a[0]);
@@ -323,8 +353,73 @@ fn main() {
 }
 ```
 
+When only one case matters, `if let` and `while let` are shorter. `unwrap_or` gives
+the value or a replacement, which is computed either way, and `unwrap` gives the
+value or stops the program:
+
+```kmpl
+fn half(x: int) -> int? {
+    if x % 2 == 1 {
+        return none;
+    }
+    return some(x / 2);
+}
+
+fn main() {
+    if let some(v) = half(8) {
+        print(v);  // 4
+    }
+    let i = 16;
+    while let some(v) = half(i) {
+        i = v;
+    }
+    print(i);  // 1
+    print(half(3).unwrap_or(0));  // 0
+    print(half(4).unwrap());  // 2
+}
+```
+
 `match` is a statement, and it works on enums and optionals only. In another
 module an enum is written `geometry.Shape::Circle(1.0)`.
+
+## Generic structs and enums
+
+A struct or an enum can take types as arguments, written `<T>`. They are usually
+found from the values. Where a value says too little, as `Res::Good(1)` says nothing
+about the error, the type comes from a `return`, an annotation or an argument.
+
+```kmpl
+struct Pair<T> {
+    first: T,
+    second: T,
+}
+
+enum Res<T, F> {
+    Good(T),
+    Bad(F),
+}
+
+fn half(n: int) -> Res<int, string> {
+    if n % 2 == 1 {
+        return Res::Bad("odd");
+    }
+    return Res::Good(n / 2);
+}
+
+fn swap<T>(p: Pair<T>) -> Pair<T> {
+    return Pair { first: p.second, second: p.first };
+}
+
+fn main() {
+    print(half(3));  // Res::Bad(odd)
+    print(swap(Pair { first: 1, second: 2 }));  // Pair { first: 2, second: 1 }
+    let q: Pair<[real]> = Pair { first: [], second: [1.0] };
+    print(q.second);  // [1.0]
+}
+```
+
+A `T` with no bound can be any type, an array or a struct too. A struct or an enum
+cannot limit its arguments the way a function can with `T: int | real`.
 
 ## Modules
 
@@ -339,7 +434,7 @@ fn mean(a: [real]) -> real {
     for x in a {
         sum += x;
     }
-    return sum / real(len(a));
+    return sum / real(length(a));
 }
 ```
 
@@ -421,7 +516,7 @@ Libraries that come with `kmpl` are imported from `std:`:
 |---|---|
 | `std:fs` | `read read_text write write_text` |
 | `std:io` | `args read_line` |
-| `std:text` | `parse_int parse_real` |
+| `std:text` | `parse_int parse_real split join trim starts_with ends_with contains find replace repeat to_upper to_lower is_digit is_letter is_space code from_code` |
 | `std:bits` | `shr_logical` |
 
 Functions in `std:fs` also return the text of an error, empty if all went well:
@@ -471,7 +566,7 @@ fn main() {
 | Complex | `re im arg conj` |
 | Conversion | `real int complex string bytes` |
 | Vectors | `vec2 vec3 vec4 dot length distance normalize cross` |
-| Arrays and strings | `len push concat` |
+| Arrays and strings | `length push concat chars` |
 | Output | `print` |
 
 These functions work on single values. `sqrt` of an array is an error, so use a

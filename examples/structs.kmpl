@@ -33,7 +33,7 @@ fn moved(p: Point, dx: real) -> Point {
 }
 
 fn advance(particles: [Particle], dt: real) -> [Particle] {
-    for i in 0..len(particles) {
+    for i in 0..particles.length() {
         particles[i].pos += particles[i].vel * dt;
     }
     return particles;

@@ -23,7 +23,7 @@ use kmpl_ast::{
 use kmpl_builtins::{ParamType, RetType};
 
 use crate::error::CheckError;
-use crate::generics::instance_name;
+use crate::generics::{instance_name, type_expr};
 use crate::types::{TyVar, TypeSet, Unifier};
 
 /// A call to a generic function, resolved to a copy at the end.
@@ -52,6 +52,9 @@ struct Infer<'a> {
     array_literals: Vec<(Span, TyVar)>,
     /// Every `none`, for the same reason.
     nones: Vec<(Span, TyVar)>,
+    /// Every value of a generic struct or enum, for the same reason:
+    /// `Result::Ok(1)` says nothing about the type of the error.
+    generic_values: Vec<(Span, TyVar)>,
     /// Every `1` and `1.0` literal with its item index, to pick its final
     /// type at the end. Copies of a generic function share spans, so the
     /// span alone is not unique.
@@ -76,6 +79,9 @@ pub struct Inference {
     /// The copy each call to a generic function uses, like `lerp<vec2>`,
     /// by item index and span of the call.
     pub call_targets: HashMap<(usize, Span), String>,
+    /// Calls to generic functions with arrays, structs and the like as type
+    /// arguments, which have no copy made in advance.
+    pub composite_calls: Vec<(String, Vec<Ty>)>,
     /// Final type of every expression, by item index and span.
     pub expr_types: HashMap<(usize, Span), Ty>,
 }
@@ -95,6 +101,7 @@ pub fn infer(program: &Program, report_unknown: bool) -> Inference {
         locals: Vec::new(),
         array_literals: Vec::new(),
         nones: Vec::new(),
+        generic_values: Vec::new(),
         current_fn: None,
         literals: Vec::new(),
         expr_vars: Vec::new(),
@@ -141,7 +148,7 @@ pub fn infer(program: &Program, report_unknown: bool) -> Inference {
     if report_unknown {
         inf.finish();
     }
-    let call_targets = inf.resolve_generic_calls();
+    let (call_targets, composite_calls) = inf.resolve_generic_calls();
 
     // Literals always have a default: their sets are subsets of NUMBER.
     let literal_types = inf
@@ -160,6 +167,7 @@ pub fn infer(program: &Program, report_unknown: bool) -> Inference {
         errors: inf.errors,
         literal_types,
         call_targets,
+        composite_calls,
         expr_types,
     }
 }
@@ -207,11 +215,36 @@ impl<'a> Infer<'a> {
                 let inner = self.type_var(inner, generics);
                 self.u.new_optional(inner)
             }
+            TypeExpr::Applied { name, args } => {
+                let id = self.struct_ids[name.name.as_str()];
+                let args = args.iter().map(|t| self.type_var(t, generics)).collect();
+                self.u.new_instance(id, args)
+            }
             TypeExpr::Tuple(items) => {
                 let elems = items.iter().map(|t| self.type_var(t, generics)).collect();
                 self.u.new_tuple(elems)
             }
         }
+    }
+
+    /// A new value of the struct or enum `id`, with fresh type arguments,
+    /// and what its generic names stand for.
+    fn new_value(
+        &mut self,
+        id: usize,
+        params: &'a [Ident],
+        span: Span,
+    ) -> (TyVar, HashMap<&'a str, TyVar>) {
+        if params.is_empty() {
+            return (self.u.new_struct(id), HashMap::new());
+        }
+        let args: Vec<TyVar> = params
+            .iter()
+            .map(|_| self.u.new_var(TypeSet::ANY))
+            .collect();
+        let value = self.u.new_instance(id, args.clone());
+        self.generic_values.push((span, value));
+        (value, arguments(params, &args))
     }
 
     /// `actual` must be `expected`. `span` is where `actual` comes from.
@@ -347,7 +380,7 @@ impl<'a> Infer<'a> {
             }
             StmtKind::ForEach { var, array, body } => {
                 let array_ty = self.expr(array);
-                let var_ty = self.array_elem(array_ty, array.span);
+                let var_ty = self.read_elem(array_ty, array.span);
                 self.for_body(var, var_ty, body);
             }
             StmtKind::Match { value, arms } => self.match_stmt(value, arms),
@@ -482,7 +515,12 @@ impl<'a> Infer<'a> {
             _ => None,
         };
         match (&arm.pattern, declared, inner) {
-            (_, Some(fields), _) => fields.iter().map(|ty| self.annotated(ty)).collect(),
+            (_, Some(fields), _) => {
+                let params = matched.map_or(&[][..], |def| def.generics.as_slice());
+                let args = self.u.instance_args(ty);
+                let names = arguments(params, &args);
+                fields.iter().map(|f| self.type_var(f, &names)).collect()
+            }
             (Pattern::Some(_), _, Some(inner)) => vec![inner],
             (pattern, _, _) => pattern
                 .bindings()
@@ -621,12 +659,12 @@ impl<'a> Infer<'a> {
                 let base_ty = self.expr(base);
                 self.field_type(base_ty, name, base.span)
             }
-            ExprKind::StructLit { name, fields } => self.struct_literal(name, fields),
+            ExprKind::StructLit { name, fields } => self.struct_literal(name, fields, e.span),
             ExprKind::Variant {
                 name,
                 variant,
                 args,
-            } => self.variant_value(name, variant, args),
+            } => self.variant_value(name, variant, args, e.span),
             ExprKind::Some(value) => {
                 let inner = self.expr(value);
                 self.u.new_optional(inner)
@@ -659,7 +697,7 @@ impl<'a> Infer<'a> {
             ExprKind::Index { base, index } => {
                 let base_ty = self.expr(base);
                 self.index_type(index);
-                self.array_elem(base_ty, base.span)
+                self.read_elem(base_ty, base.span)
             }
             ExprKind::Slice {
                 base, start, end, ..
@@ -668,7 +706,7 @@ impl<'a> Infer<'a> {
                 for bound in [start, end].into_iter().flatten() {
                     self.index_type(bound);
                 }
-                self.array_elem(base_ty, base.span);
+                self.read_elem(base_ty, base.span);
                 base_ty
             }
         }
@@ -689,7 +727,10 @@ impl<'a> Infer<'a> {
 
         let def = self.struct_defs[&id];
         match def.fields.iter().find(|f| f.name.name == field.name) {
-            Some(declared) => self.annotated(&declared.ty),
+            Some(declared) => {
+                let args = self.u.instance_args(ty);
+                self.type_var(&declared.ty, &arguments(&def.generics, &args))
+            }
             None => {
                 self.error(
                     format!("`{}` has no field `{}`", def.name.name, field.name),
@@ -701,23 +742,36 @@ impl<'a> Infer<'a> {
     }
 
     /// `resolve` already checked that the fields match the definition.
-    fn struct_literal(&mut self, name: &'a Ident, fields: &'a [(Ident, Expr)]) -> TyVar {
+    fn struct_literal(
+        &mut self,
+        name: &'a Ident,
+        fields: &'a [(Ident, Expr)],
+        span: Span,
+    ) -> TyVar {
         let id = self.struct_ids[name.name.as_str()];
         let def = self.struct_defs[&id];
+        let (result, names) = self.new_value(id, &def.generics, span);
         for (field, value) in fields {
             let ty = self.expr(value);
             if let Some(declared) = def.fields.iter().find(|f| f.name.name == field.name) {
-                let expected = self.annotated(&declared.ty);
+                let expected = self.type_var(&declared.ty, &names);
                 self.unify(ty, expected, value.span);
             }
         }
-        self.u.new_struct(id)
+        result
     }
 
     /// `resolve` already checked the variant and the number of arguments.
-    fn variant_value(&mut self, name: &'a Ident, variant: &Ident, args: &'a [Expr]) -> TyVar {
+    fn variant_value(
+        &mut self,
+        name: &'a Ident,
+        variant: &Ident,
+        args: &'a [Expr],
+        span: Span,
+    ) -> TyVar {
         let id = self.struct_ids[name.name.as_str()];
         let def = self.enum_defs[&id];
+        let (result, names) = self.new_value(id, &def.generics, span);
         let declared = def
             .variants
             .iter()
@@ -725,16 +779,25 @@ impl<'a> Infer<'a> {
             .expect("checked by resolve");
         for (arg, field) in args.iter().zip(&declared.fields) {
             let ty = self.expr(arg);
-            let expected = self.annotated(field);
+            let expected = self.type_var(field, &names);
             self.unify(ty, expected, arg.span);
         }
-        self.u.new_struct(id)
+        result
     }
 
     /// An index or an array length is an `int`.
     fn index_type(&mut self, e: &'a Expr) {
         let ty = self.expr(e);
         self.expect(ty, Type::Int, e.span);
+    }
+
+    /// What reading from `ty` gives. Like `array_elem`, and a string can be
+    /// read too, but not written to: a character is a string of one.
+    fn read_elem(&mut self, ty: TyVar, span: Span) -> TyVar {
+        if self.u.set(ty) == TypeSet::single(Type::Str) {
+            return self.known(Type::Str);
+        }
+        self.array_elem(ty, span)
     }
 
     /// The element type of `ty`, which must be an array.
@@ -797,7 +860,7 @@ impl<'a> Infer<'a> {
             }
             BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
                 self.unify(r, l, rhs_span);
-                self.restrict(l, TypeSet::ORDERED, sym, span);
+                self.restrict(l, TypeSet::COMPARABLE, sym, span);
                 self.known(Type::Bool)
             }
             BinOp::Eq | BinOp::Ne => {
@@ -940,6 +1003,8 @@ impl<'a> Infer<'a> {
         let elem = self.u.new_var(TypeSet::ANY);
         // `push` and `concat` also work on `bytes` and then give `bytes`.
         let mut on_bytes = false;
+        // `length` of a vector is a `real`.
+        let mut on_vector = false;
 
         for (arg, param) in args.iter().zip(builtin.params) {
             let arg_ty = self.expr(arg);
@@ -949,11 +1014,16 @@ impl<'a> Infer<'a> {
                 ParamType::Any => {}
                 ParamType::Collection => {
                     let string = self.u.set(arg_ty) == TypeSet::single(Type::Str);
-                    if !string && !self.is_bytes(arg_ty) {
+                    on_vector = self.u.set(arg_ty).is_subset(TypeSet::VECTOR);
+                    if !string && !on_vector && !self.is_bytes(arg_ty) {
                         self.array_elem(arg_ty, arg.span);
                     }
                 }
                 ParamType::Elem => self.unify(arg_ty, elem, arg.span),
+                ParamType::OptionalOfElem => {
+                    let optional = self.u.new_optional(elem);
+                    self.unify(arg_ty, optional, arg.span);
+                }
                 ParamType::ArrayOfElem if on_bytes || self.is_bytes(arg_ty) => {
                     on_bytes = true;
                     self.expect(elem, Type::Int, arg.span);
@@ -976,6 +1046,9 @@ impl<'a> Infer<'a> {
                 let elem = self.known(ty);
                 Some(self.u.new_array(elem))
             }
+            RetType::Length if on_vector => Some(self.known(Type::Real)),
+            RetType::Length => Some(self.known(Type::Int)),
+            RetType::Elem => Some(elem),
             RetType::Optional(ty) => {
                 let inner = self.known(ty);
                 Some(self.u.new_optional(inner))
@@ -1004,7 +1077,12 @@ impl<'a> Infer<'a> {
     fn call_user(&mut self, f: &'a Function, args: &'a [Expr], span: Span) -> Option<TyVar> {
         let mut vars = HashMap::new();
         for generic in &f.generics {
-            let var = self.u.new_var(TypeSet::of(&generic.bound));
+            // Without a bound it can be anything, an array or a struct too.
+            let set = match generic.bound.len() == Type::ALL.len() {
+                true => TypeSet::ANY,
+                false => TypeSet::of(&generic.bound),
+            };
+            let var = self.u.new_var(set);
             vars.insert(generic.name.name.as_str(), var);
         }
 
@@ -1118,6 +1196,16 @@ impl<'a> Infer<'a> {
             }
         }
 
+        for (span, var) in std::mem::take(&mut self.generic_values) {
+            if !self.u.is_resolved(var) {
+                self.error(
+                    "cannot infer the type arguments of this value, add a type annotation"
+                        .to_owned(),
+                    span,
+                );
+            }
+        }
+
         for (span, var) in std::mem::take(&mut self.nones) {
             if !self.u.is_resolved(var) {
                 self.error(
@@ -1130,17 +1218,22 @@ impl<'a> Infer<'a> {
 
     /// The copy each generic call uses, from the final types of its
     /// parameters.
-    fn resolve_generic_calls(&mut self) -> HashMap<(usize, Span), String> {
+    #[allow(clippy::type_complexity)]
+    fn resolve_generic_calls(
+        &mut self,
+    ) -> (HashMap<(usize, Span), String>, Vec<(String, Vec<Ty>)>) {
         let mut targets = HashMap::new();
+        let mut composite = Vec::new();
         for call in std::mem::take(&mut self.generic_calls) {
-            let types: Option<Vec<Type>> = call
-                .vars
-                .iter()
-                .map(|&var| self.u.set(var).default_type())
-                .collect();
+            let types: Option<Vec<Ty>> = call.vars.iter().map(|&var| self.u.resolve(var)).collect();
             match types {
                 Some(types) => {
-                    targets.insert((call.item, call.span), instance_name(call.name, &types));
+                    let written: Vec<TypeExpr> =
+                        types.iter().map(|ty| type_expr(ty, call.span)).collect();
+                    targets.insert((call.item, call.span), instance_name(call.name, &written));
+                    if types.iter().any(|ty| !matches!(ty, Ty::Prim(_))) {
+                        composite.push((call.name.to_owned(), types));
+                    }
                 }
                 // Skipped after other errors, which usually cause this one.
                 None if !self.errors.is_empty() => {}
@@ -1156,8 +1249,17 @@ impl<'a> Infer<'a> {
                 }
             }
         }
-        targets
+        (targets, composite)
     }
+}
+
+/// What the generic names of a struct or enum stand for.
+fn arguments<'a>(params: &'a [Ident], args: &[TyVar]) -> HashMap<&'a str, TyVar> {
+    params
+        .iter()
+        .map(|p| p.name.as_str())
+        .zip(args.iter().copied())
+        .collect()
 }
 
 fn op_symbol(op: BinOp) -> &'static str {

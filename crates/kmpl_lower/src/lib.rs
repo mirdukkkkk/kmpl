@@ -40,6 +40,9 @@ struct Context<'p> {
     field_types: Vec<Vec<Ty>>,
     /// Enum name -> what each of its variants carries.
     variant_types: HashMap<&'p str, Vec<Vec<Ty>>>,
+    /// Name of a struct or enum -> its generic names, which appear in
+    /// `field_types` and `variant_types` until they are replaced.
+    type_params: HashMap<&'p str, Vec<String>>,
     builtins: Vec<String>,
 }
 
@@ -62,7 +65,39 @@ fn to_ty(ty: &TypeExpr) -> Ty {
         TypeExpr::Param(name) => Ty::Struct(name.name.clone()),
         TypeExpr::Array(elem) => Ty::Array(Box::new(to_ty(elem))),
         TypeExpr::Optional(inner) => Ty::Optional(Box::new(to_ty(inner))),
+        TypeExpr::Applied { name, args } => Ty::Instance {
+            name: name.name.clone(),
+            args: args.iter().map(to_ty).collect(),
+        },
         TypeExpr::Tuple(items) => Ty::Tuple(items.iter().map(to_ty).collect()),
+    }
+}
+
+/// The name and type arguments of a struct or enum type.
+fn nominal(ty: &Ty) -> Option<(&str, &[Ty])> {
+    match ty {
+        Ty::Struct(name) => Some((name, &[])),
+        Ty::Instance { name, args } => Some((name, args)),
+        _ => None,
+    }
+}
+
+/// `ty` from the definition of a generic type, with its names replaced.
+fn substitute(ty: &Ty, params: &[String], args: &[Ty]) -> Ty {
+    let each = |items: &[Ty]| items.iter().map(|t| substitute(t, params, args)).collect();
+    match ty {
+        Ty::Struct(name) => match params.iter().position(|p| p == name) {
+            Some(index) => args[index].clone(),
+            None => ty.clone(),
+        },
+        Ty::Prim(_) => ty.clone(),
+        Ty::Array(element) => Ty::Array(Box::new(substitute(element, params, args))),
+        Ty::Optional(inner) => Ty::Optional(Box::new(substitute(inner, params, args))),
+        Ty::Tuple(items) => Ty::Tuple(each(items)),
+        Ty::Instance { name, args: inner } => Ty::Instance {
+            name: name.clone(),
+            args: each(inner),
+        },
     }
 }
 
@@ -76,6 +111,7 @@ pub fn lower(program: &Program, types: &TypeInfo) -> Module {
         layouts: Vec::new(),
         field_types: Vec::new(),
         variant_types: HashMap::new(),
+        type_params: HashMap::new(),
         builtins: Vec::new(),
     };
 
@@ -90,6 +126,8 @@ pub fn lower(program: &Program, types: &TypeInfo) -> Module {
                 ctx.globals.insert(&c.name.name, id);
             }
             Item::Struct(s) => {
+                let params = s.generics.iter().map(|g| g.name.clone()).collect();
+                ctx.type_params.insert(&s.name.name, params);
                 ctx.structs.insert(&s.name.name, ctx.layouts.len());
                 ctx.layouts.push(StructLayout {
                     name: s.name.name.clone(),
@@ -99,6 +137,8 @@ pub fn lower(program: &Program, types: &TypeInfo) -> Module {
                     .push(s.fields.iter().map(|f| to_ty(&f.ty)).collect());
             }
             Item::Enum(e) => {
+                let params = e.generics.iter().map(|g| g.name.clone()).collect();
+                ctx.type_params.insert(&e.name.name, params);
                 ctx.structs.insert(&e.name.name, ctx.layouts.len());
                 ctx.layouts.push(StructLayout {
                     name: e.name.name.clone(),
@@ -420,7 +460,14 @@ impl<'c, 'p> Builder<'c, 'p> {
                 self.for_loop(var, body, range, None, stmt.span);
             }
             StmtKind::ForEach { var, array, body } => {
-                let elements = self.expr(array);
+                let mut elements = self.expr(array);
+                // Once through the text, instead of from its start each time.
+                if self.reg_type(elements) == Ty::Prim(Type::Str) {
+                    let id = self.ctx.builtin_id("chars");
+                    let args = vec![elements];
+                    let ty = Ty::Array(Box::new(Ty::Prim(Type::Str)));
+                    elements = self.value(Op::Builtin { id, args }, ty, array.span);
+                }
                 let zero = self.value(Op::Const(Constant::Int(0)), INT, stmt.span);
                 let one = self.value(Op::Const(Constant::Int(1)), INT, stmt.span);
                 let len = self.value(Op::ArrayLen(elements), INT, stmt.span);
@@ -545,16 +592,20 @@ impl<'c, 'p> Builder<'c, 'p> {
 
     /// Position and type of a field of the struct type `ty`.
     fn field(&self, ty: &Ty, name: &str) -> (usize, Ty) {
-        let Ty::Struct(struct_name) = ty else {
+        let Some((struct_name, args)) = nominal(ty) else {
             panic!("a field of a non-struct, the checker should have rejected it");
         };
-        let id = self.ctx.structs[struct_name.as_str()];
+        let id = self.ctx.structs[struct_name];
         let index = self.ctx.layouts[id]
             .fields
             .iter()
             .position(|f| f == name)
             .expect("checked by inference");
-        (index, self.ctx.field_types[id][index].clone())
+        let params = &self.ctx.type_params[struct_name];
+        (
+            index,
+            substitute(&self.ctx.field_types[id][index], params, args),
+        )
     }
 
     /// Tests the arms one by one. The checker guarantees that every variant
@@ -592,10 +643,11 @@ impl<'c, 'p> Builder<'c, 'p> {
             Pattern::None => 0,
             Pattern::Some(_) => 1,
             Pattern::Variant { variant, .. } => {
-                let Ty::Struct(name) = self.reg_type(subject) else {
+                let ty = self.reg_type(subject);
+                let Some((name, _)) = nominal(&ty) else {
                     panic!("a variant of a non-enum, the checker should have rejected it");
                 };
-                let id = self.ctx.structs[name.as_str()];
+                let id = self.ctx.structs[name];
                 self.ctx.layouts[id]
                     .fields
                     .iter()
@@ -608,11 +660,16 @@ impl<'c, 'p> Builder<'c, 'p> {
 
     /// The types of the values a pattern takes out of `subject`.
     fn binding_types(&self, subject: Reg, pattern: &Pattern) -> Vec<Ty> {
-        match (pattern, self.reg_type(subject)) {
-            (Pattern::Some(_), Ty::Optional(inner)) => vec![*inner],
-            (Pattern::Variant { .. }, Ty::Struct(name)) => {
+        let ty = self.reg_type(subject);
+        match (pattern, &ty, nominal(&ty)) {
+            (Pattern::Some(_), Ty::Optional(inner), _) => vec![(**inner).clone()],
+            (Pattern::Variant { .. }, _, Some((name, args))) => {
                 let code = self.variant_code(subject, pattern) as usize;
-                self.ctx.variant_types[name.as_str()][code].clone()
+                let params = &self.ctx.type_params[name];
+                self.ctx.variant_types[name][code]
+                    .iter()
+                    .map(|field| substitute(field, params, args))
+                    .collect()
             }
             _ => Vec::new(),
         }
@@ -1183,6 +1240,7 @@ fn element_type(ty: Ty) -> Ty {
     match ty {
         Ty::Array(element) => *element,
         Ty::Prim(Type::Bytes) => INT,
+        Ty::Prim(Type::Str) => Ty::Prim(Type::Str),
         other => panic!("indexing {other:?}, the checker should have rejected it"),
     }
 }

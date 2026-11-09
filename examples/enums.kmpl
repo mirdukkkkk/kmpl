@@ -22,7 +22,7 @@ fn area(s: Shape) -> real {
 }
 
 fn first(a: [int]) -> int? {
-    if len(a) == 0 {
+    if a.length() == 0 {
         return none;
     }
     return some(a[0]);
