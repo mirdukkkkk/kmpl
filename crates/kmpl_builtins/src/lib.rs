@@ -14,10 +14,12 @@ mod value;
 #[cfg(test)]
 mod tests;
 
+pub use stdlib::Random;
 pub use value::{EnumValue, StructLayout, StructValue, Value};
 
 use std::io::{BufRead, Write};
 use std::sync::Arc;
+use std::time::Instant;
 
 use kmpl_ast::Type;
 
@@ -46,6 +48,10 @@ pub struct Io<'a> {
     pub input: &'a mut dyn BufRead,
     /// What `args` returns.
     pub args: &'a [String],
+    /// The generator of `std:random`.
+    pub random: &'a mut Random,
+    /// When the program started, for `std:time`.
+    pub started: Instant,
 }
 
 /// Built-ins whose value depends on how the program is run, so constants
@@ -56,6 +62,12 @@ const DEPENDS_ON_RUN: &[&str] = &[
     "_fs_read",
     "_fs_read_text",
     "_fs_write",
+    "_random_real",
+    "_random_int",
+    "_random_normal",
+    "_random_shuffle",
+    "_time_now",
+    "_time_clock",
 ];
 
 pub fn depends_on_run(name: &str) -> bool {
@@ -80,6 +92,10 @@ pub enum ParamType {
     ArrayOfElem,
     /// `E?`
     OptionalOfElem,
+    /// `[[real]]`
+    Matrix,
+    /// `[real]`
+    Reals,
 }
 
 /// What a built-in returns.
@@ -104,6 +120,12 @@ pub enum RetType {
     Optional(Type),
     /// `real` for a vector, `int` for what is counted. Used by `length`.
     Length,
+    /// `[[real]]`
+    Matrix,
+    /// `[[real]]?`
+    OptionalMatrix,
+    /// `[real]?`
+    OptionalReals,
 }
 
 const REAL: ParamType = ParamType::Exact(Type::Real);
@@ -424,6 +446,28 @@ static BUILTINS: &[Builtin] = &[
             ok(value.unwrap_or_else(|| std::mem::replace(&mut a[1], Value::Int(0))))
         },
     },
+    Builtin {
+        name: "format",
+        generic: &[
+            Type::Int,
+            Type::Real,
+            Type::Complex,
+            Type::Vec2,
+            Type::Vec3,
+            Type::Vec4,
+        ],
+        params: &[ParamType::T, ParamType::Exact(Type::Int)],
+        ret: RetType::Exact(Type::Str),
+        func: |a, _| {
+            let digits = a[1].as_int();
+            if !(0..=MAX_FORMAT_DIGITS).contains(&digits) {
+                return Err(format!(
+                    "`format` takes from 0 to {MAX_FORMAT_DIGITS} digits, got {digits}"
+                ));
+            }
+            ok(Value::Str(formatted(&a[0], digits as usize).into()))
+        },
+    },
     // Arrays are values, so these return a new array and leave the
     // argument alone: `a = push(a, x);`. If nothing else holds the array it
     // grows in place, so a loop of pushes does not copy it each time.
@@ -573,6 +617,27 @@ fn take_optional(argument: &mut Value) -> Option<Value> {
 /// `some(value)` or `none`.
 pub(crate) fn optional(value: Option<Value>) -> Value {
     Value::Optional(value.map(Arc::new))
+}
+
+const MAX_FORMAT_DIGITS: i64 = 100;
+
+/// The text of a number or vector with this many digits after the point.
+fn formatted(value: &Value, digits: usize) -> String {
+    let real = |x: f64| format!("{x:.digits$}");
+    match value {
+        // Written out, because a large `int` does not fit a `real` exactly.
+        Value::Int(v) if digits == 0 => v.to_string(),
+        Value::Int(v) => format!("{v}.{}", "0".repeat(digits)),
+        Value::Real(v) => real(*v),
+        Value::Complex { re, im } => {
+            let sign = if im.is_sign_negative() { '-' } else { '+' };
+            format!("{}{sign}{}i", real(*re), real(im.abs()))
+        }
+        vector => {
+            let parts: Vec<String> = vector.components().iter().map(|c| real(*c)).collect();
+            format!("({})", parts.join(", "))
+        }
+    }
 }
 
 pub(crate) fn pair(a: Value, b: Value) -> Value {

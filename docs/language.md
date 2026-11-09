@@ -279,6 +279,15 @@ fn main() {
 `length` is the length of a vector as a `real`, and the number of elements of an
 array or `bytes` or of characters of a string as an `int`.
 
+`format(x, digits)` gives the text of an `int`, `real`, `complex` or vector with
+this many digits after the point, from 0 to 100. A number is rounded by its exact
+value in memory, so `format(2.675, 2)` is `2.67`.
+
+```kmpl
+print(format(3.14159, 2));  // 3.14
+print(format(vec2(1.0, 2.5), 1));  // (1.0, 2.5)
+```
+
 ## Structs
 
 Structs are values too. A literal has to give every field, in any order.
@@ -518,6 +527,51 @@ Libraries that come with `kmpl` are imported from `std:`:
 | `std:io` | `args read_line` |
 | `std:text` | `parse_int parse_real split join trim starts_with ends_with contains find replace repeat to_upper to_lower is_digit is_letter is_space code from_code` |
 | `std:bits` | `shr_logical` |
+| `std:linalg` | `solve det inverse transpose identity trace norm` |
+| `std:stats` | `mean median variance stddev quantile correlation histogram linear_fit` |
+| `std:random` | `seed real int normal shuffle` |
+| `std:time` | `clock now sleep` |
+
+`std:stats` works on `[real]`. Data it cannot use, such as an empty list, stops the
+program. `variance` and `stddev` are those of a sample:
+
+```kmpl
+import stats from "std:stats";
+
+fn main() {
+    let a = [1.0, 2.0, 3.0];
+    print(stats.mean(a));  // 2.0
+    print(stats.stddev(a));  // 1.0
+    print(stats.quantile(a, 0.5));  // 2.0
+    print(stats.linear_fit(a, [3.0, 5.0, 7.0]));  // (2.0, 1.0)
+}
+```
+
+`std:linalg` works on matrices written as `[[real]]`:
+
+```kmpl
+import linalg from "std:linalg";
+
+fn main() {
+    let a = [[2.0, 0.0], [0.0, 4.0]];
+    print(linalg.solve(a, [2.0, 8.0]));  // some([1.0, 2.0])
+    print(linalg.det(a));  // 8.0
+    print(linalg.inverse([[1.0, 2.0], [2.0, 4.0]]));  // none
+}
+```
+
+`solve` and `inverse` return `none` for a singular matrix, and a matrix of the wrong
+shape stops the program. Its numbers are copied, so a function of this library is
+as fast as Rust, while a loop over `a[i][j]` in your own code is slower.
+
+`random.real()` is from 0.0 up to 1.0, and `random.int(1, 7)` from 1 to 6, like
+`1..7`. An empty range stops the program. After `random.seed(n)` the numbers are
+the same on every run; `normal` may differ in the last digits between systems.
+The generator is not for secrets.
+
+`time.clock()` counts seconds from the start of the program and never goes back,
+so it is the one to measure with. `time.now()` is the system clock, in seconds
+since 1970.
 
 Functions in `std:fs` also return the text of an error, empty if all went well:
 
@@ -564,7 +618,7 @@ fn main() {
 | Math on `real` or `complex` | `sqrt exp log sin cos tan asin acos atan sinh cosh tanh` |
 | Other numbers | `abs pow cbrt floor ceil round atan2 hypot min max clamp is_nan is_inf lerp smoothstep` |
 | Complex | `re im arg conj` |
-| Conversion | `real int complex string bytes` |
+| Conversion | `real int complex string bytes format` |
 | Vectors | `vec2 vec3 vec4 dot length distance normalize cross` |
 | Arrays and strings | `length push concat chars` |
 | Output | `print` |

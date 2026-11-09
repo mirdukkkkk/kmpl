@@ -1,0 +1,32 @@
+// Linear algebra on matrices written as `[[real]]`.
+
+// `x` such that `a * x == b`, or `none` if the matrix is singular.
+fn solve(a: [[real]], b: [real]) -> [real]? {
+    return _linalg_solve(a, b);
+}
+
+fn det(a: [[real]]) -> real {
+    return _linalg_det(a);
+}
+
+// `none` if the matrix is singular.
+fn inverse(a: [[real]]) -> [[real]]? {
+    return _linalg_inverse(a);
+}
+
+fn transpose(a: [[real]]) -> [[real]] {
+    return _linalg_transpose(a);
+}
+
+fn identity(size: int) -> [[real]] {
+    return _linalg_identity(size);
+}
+
+fn trace(a: [[real]]) -> real {
+    return _linalg_trace(a);
+}
+
+// The Frobenius norm: the root of the sum of the squares of all numbers.
+fn norm(a: [[real]]) -> real {
+    return _linalg_norm(a);
+}

@@ -32,10 +32,13 @@ fn call_with_out(
     out: &mut dyn Write,
 ) -> Result<Option<Value>, String> {
     let mut input: &[u8] = &[];
+    let mut random = crate::Random::default();
     let mut io = Io {
         out,
         input: &mut input,
         args: &[],
+        random: &mut random,
+        started: std::time::Instant::now(),
     };
     (b.func)(&mut args.to_vec(), &mut io)
 }
@@ -95,9 +98,22 @@ fn signatures_match_implementations() {
         };
 
         for &t in choices {
-            // Stopping the program is all it does.
-            // Their sample arguments would not make sense.
-            if ["panic", "_text_code", "_text_join"].contains(&b.name) {
+            // These stop the program, would wait, or would not make sense
+            // with the sample arguments.
+            if [
+                "panic",
+                "_text_code",
+                "_text_join",
+                "_time_sleep",
+                "_random_int",
+            ]
+            .contains(&b.name)
+            {
+                continue;
+            }
+            // One sample number is not enough for most of these. `std:stats`
+            // is tested through the real program instead.
+            if b.name.starts_with("_stats_") {
                 continue;
             }
             let args: Vec<Value> = b
@@ -111,6 +127,10 @@ fn signatures_match_implementations() {
                     ParamType::OptionalOfElem => {
                         Value::Optional(Some(std::sync::Arc::new(sample(t))))
                     }
+                    ParamType::Reals => Value::Reals(std::sync::Arc::new(vec![2.0])),
+                    ParamType::Matrix => Value::Array(std::sync::Arc::new(vec![Value::Reals(
+                        std::sync::Arc::new(vec![2.0]),
+                    )])),
                     ParamType::Collection | ParamType::ArrayOfElem => {
                         Value::Array(std::sync::Arc::new(vec![sample(t)]))
                     }
@@ -121,6 +141,14 @@ fn signatures_match_implementations() {
             // `Value::ty` covers only the closed list of types.
             if matches!(b.ret, RetType::ArrayOfElem | RetType::ArrayOf(_)) {
                 assert!(matches!(result, Some(Value::Array(_))), "`{}`", b.name);
+                continue;
+            }
+            if matches!(b.ret, RetType::Matrix) {
+                assert!(matches!(result, Some(Value::Array(_))), "`{}`", b.name);
+                continue;
+            }
+            if matches!(b.ret, RetType::OptionalMatrix | RetType::OptionalReals) {
+                assert!(matches!(result, Some(Value::Optional(_))), "`{}`", b.name);
                 continue;
             }
             if let RetType::Optional(inner) = b.ret {
@@ -152,7 +180,10 @@ fn signatures_match_implementations() {
                 RetType::ArrayOfElem
                 | RetType::ArrayOf(_)
                 | RetType::Pair(..)
-                | RetType::Optional(_) => {
+                | RetType::Optional(_)
+                | RetType::Matrix
+                | RetType::OptionalMatrix
+                | RetType::OptionalReals => {
                     unreachable!("handled above")
                 }
             };

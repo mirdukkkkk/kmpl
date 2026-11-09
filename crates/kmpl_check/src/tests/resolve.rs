@@ -488,6 +488,14 @@ fn constants_cannot_depend_on_the_run() {
     );
     assert_ok(r#"const A: int? = _text_parse_int("1");"#);
     assert_error(
+        "const A: real = _random_real();",
+        "a constant cannot call `_random_real`: its value depends on how the program is run",
+    );
+    assert_error(
+        "const A: real = _time_now();",
+        "a constant cannot call `_time_now`: its value depends on how the program is run",
+    );
+    assert_error(
         "fn f() { _io_args(1); }",
         "`_io_args` takes 0 arguments, but 1 was given",
     );

@@ -685,6 +685,28 @@ fn a_dot_call_is_a_call_with_the_value_first() {
 }
 
 #[test]
+fn linalg_reports_bad_shapes_as_errors() {
+    let message = |name: &str, body: &str| {
+        let source = format!("import linalg from \"std:linalg\"; fn main() {{ {body} }}");
+        let out = run(name, &source);
+        assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+        stderr(&out)
+    };
+    assert!(
+        message("la_square", "print(linalg.det([[1.0, 2.0]]));")
+            .contains("`linalg.det` needs a square matrix, this one is 1 by 2")
+    );
+    assert!(
+        message("la_ragged", "print(linalg.norm([[1.0], []]));")
+            .contains("the rows of this matrix have different lengths")
+    );
+    assert!(
+        message("la_vector", "print(linalg.solve([[1.0]], [1.0, 2.0]));")
+            .contains("a matrix with 1 rows and a vector of 2 numbers")
+    );
+}
+
+#[test]
 fn optionals_read_well_with_a_dot() {
     let out = run(
         "dot_unwrap",
@@ -732,6 +754,80 @@ fn generic_types_with_dot_calls() {
 }
 
 #[test]
+fn linalg_works_in_a_constant_and_with_int_literals() {
+    let out = run(
+        "la_const",
+        "import linalg from \"std:linalg\";
+         const D: real = linalg.det([[2, 0], [0, 3]]);
+         fn main() { print(D); print(linalg.identity(1) * [5.0]); }",
+    );
+    assert_eq!(stdout(&out), "6.0\n[5.0]\n", "{}", stderr(&out));
+}
+
+#[test]
+fn stats_of_a_list() {
+    let out = run(
+        "stats_all",
+        "import stats from \"std:stats\";
+         fn main() {
+             let a = [1.0, 2.0, 3.0];
+             print(stats.mean(a));
+             print(stats.median([3.0, 1.0, 2.0, 4.0]));
+             print(stats.variance(a));
+             print(stats.stddev(a));
+             print(stats.quantile(a, 0.5));
+             print(stats.correlation(a, [2.0, 4.0, 6.0]));
+             print(stats.histogram(a, 2));
+             let counts: [int] = stats.histogram(a, 3);
+             print(counts[2] + 1);
+             let (slope, intercept) = stats.linear_fit(a, [3.0, 5.0, 7.0]);
+             print(slope);
+             print(intercept);
+         }",
+    );
+    assert_eq!(
+        stdout(&out),
+        "2.0\n2.5\n1.0\n1.0\n2.0\n1.0\n[1, 2]\n2\n2.0\n1.0\n",
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn stats_reports_what_it_cannot_do() {
+    let message = |name: &str, body: &str| {
+        let source = format!("import stats from \"std:stats\"; fn main() {{ {body} }}");
+        let out = run(name, &source);
+        assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+        stderr(&out)
+    };
+    let empty = "let e: [real] = [];";
+    assert!(
+        message("st_mean", &format!("{empty} print(stats.mean(e));"))
+            .contains("`stats.mean` needs at least one number")
+    );
+    assert!(
+        message("st_var", "print(stats.variance([1.0]));")
+            .contains("`stats.variance` needs at least two numbers, got 1")
+    );
+    assert!(
+        message("st_q", "print(stats.quantile([1.0], 1.5));")
+            .contains("`stats.quantile` needs a number from 0 to 1, got 1.5")
+    );
+    assert!(
+        message(
+            "st_corr",
+            "print(stats.correlation([1.0, 1.0], [1.0, 2.0]));"
+        )
+        .contains("`stats.correlation` needs numbers that differ")
+    );
+    assert!(
+        message("st_fit", "print(stats.linear_fit([1.0, 1.0], [1.0, 2.0]));")
+            .contains("`stats.linear_fit` needs `x` values that differ")
+    );
+}
+
+#[test]
 fn every_std_library_can_be_imported() {
     let out = run(
         "std_all",
@@ -745,11 +841,54 @@ fn every_std_library_can_be_imported() {
 }
 
 #[test]
+fn random_and_time_under_their_own_names() {
+    let out = run(
+        "std_random_time",
+        "import random from \"std:random\";
+         import time from \"std:time\";
+         fn main() {
+             random.seed(1);
+             print(random.real() < 1.0);
+             print(random.int(3, 4));
+             print(random.normal(1.5, 0.0));
+             print(random.shuffle([\"a\"]));
+             let start = time.clock();
+             time.sleep(0.0);
+             print(time.clock() >= start);
+             print(time.now() > 0.0);
+             print(int(2.5));
+         }",
+    );
+    assert_eq!(
+        stdout(&out),
+        "true\n3\n1.5\n[a]\ntrue\ntrue\n2\n",
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn a_constant_cannot_use_random_through_the_library() {
+    let out = run(
+        "const_random",
+        "import random from \"std:random\"; const X: real = random.real(); fn main() { }",
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).contains("depends on how the program is run"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
 fn an_unknown_library_lists_the_known_ones() {
     let out = run("std_unknown", "import x from \"std:nope\"; fn main() { }");
     assert_eq!(out.status.code(), Some(1));
     assert!(
-        stderr(&out).contains("there is no library `std:nope`, there are: bits, fs, io, text"),
+        stderr(&out).contains(
+            "there is no library `std:nope`, there are: bits, fs, io, linalg, random, stats, text, time"
+        ),
         "{}",
         stderr(&out)
     );

@@ -5,9 +5,23 @@
 mod bits;
 mod fs;
 mod io;
+mod linalg;
+mod random;
+mod stats;
 mod text;
+mod time;
+
+pub use random::Random;
 
 use crate::Builtin;
 
-pub(crate) static GROUPS: [&[Builtin]; 4] =
-    [fs::BUILTINS, io::BUILTINS, text::BUILTINS, bits::BUILTINS];
+pub(crate) static GROUPS: [&[Builtin]; 8] = [
+    linalg::BUILTINS,
+    stats::BUILTINS,
+    fs::BUILTINS,
+    io::BUILTINS,
+    text::BUILTINS,
+    bits::BUILTINS,
+    random::BUILTINS,
+    time::BUILTINS,
+];

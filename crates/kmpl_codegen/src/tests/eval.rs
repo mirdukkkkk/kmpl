@@ -1563,6 +1563,122 @@ fn recursive_generic_enums() {
 }
 
 #[test]
+fn a_seed_repeats_the_numbers() {
+    let out = output(
+        "_random_seed(5);
+         let a = _random_real();
+         let b = _random_int(0, 1000000);
+         let c = _random_normal(0.0, 1.0);
+         let d = _random_shuffle([1, 2, 3, 4, 5, 6, 7, 8]);
+         _random_seed(5);
+         print(a == _random_real());
+         print(b == _random_int(0, 1000000));
+         print(c == _random_normal(0.0, 1.0));
+         print(d == _random_shuffle([1, 2, 3, 4, 5, 6, 7, 8]));
+         _random_seed(6);
+         print(a == _random_real());",
+    );
+    assert_eq!(out, "true\ntrue\ntrue\ntrue\nfalse\n");
+}
+
+#[test]
+fn random_numbers_stay_in_their_range() {
+    let out = output(
+        "let ok = true;
+         for i in 0..1000 {
+             let x = _random_int(-3, 3);
+             let r = _random_real();
+             if x < -3 || x >= 3 || r < 0.0 || r >= 1.0 { ok = false; }
+         }
+         print(ok);
+         print(_random_int(4, 5));
+         print(_random_normal(2.5, 0.0));
+         print(_random_int(-9223372036854775807, 9223372036854775807) != 0);
+         let flat: [real] = _random_shuffle([1.0]);
+         print(flat);",
+    );
+    assert_eq!(out, "true\n4\n2.5\ntrue\n[1.0]\n");
+}
+
+#[test]
+fn bad_random_arguments_are_errors() {
+    let message = |body: &str| run(&format!("fn main() {{ {body} }}")).unwrap_err().0;
+    assert_eq!(
+        message("print(_random_int(5, 5));"),
+        "the range 5..5 of `random.int` is empty"
+    );
+    assert_eq!(
+        message("print(_random_int(7, 1));"),
+        "the range 7..1 of `random.int` is empty"
+    );
+    assert!(message("print(_random_normal(0.0, -1.0));").contains("deviation"));
+    assert!(message("print(_random_normal(0.0 / 0.0, 1.0));").contains("finite mean"));
+}
+
+#[test]
+fn time_goes_forward_and_sleep_waits() {
+    let out = output(
+        "let start = _time_clock();
+         _time_sleep(0.02);
+         print(_time_clock() - start >= 0.02);
+         print(_time_now() > 1000000000.0);
+         _time_sleep(0.0);",
+    );
+    assert_eq!(out, "true\ntrue\n");
+}
+
+#[test]
+fn bad_sleeps_are_errors() {
+    let message = |body: &str| run(&format!("fn main() {{ {body} }}")).unwrap_err().0;
+    assert_eq!(
+        message("_time_sleep(-1.0);"),
+        "cannot sleep for -1.0 seconds"
+    );
+    assert_eq!(
+        message("_time_sleep(1.0 / 0.0);"),
+        "cannot sleep for inf seconds"
+    );
+}
+
+#[test]
+fn format_shows_this_many_digits() {
+    let out = output(
+        "print(format(3.14159, 2));
+         print(format(3.7, 0));
+         print(format(-0.5, 1));
+         print(format(5, 2));
+         print(format(5, 0));
+         print(format(9223372036854775807, 1));
+         print(format(1.0 + 2.5i, 1));
+         print(format(1.0 - 2.5i, 1));
+         print(format(vec3(1.0, 2.5, 3.25), 2));
+         print(format(0.0 / 0.0, 2));
+         print(format(1.0 / 0.0, 2));
+         print(format(2.675, 2));
+         print(\"x = \" + format(1.5, 3));",
+    );
+    assert_eq!(
+        out,
+        "3.14\n4\n-0.5\n5.00\n5\n9223372036854775807.0\n1.0+2.5i\n1.0-2.5i\n\
+         (1.00, 2.50, 3.25)\nNaN\ninf\n2.67\nx = 1.500\n"
+    );
+}
+
+#[test]
+fn format_refuses_a_bad_number_of_digits() {
+    let message = |digits: &str| {
+        run(&format!("fn main() {{ print(format(1.0, {digits})); }}"))
+            .unwrap_err()
+            .0
+    };
+    assert_eq!(message("-1"), "`format` takes from 0 to 100 digits, got -1");
+    assert_eq!(
+        message("101"),
+        "`format` takes from 0 to 100 digits, got 101"
+    );
+}
+
+#[test]
 fn array_writes_in_a_loop_do_not_copy() {
     // Quadratic copying would make this take far too long to finish.
     let src = "fn main() {
