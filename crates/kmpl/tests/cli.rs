@@ -765,6 +765,69 @@ fn linalg_works_in_a_constant_and_with_int_literals() {
 }
 
 #[test]
+fn stats_of_a_list() {
+    let out = run(
+        "stats_all",
+        "import stats from \"std:stats\";
+         fn main() {
+             let a = [1.0, 2.0, 3.0];
+             print(stats.mean(a));
+             print(stats.median([3.0, 1.0, 2.0, 4.0]));
+             print(stats.variance(a));
+             print(stats.stddev(a));
+             print(stats.quantile(a, 0.5));
+             print(stats.correlation(a, [2.0, 4.0, 6.0]));
+             print(stats.histogram(a, 2));
+             let counts: [int] = stats.histogram(a, 3);
+             print(counts[2] + 1);
+             let (slope, intercept) = stats.linear_fit(a, [3.0, 5.0, 7.0]);
+             print(slope);
+             print(intercept);
+         }",
+    );
+    assert_eq!(
+        stdout(&out),
+        "2.0\n2.5\n1.0\n1.0\n2.0\n1.0\n[1, 2]\n2\n2.0\n1.0\n",
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn stats_reports_what_it_cannot_do() {
+    let message = |name: &str, body: &str| {
+        let source = format!("import stats from \"std:stats\"; fn main() {{ {body} }}");
+        let out = run(name, &source);
+        assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+        stderr(&out)
+    };
+    let empty = "let e: [real] = [];";
+    assert!(
+        message("st_mean", &format!("{empty} print(stats.mean(e));"))
+            .contains("`stats.mean` needs at least one number")
+    );
+    assert!(
+        message("st_var", "print(stats.variance([1.0]));")
+            .contains("`stats.variance` needs at least two numbers, got 1")
+    );
+    assert!(
+        message("st_q", "print(stats.quantile([1.0], 1.5));")
+            .contains("`stats.quantile` needs a number from 0 to 1, got 1.5")
+    );
+    assert!(
+        message(
+            "st_corr",
+            "print(stats.correlation([1.0, 1.0], [1.0, 2.0]));"
+        )
+        .contains("`stats.correlation` needs numbers that differ")
+    );
+    assert!(
+        message("st_fit", "print(stats.linear_fit([1.0, 1.0], [1.0, 2.0]));")
+            .contains("`stats.linear_fit` needs `x` values that differ")
+    );
+}
+
+#[test]
 fn every_std_library_can_be_imported() {
     let out = run(
         "std_all",
@@ -824,7 +887,7 @@ fn an_unknown_library_lists_the_known_ones() {
     assert_eq!(out.status.code(), Some(1));
     assert!(
         stderr(&out).contains(
-            "there is no library `std:nope`, there are: bits, fs, io, linalg, random, text, time"
+            "there is no library `std:nope`, there are: bits, fs, io, linalg, random, stats, text, time"
         ),
         "{}",
         stderr(&out)

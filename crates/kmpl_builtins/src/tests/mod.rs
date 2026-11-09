@@ -111,6 +111,11 @@ fn signatures_match_implementations() {
             {
                 continue;
             }
+            // One sample number is not enough for most of these. `std:stats`
+            // is tested through the real program instead.
+            if b.name.starts_with("_stats_") {
+                continue;
+            }
             let args: Vec<Value> = b
                 .params
                 .iter()

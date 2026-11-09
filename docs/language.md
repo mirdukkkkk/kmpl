@@ -528,8 +528,24 @@ Libraries that come with `kmpl` are imported from `std:`:
 | `std:text` | `parse_int parse_real split join trim starts_with ends_with contains find replace repeat to_upper to_lower is_digit is_letter is_space code from_code` |
 | `std:bits` | `shr_logical` |
 | `std:linalg` | `solve det inverse transpose identity trace norm` |
+| `std:stats` | `mean median variance stddev quantile correlation histogram linear_fit` |
 | `std:random` | `seed real int normal shuffle` |
 | `std:time` | `clock now sleep` |
+
+`std:stats` works on `[real]`. Data it cannot use, such as an empty list, stops the
+program. `variance` and `stddev` are those of a sample:
+
+```kmpl
+import stats from "std:stats";
+
+fn main() {
+    let a = [1.0, 2.0, 3.0];
+    print(stats.mean(a));  // 2.0
+    print(stats.stddev(a));  // 1.0
+    print(stats.quantile(a, 0.5));  // 2.0
+    print(stats.linear_fit(a, [3.0, 5.0, 7.0]));  // (2.0, 1.0)
+}
+```
 
 `std:linalg` works on matrices written as `[[real]]`:
 
