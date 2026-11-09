@@ -9,7 +9,11 @@ mod memory;
 mod translate;
 mod vector;
 
+#[cfg(test)]
+mod tests;
+
 use std::path::Path;
+use std::process::{Command, ExitStatus};
 
 use kmpl_ast::Span;
 
@@ -23,4 +27,20 @@ pub fn build(
 ) -> Result<(), String> {
     let object = llvm::object_code(module, locate)?;
     link::link(&object, output)
+}
+
+/// Compiles `module` to a temporary executable and runs it with `args`,
+/// sharing this process's standard streams. Returns how the program ended.
+pub fn run(
+    module: &kmpl_ir::Module,
+    locate: &dyn Fn(Span) -> String,
+    args: &[String],
+) -> Result<ExitStatus, String> {
+    let dir = link::TempDir::new()?;
+    let program = dir.path("program");
+    build(module, &program, locate)?;
+    Command::new(&program)
+        .args(args)
+        .status()
+        .map_err(|e| format!("kmpl: cannot run the compiled program: {e}"))
 }

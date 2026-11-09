@@ -75,7 +75,7 @@ impl Value {
     /// The inner `f64` of a `Real`.
     ///
     /// Panics on other variants. The checker guarantees argument types
-    /// before the interpreter calls a built-in, so a panic here is a bug
+    /// before the runtime calls a built-in, so a panic here is a bug
     /// in the checker, not in the user's program.
     pub fn as_real(&self) -> f64 {
         match self {

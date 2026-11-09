@@ -1,5 +1,5 @@
 //! Arithmetic and comparisons on `int`, `real` and `bool`, which live in
-//! machine registers. Failures match what `ops.rs` reports on the VM.
+//! machine registers. Failures say what `ops.rs` says.
 
 use inkwell::intrinsics::Intrinsic;
 use inkwell::values::{BasicValueEnum, IntValue};

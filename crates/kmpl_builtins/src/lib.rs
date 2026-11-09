@@ -1,7 +1,7 @@
 //! Built-in functions, in one table.
 //!
 //! The checker reads `generic`, `params` and `ret` from here, the
-//! interpreter calls `func`. Adding a built-in means adding one entry
+//! runtime calls `func`. Adding a built-in means adding one entry
 //! to `BUILTINS`.
 
 pub mod abi;

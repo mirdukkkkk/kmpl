@@ -138,18 +138,8 @@ fn real_division_by_zero_is_not_an_error() {
 #[test]
 fn runtime_error_span_points_at_the_operation() {
     let src = "fn main() { let z = 0; let y = 10 / z; }";
-    let mut program = kmpl_parse::parse(kmpl_lexer::lex(src).unwrap()).unwrap();
-    let types = kmpl_check::check(&mut program).unwrap();
-    let mut module = kmpl_lower::lower(&program, &types);
-    kmpl_ir::annotate(&mut module);
-    let (mut out, mut input) = (Vec::new(), &b""[..]);
-    let io = crate::Io {
-        out: &mut out,
-        input: &mut input,
-        args: &[],
-    };
-    let err = crate::run(&module, io).unwrap_err();
-    assert_eq!(&src[err.span.start..err.span.end], "10 / z");
+    let (error, _) = super::run_mode(src, &[], b"", true).unwrap_err();
+    assert_eq!(&src[error.span.start..error.span.end], "10 / z");
 }
 
 #[test]
@@ -159,14 +149,14 @@ fn deep_recursion_is_an_error_not_a_crash() {
         runtime_error(src),
         format!(
             "stack overflow: more than {} nested calls",
-            crate::MAX_CALL_DEPTH
+            kmpl_builtins::ops::MAX_CALL_DEPTH
         )
     );
 }
 
 #[test]
 fn recursion_just_under_the_limit_works() {
-    let depth = crate::MAX_CALL_DEPTH - 1;
+    let depth = kmpl_builtins::ops::MAX_CALL_DEPTH - 1;
     let src = format!(
         "fn down(n: int) -> int {{ if n == 0 {{ return 0; }} return 1 + down(n - 1); }}
          fn main() {{ print(down({})); }}",

@@ -1,4 +1,4 @@
-//! Runs every `examples/*.kmpl`, on the VM and as a built executable, and
+//! Runs every `examples/*.kmpl`, directly and as a built executable, and
 //! compares its output with the `.out` file next to it.
 
 use std::path::{Path, PathBuf};

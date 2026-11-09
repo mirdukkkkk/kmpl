@@ -17,3 +17,9 @@ kmpl_ast.workspace = true
 kmpl_builtins.workspace = true
 kmpl_ir.workspace = true
 inkwell.workspace = true
+
+[dev-dependencies]
+kmpl_lexer.workspace = true
+kmpl_parse.workspace = true
+kmpl_check.workspace = true
+kmpl_lower.workspace = true

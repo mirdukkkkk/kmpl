@@ -1,3 +1,5 @@
+//! Every test builds a real executable and runs it.
+
 mod eval;
 
 use std::io::Write;
@@ -6,15 +8,22 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use kmpl_ast::Span;
 
-/// Checks and runs `src`. Returns what it printed, or the runtime error
+#[derive(Debug, PartialEq)]
+struct RuntimeError {
+    message: String,
+    span: Span,
+}
+
+type Outcome = Result<String, (RuntimeError, String)>;
+
+/// Builds and runs `src`. Returns what it printed, or the runtime error
 /// message with what was printed before it.
 fn run(src: &str) -> Result<String, (String, String)> {
     run_with(src, &[], b"")
 }
 
 /// `run` with command line arguments and standard input. Runs the program
-/// with and without optimizations, on the VM and as a built executable:
-/// none of that may change anything.
+/// with and without optimizations: they must not change anything.
 fn run_with(src: &str, args: &[&str], input: &[u8]) -> Result<String, (String, String)> {
     let optimized = run_mode(src, args, input, true);
     let plain = run_mode(src, args, input, false);
@@ -22,13 +31,6 @@ fn run_with(src: &str, args: &[&str], input: &[u8]) -> Result<String, (String, S
         optimized, plain,
         "optimizations changed the result of: {src}"
     );
-    for optimize in [true, false] {
-        let native = run_native(src, args, input, optimize);
-        assert_eq!(
-            optimized, native,
-            "the executable (optimized: {optimize}) differs from the VM on: {src}"
-        );
-    }
     optimized.map_err(|(error, printed)| (error.message, printed))
 }
 
@@ -43,28 +45,7 @@ fn module(src: &str, optimize: bool) -> kmpl_ir::Module {
     module
 }
 
-type Outcome = Result<String, (crate::RuntimeError, String)>;
-
 fn run_mode(src: &str, args: &[&str], input: &[u8], optimize: bool) -> Outcome {
-    let module = module(src, optimize);
-    let args: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
-    let mut out = Vec::new();
-    let mut input = input;
-    let io = crate::Io {
-        out: &mut out,
-        input: &mut input,
-        args: &args,
-    };
-    let result = crate::run(&module, io);
-    let printed = String::from_utf8(out).unwrap();
-    match result {
-        Ok(()) => Ok(printed),
-        Err(e) => Err((e, printed)),
-    }
-}
-
-/// Builds the program and runs the executable.
-fn run_native(src: &str, args: &[&str], input: &[u8], optimize: bool) -> Outcome {
     static NEXT: AtomicU32 = AtomicU32::new(0);
     let path = std::env::temp_dir().join(format!(
         "kmpl-native-test-{}-{}",
@@ -72,9 +53,9 @@ fn run_native(src: &str, args: &[&str], input: &[u8], optimize: bool) -> Outcome
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));
 
-    // The span instead of source lines, so it can be compared with the VM's.
+    // The span instead of source lines, so tests can look at it.
     let locate = |span: Span| format!("{}..{}\n", span.start, span.end);
-    kmpl_codegen::build(&module(src, optimize), &path, &locate)
+    crate::build(&module(src, optimize), &path, &locate)
         .unwrap_or_else(|message| panic!("{message} for: {src}"));
 
     let mut child = Command::new(&path)
@@ -98,13 +79,13 @@ fn run_native(src: &str, args: &[&str], input: &[u8], optimize: bool) -> Outcome
 }
 
 /// `error: message`, then the line that `locate` produced.
-fn parse_error(stderr: &str) -> crate::RuntimeError {
+fn parse_error(stderr: &str) -> RuntimeError {
     let (message, location) = stderr
         .strip_suffix('\n')
         .and_then(|text| text.rsplit_once('\n'))
         .unwrap_or_else(|| panic!("not an error: {stderr}"));
     let (start, end) = location.split_once("..").unwrap();
-    crate::RuntimeError {
+    RuntimeError {
         message: message.strip_prefix("error: ").unwrap().to_owned(),
         span: Span::new(start.parse().unwrap(), end.parse().unwrap()),
     }

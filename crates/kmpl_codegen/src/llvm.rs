@@ -24,7 +24,7 @@ pub fn object_code(module: &Module, locate: &dyn Fn(Span) -> String) -> Result<V
     llvm.set_data_layout(&machine.get_target_data().get_data_layout());
     llvm.verify().map_err(|e| {
         format!(
-            "kmpl build: generated invalid code, this is a bug in kmpl: {}",
+            "kmpl: generated invalid code, this is a bug in kmpl: {}",
             e.to_string()
         )
     })?;
@@ -59,5 +59,5 @@ fn target_machine() -> Result<TargetMachine, String> {
             RelocMode::PIC,
             CodeModel::Default,
         )
-        .ok_or_else(|| format!("kmpl build: cannot generate code for {triple}"))
+        .ok_or_else(|| format!("kmpl: cannot generate code for {triple}"))
 }
