@@ -163,6 +163,7 @@ dependencies = [
  "kmpl_ast",
  "kmpl_builtins",
  "kmpl_check",
+ "kmpl_codegen",
  "kmpl_ir",
  "kmpl_lexer",
  "kmpl_lower",
