@@ -16,6 +16,8 @@ use kmpl_ast::{Span, Ty, Type, UnOp};
 use kmpl_builtins::{BUILTINS, abi, ops};
 use kmpl_ir::{Constant, Function, Inst, Op, Reg, Step, Target, Terminator};
 
+use crate::vector::vector_size;
+
 /// The symbol `kmpl_rt` calls to start the program.
 const ENTRY: &str = "kmpl_program";
 
@@ -29,6 +31,8 @@ pub(crate) struct Runtime<'ctx> {
     pub op: FunctionValue<'ctx>,
     pub clone: FunctionValue<'ctx>,
     pub drop: FunctionValue<'ctx>,
+    pub box_vector: FunctionValue<'ctx>,
+    pub unbox_vector: FunctionValue<'ctx>,
 }
 
 pub struct Translator<'ctx, 'm> {
@@ -88,7 +92,7 @@ impl<'ctx> Current<'ctx, '_> {
             Ty::Prim(Type::Int) => abi::TAG_INT,
             Ty::Prim(Type::Real) => abi::TAG_REAL,
             Ty::Prim(Type::Bool) => abi::TAG_BOOL,
-            other => unreachable!("{other:?} is boxed"),
+            other => unreachable!("{other:?} is not a plain number"),
         }
     }
 
@@ -97,8 +101,9 @@ impl<'ctx> Current<'ctx, '_> {
     }
 }
 
-fn is_number(ty: &Ty) -> bool {
-    matches!(ty, Ty::Prim(Type::Int | Type::Real | Type::Bool))
+/// Does a value of this type live in machine registers?
+fn is_unboxed(ty: &Ty) -> bool {
+    matches!(ty, Ty::Prim(Type::Int | Type::Real | Type::Bool)) || vector_size(ty).is_some()
 }
 
 impl<'ctx, 'm> Translator<'ctx, 'm> {
@@ -159,7 +164,10 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
             Ty::Prim(Type::Int) => self.context.i64_type().into(),
             Ty::Prim(Type::Real) => self.context.f64_type().into(),
             Ty::Prim(Type::Bool) => self.context.bool_type().into(),
-            _ => self.pointer_type().into(),
+            other => match vector_size(other) {
+                Some(size) => self.vector_type(size).into(),
+                None => self.pointer_type().into(),
+            },
         }
     }
 
@@ -249,7 +257,7 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
         self.builder.position_at_end(start);
         let mut slots = vec![None; ir.types.len()];
         for (reg, ty) in ir.types.iter().enumerate() {
-            if !is_number(ty) {
+            if !is_unboxed(ty) {
                 let slot = self.builder.build_alloca(self.pointer_type(), "")?;
                 self.builder
                     .build_store(slot, self.pointer_type().const_null())?;
@@ -258,7 +266,8 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
         }
         let arguments_type = i64_type.array_type(2 * buffer_slots(ir));
         let arguments = self.builder.build_alloca(arguments_type, "")?;
-        let result = self.builder.build_alloca(i64_type.array_type(2), "")?;
+        // Room for the largest vector.
+        let result = self.builder.build_alloca(i64_type.array_type(4), "")?;
 
         let mut current = Current {
             ir,
@@ -464,24 +473,27 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
     ) -> Result<Option<BasicValueEnum<'ctx>>> {
         let span = inst.span;
         let value: BasicValueEnum = match &inst.op {
-            Op::Const(constant) => match constant {
-                Constant::Str(_) | Constant::Complex { .. } => {
-                    return self.boxed_constant(constant, inst, current);
-                }
-                _ => self.constant(constant),
-            },
+            Op::Const(Constant::Str(text)) => return self.boxed_string(text, inst, current),
+            Op::Const(Constant::Complex { re, im }) => self.vector_constant(&[*re, *im])?,
+            Op::Const(constant) => self.constant(constant),
+            Op::Swizzle { base, mask } => self.swizzle(*base, mask, current)?,
             Op::Unary { op: UnOp::Not, a } if current.is_number(*a) => {
                 self.builder.build_not(current.int(*a), "")?.into()
             }
-            Op::Unary { op, a } => match current.is_number(*a) {
-                true => self.number_neg(*a, span, current)?,
-                false => return self.boxed_unary(*op, *a, inst, current),
+            Op::Unary { op, a } => match current.ty(*a) {
+                ty if vector_size(ty).is_some() => self.vector_unary(*op, *a, current)?,
+                _ if current.is_number(*a) => self.number_neg(*a, span, current)?,
+                _ => return self.boxed_unary(*op, *a, inst, current),
             },
             Op::Binary { op, a, b } => {
                 if !current.is_number(*a) || !current.is_number(*b) {
                     return self.boxed_binary(abi::bin_op_code(*op), *a, *b, inst, current);
                 }
-                self.number_binary(*op, *a, *b, span, current)?
+                let in_vector = |reg: &Reg| vector_size(current.ty(*reg)).is_some();
+                match in_vector(a) || in_vector(b) {
+                    true => self.vector_binary(*op, *a, *b, current)?,
+                    false => self.number_binary(*op, *a, *b, span, current)?,
+                }
             }
             Op::Call { func, args } => return self.call(func.0 as usize, args, inst, current),
             Op::Builtin { id, args } => return self.builtin(*id, args, inst, current),
@@ -661,6 +673,7 @@ fn declare_runtime<'ctx>(context: &'ctx Context, llvm: &Module<'ctx>) -> Runtime
     let ptr_type = context.ptr_type(AddressSpace::default());
     let ptr: BasicMetadataTypeEnum = ptr_type.into();
     let int: BasicMetadataTypeEnum = context.i64_type().into();
+    let real: BasicMetadataTypeEnum = context.f64_type().into();
 
     let error = llvm.add_function(
         "kmpl_rt_error",
@@ -690,6 +703,16 @@ fn declare_runtime<'ctx>(context: &'ctx Context, llvm: &Module<'ctx>) -> Runtime
         ),
         clone: llvm.add_function("kmpl_rt_clone", ptr_type.fn_type(&[ptr], false), None),
         drop: llvm.add_function("kmpl_rt_drop", void.fn_type(&[ptr], false), None),
+        box_vector: llvm.add_function(
+            "kmpl_rt_box_vector",
+            ptr_type.fn_type(&[int, real, real, real, real], false),
+            None,
+        ),
+        unbox_vector: llvm.add_function(
+            "kmpl_rt_unbox_vector",
+            void.fn_type(&[ptr, ptr], false),
+            None,
+        ),
     }
 }
 

@@ -10,7 +10,7 @@ use std::cell::RefCell;
 use std::io::{BufReader, BufWriter, Stdin, Stdout, Write};
 use std::sync::Arc;
 
-use kmpl_builtins::abi::Slot;
+use kmpl_builtins::abi::{self, Slot};
 use kmpl_builtins::{BUILTINS, Io, StructLayout, Value};
 
 use operations::{operation, to_slot, value};
@@ -122,6 +122,35 @@ pub unsafe extern "C" fn kmpl_rt_clone(value: *const Value) -> *mut Value {
 pub unsafe extern "C" fn kmpl_rt_drop(value: *mut Value) {
     // SAFETY: promised by the caller.
     drop(unsafe { Box::from_raw(value) });
+}
+
+/// Packs a vector register into a `Value`. Unused components are ignored.
+#[unsafe(no_mangle)]
+pub extern "C" fn kmpl_rt_box_vector(kind: u64, a: f64, b: f64, c: f64, d: f64) -> *mut Value {
+    Box::into_raw(Box::new(match kind {
+        abi::KIND_COMPLEX => Value::Complex { re: a, im: b },
+        abi::KIND_VEC2 => Value::Vec2([a, b]),
+        abi::KIND_VEC3 => Value::Vec3([a, b, c]),
+        _ => Value::Vec4([a, b, c, d]),
+    }))
+}
+
+/// Writes the components to `out`, and releases the `Value`.
+///
+/// # Safety
+/// `value` came from this runtime and is not used again, and `out` has room
+/// for four `f64`s.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmpl_rt_unbox_vector(value: *mut Value, out: *mut f64) {
+    // SAFETY: promised by the caller.
+    unsafe {
+        let value = *Box::from_raw(value);
+        let parts = match &value {
+            Value::Complex { re, im } => &[*re, *im][..],
+            other => other.components(),
+        };
+        std::ptr::copy_nonoverlapping(parts.as_ptr(), out, parts.len());
+    }
 }
 
 /// Runs operation `code` of `abi`.

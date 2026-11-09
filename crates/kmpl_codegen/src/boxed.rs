@@ -7,13 +7,14 @@
 //! exactly when the VM would copy it.
 
 use inkwell::intrinsics::Intrinsic;
-use inkwell::values::{BasicValueEnum, IntValue, PointerValue};
+use inkwell::values::{BasicValue, BasicValueEnum, IntValue, PointerValue};
 use kmpl_ast::{Ty, Type, UnOp};
 use kmpl_builtins::abi;
-use kmpl_ir::{Constant, Inst, Op, Reg, Step};
+use kmpl_ir::{Inst, Op, Reg, Step};
 
 use crate::memory::element;
 use crate::translate::{Current, Result, Translator};
+use crate::vector::vector_size;
 
 /// The two words of an `abi::Slot`.
 pub(crate) type SlotWords<'ctx> = (IntValue<'ctx>, IntValue<'ctx>);
@@ -78,6 +79,10 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
             return Ok((self.int(abi::TAG_BORROW), bits));
         }
 
+        if vector_size(current.ty(reg)).is_some() {
+            return self.boxed_vector(reg, current);
+        }
+
         let value = current.value(reg);
         match current.type_kind(reg) {
             abi::TAG_INT => Ok((self.int(abi::TAG_INT), value.into_int_value())),
@@ -92,6 +97,34 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
                 Ok((self.int(abi::TAG_BOOL), bits))
             }
         }
+    }
+
+    /// A vector register packed into a new `Value` for the runtime.
+    fn boxed_vector(&self, reg: Reg, current: &Current<'ctx, 'm>) -> Result<SlotWords<'ctx>> {
+        let kind = match current.ty(reg) {
+            Ty::Prim(Type::Complex) => abi::KIND_COMPLEX,
+            Ty::Prim(Type::Vec2) => abi::KIND_VEC2,
+            Ty::Prim(Type::Vec3) => abi::KIND_VEC3,
+            _ => abi::KIND_VEC4,
+        };
+        let parts = self.components(current.value(reg).into_vector_value())?;
+        let unused = self.context.f64_type().const_float(0.0);
+        let part = |position: usize| parts.get(position).copied().unwrap_or(unused).into();
+        let pointer = self
+            .builder
+            .build_call(
+                self.runtime.box_vector,
+                &[self.int(kind).into(), part(0), part(1), part(2), part(3)],
+                "",
+            )?
+            .try_as_basic_value()
+            .basic()
+            .expect("the runtime returns a pointer")
+            .into_pointer_value();
+        let bits = self
+            .builder
+            .build_ptr_to_int(pointer, self.context.i64_type(), "")?;
+        Ok((self.int(abi::TAG_MOVE), bits))
     }
 
     /// `reg` as an argument the runtime will own.
@@ -142,6 +175,26 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
                 .builder
                 .build_int_to_ptr(bits, self.pointer_type(), "")?
                 .into());
+        }
+        if let Some(size) = vector_size(current.ty(dest)) {
+            let boxed = self
+                .builder
+                .build_int_to_ptr(bits, self.pointer_type(), "")?;
+            self.builder.build_call(
+                self.runtime.unbox_vector,
+                &[boxed.into(), current.result.into()],
+                "",
+            )?;
+            let vector = self
+                .builder
+                .build_load(self.vector_type(size), current.result, "")?;
+            // The buffer holds 8-byte words; a vector would expect more.
+            vector
+                .as_instruction_value()
+                .expect("a load is an instruction")
+                .set_alignment(8)
+                .expect("8 is a power of two");
+            return Ok(vector);
         }
         Ok(match current.type_kind(dest) {
             abi::TAG_INT => bits.into(),
@@ -208,24 +261,14 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
         Ok(())
     }
 
-    pub(crate) fn boxed_constant(
+    pub(crate) fn boxed_string(
         &self,
-        constant: &Constant,
+        text: &str,
         inst: &Inst,
         current: &Current<'ctx, 'm>,
     ) -> Result<Option<BasicValueEnum<'ctx>>> {
-        match constant {
-            Constant::Str(text) => {
-                let slots = [self.text_slot(text)?];
-                self.runtime_op(abi::OP_STRING, 0, &slots, inst, current)
-            }
-            Constant::Complex { re, im } => {
-                let word = |v: &f64| (self.int(abi::TAG_REAL), self.int(v.to_bits()));
-                let slots = [word(re), word(im)];
-                self.runtime_op(abi::OP_COMPLEX, 0, &slots, inst, current)
-            }
-            other => unreachable!("{other:?} is a number"),
-        }
+        let slots = [self.text_slot(text)?];
+        self.runtime_op(abi::OP_STRING, 0, &slots, inst, current)
     }
 
     pub(crate) fn boxed_unary(
@@ -326,10 +369,6 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
                 self.path_slots(path, &mut slots, current)?;
                 run(abi::OP_PATH_SET, 0, &slots)
             }
-            Op::Swizzle { base, mask } => {
-                let slots = [self.slot_of(*base, current)?, self.text_slot(mask)?];
-                run(abi::OP_SWIZZLE, 0, &slots)
-            }
             other => unreachable!("{other:?} is translated elsewhere"),
         }
     }
@@ -342,11 +381,14 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
         args: &[Reg],
         current: &Current<'ctx, 'm>,
     ) -> Result<Option<BasicValueEnum<'ctx>>> {
+        let name = self.ir.builtins[id].as_str();
+        if let Some(value) = self.vector_builtin(name, args, current)? {
+            return Ok(Some(value));
+        }
         let [arg] = args else {
             return Ok(None);
         };
         let f64_type = self.context.f64_type();
-        let name = self.ir.builtins[id].as_str();
         match (name, current.ty(*arg)) {
             ("real", Ty::Prim(Type::Int)) => Ok(Some(
                 self.builder

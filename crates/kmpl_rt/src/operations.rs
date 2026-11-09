@@ -75,10 +75,6 @@ pub unsafe fn operation(code: u64, extra: u64, args: &[Slot]) -> Result<Value, S
             abi::OP_UNARY => ops::unary(abi::un_op(extra), value(args[0]))?,
             abi::OP_BINARY => ops::binary(abi::bin_op(extra), value(args[0]), value(args[1]))?,
             abi::OP_STRING => Value::Str(slot_text(args[0]).into()),
-            abi::OP_COMPLEX => Value::Complex {
-                re: f64::from_bits(args[0].bits),
-                im: f64::from_bits(args[1].bits),
-            },
             abi::OP_MAKE_ARRAY => Value::Array(Arc::new(values(args))),
             abi::OP_ARRAY_FILL => ops::array_fill(value(args[0]), int(args[1]))?,
             abi::OP_ARRAY_LEN => Value::Int(borrowed(args[0]).as_array().len() as i64),
@@ -106,7 +102,6 @@ pub unsafe fn operation(code: u64, extra: u64, args: &[Slot]) -> Result<Value, S
                 write_path(&mut root, &args[2..], value(args[1]));
                 root
             }
-            abi::OP_SWIZZLE => ops::swizzle(value(args[0]), &slot_text(args[1])),
             other => panic!("unknown operation {other}"),
         })
     }

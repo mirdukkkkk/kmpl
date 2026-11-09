@@ -24,7 +24,6 @@ pub const TAG_FIELD: u64 = 5;
 pub const OP_UNARY: u64 = 0;
 pub const OP_BINARY: u64 = 1;
 pub const OP_STRING: u64 = 2;
-pub const OP_COMPLEX: u64 = 3;
 pub const OP_MAKE_ARRAY: u64 = 4;
 pub const OP_ARRAY_FILL: u64 = 5;
 pub const OP_ARRAY_LEN: u64 = 6;
@@ -36,7 +35,12 @@ pub const OP_MAKE_STRUCT: u64 = 11;
 pub const OP_FIELD_GET: u64 = 12;
 pub const OP_PATH_GET: u64 = 13;
 pub const OP_PATH_SET: u64 = 14;
-pub const OP_SWIZZLE: u64 = 15;
+
+// The kinds of `kmpl_rt_box_vector`.
+pub const KIND_COMPLEX: u64 = 0;
+pub const KIND_VEC2: u64 = 1;
+pub const KIND_VEC3: u64 = 2;
+pub const KIND_VEC4: u64 = 3;
 
 // The flags of `OP_SLICE`.
 pub const SLICE_INCLUSIVE: u64 = 1;

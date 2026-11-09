@@ -7,6 +7,7 @@ mod link;
 mod llvm;
 mod memory;
 mod translate;
+mod vector;
 
 use std::path::Path;
 
