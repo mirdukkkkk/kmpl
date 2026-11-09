@@ -182,7 +182,8 @@ pub fn vendor(dir: &Path, cache: Option<PathBuf>, fetch: Fetch<'_>) -> Result<St
     let mut remote = loader::fetch_dependencies(project, &names, remote, fetch)?;
     remote.save()?;
     let count = remote.fill_vendor()?;
-    Ok(format!("{count} files in `{}`", remote::VENDOR_DIR))
+    let word = if count == 1 { "file" } else { "files" };
+    Ok(format!("{count} {word} in `{}`", remote::VENDOR_DIR))
 }
 
 /// The project that `dir` belongs to. Without a `kmpl.toml` it is `dir` itself.
@@ -472,6 +473,11 @@ mod tests {
         let dir = locked_project("vendor");
         let line = vendor(&dir, None, &serving(COMMIT, "const A: int = 1;")).unwrap();
         assert_eq!(line, "2 files in `vendor`");
+
+        let single = temp("one_file");
+        let fetch = serving(COMMIT, "const A: int = 1;");
+        add(&single, LINK, None, None, &fetch).unwrap();
+        assert_eq!(vendor(&single, None, &fetch).unwrap(), "1 file in `vendor`");
 
         let lock = dir.join("kmpl.lock");
         let mut remote = Remote::open(lock, true, None, &offline).unwrap();
