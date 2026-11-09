@@ -18,6 +18,9 @@ pub const FILE_NAME: &str = "kmpl.toml";
 /// The version of the format of `kmpl.toml` this compiler reads.
 const FORMAT_VERSION: &str = "1";
 
+/// What a new `kmpl.toml` starts from.
+pub const EMPTY: &str = "version = 1\n";
+
 #[derive(Debug, PartialEq)]
 pub struct Manifest {
     /// The directory of the file: local dependencies start from it.
@@ -50,6 +53,56 @@ pub fn find(start: &Path) -> Result<Option<Manifest>, String> {
         }
     }
     Ok(None)
+}
+
+/// `text` with one more dependency. Everything already there stays as it was,
+/// comments included. The name must not be listed yet.
+pub fn with_dependency(text: &str, name: &str, value: &str) -> String {
+    let entry = format!("{name} = \"{value}\"");
+    let mut lines: Vec<String> = text.lines().map(str::to_owned).collect();
+    let is_section = |line: &String| strip_comment(line).trim() == "[dependencies]";
+
+    match lines.iter().position(is_section) {
+        Some(section) => {
+            // After the last dependency, so that comments below it stay below.
+            let last = (section + 1..lines.len())
+                .rev()
+                .find(|index| !strip_comment(&lines[*index]).trim().is_empty())
+                .unwrap_or(section);
+            lines.insert(last + 1, entry);
+        }
+        None => {
+            if lines.last().is_some_and(|line| !line.trim().is_empty()) {
+                lines.push(String::new());
+            }
+            lines.push("[dependencies]".to_owned());
+            lines.push(entry);
+        }
+    }
+    lines.join("\n") + "\n"
+}
+
+/// `text` with the value of the dependency `name` replaced. The rest of its
+/// line stays, comment included. `text` must list it.
+pub fn with_changed_dependency(text: &str, name: &str, value: &str) -> String {
+    let mut in_dependencies = false;
+    let mut lines = Vec::new();
+    for line in text.lines() {
+        let code = strip_comment(line);
+        let mut changed = None;
+        if code.trim() == "[dependencies]" {
+            in_dependencies = true;
+        } else if in_dependencies
+            && code
+                .split_once('=')
+                .is_some_and(|(key, _)| key.trim() == name)
+            && let (Some(first), Some(last)) = (code.find('"'), code.rfind('"'))
+        {
+            changed = Some(format!("{}{value}{}", &line[..=first], &line[last..]));
+        }
+        lines.push(changed.unwrap_or_else(|| line.to_owned()));
+    }
+    lines.join("\n") + "\n"
 }
 
 /// The dependencies, or the number of the bad line and what is wrong with it.
@@ -123,7 +176,38 @@ fn strip_comment(line: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::parse;
+    use super::{parse, with_changed_dependency, with_dependency};
+
+    #[test]
+    fn a_changed_dependency_keeps_the_rest_of_its_line() {
+        let text = "version = 1\n[dependencies]\nab = \"./x\"  # note\na = \"./y\" # \"quoted\"\n";
+        assert_eq!(
+            with_changed_dependency(text, "a", "./z"),
+            "version = 1\n[dependencies]\nab = \"./x\"  # note\na = \"./z\" # \"quoted\"\n"
+        );
+    }
+
+    #[test]
+    fn a_new_dependency_goes_after_the_others_and_keeps_comments() {
+        let text =
+            "# project\nversion = 1\n\n[dependencies]\n# first\na = \"./a\"  # local\n\n# end\n";
+        assert_eq!(
+            with_dependency(text, "b", "./b"),
+            "# project\nversion = 1\n\n[dependencies]\n# first\na = \"./a\"  # local\nb = \"./b\"\n\n# end\n"
+        );
+    }
+
+    #[test]
+    fn a_new_dependency_can_be_the_first() {
+        assert_eq!(
+            with_dependency("version = 1\n", "a", "./a"),
+            "version = 1\n\n[dependencies]\na = \"./a\"\n"
+        );
+        assert_eq!(
+            with_dependency("version = 1\n[dependencies]\n", "a", "./a"),
+            "version = 1\n[dependencies]\na = \"./a\"\n"
+        );
+    }
 
     #[test]
     fn reads_dependencies() {

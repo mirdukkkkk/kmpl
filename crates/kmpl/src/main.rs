@@ -1,6 +1,7 @@
 mod diagnostics;
 mod loader;
 mod manifest;
+mod package;
 mod remote;
 
 use std::os::unix::process::ExitStatusExt;
@@ -12,7 +13,10 @@ use kmpl_codegen::{Options, timed};
 
 const USAGE: &str =
     "usage: kmpl [--ast | --ir | --llvm-ir] [-v | -vv] [--no-opt] [--locked] <file> [args...]
-       kmpl build [-v | -vv] [--no-opt] [--locked] <file> [-o <output>]";
+       kmpl build [-v | -vv] [--no-opt] [--locked] <file> [-o <output>]
+       kmpl add <link or path> [name]
+       kmpl update [name [version]] [--dry-run]
+       kmpl vendor";
 
 const HELP: &str = "\
 kmpl: the Kepler Math Programming Language
@@ -20,11 +24,24 @@ kmpl: the Kepler Math Programming Language
 Usage:
     kmpl [--ast | --ir | --llvm-ir] [-v | -vv] [--no-opt] [--locked] <file> [args...]
     kmpl build [-v | -vv] [--no-opt] [--locked] <file> [-o <output>]
+    kmpl add <link or path> [name]
+    kmpl update [name [version]] [--dry-run]
+    kmpl vendor
 
 Running or building a program needs a C compiler named `cc` to link it.
 
 Commands:
     build        compile the program to a native executable and keep it
+    add          check that a module exists, list it in `kmpl.toml` and pin it
+                 in `kmpl.lock`; a path starts from the directory of
+                 `kmpl.toml`; the name is required unless the link is to a
+                 GitHub repository, whose name is then used
+    update       find again what the dependency, or every link in `kmpl.lock`,
+                 points to, and pin that; a version (a tag, branch or commit)
+                 also changes the GitHub link in `kmpl.toml`; `--dry-run` only
+                 shows what would change
+    vendor       copy every file of `kmpl.lock` into `vendor/`, for building
+                 with `--locked` where there is no network
 
 Arguments:
     <file>       the program to compile and run, a .kmpl file with `fn main()`
@@ -48,6 +65,7 @@ Examples:
     kmpl program.kmpl 1 2 3
     echo 42 | kmpl program.kmpl
     kmpl build program.kmpl -o program
+    kmpl add https://github.com/user/repo/v1.2.0
 ";
 
 /// Stack for the whole compiler. Compiling a long expression recurses. Only
@@ -70,6 +88,18 @@ fn run() {
         .skip(1)
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();
+
+    if let Some((command, tail)) = args.split_first()
+        && matches!(command.as_str(), "add" | "update" | "vendor")
+        && !matches!(tail.first().map(String::as_str), Some("--help" | "-h"))
+    {
+        match command.as_str() {
+            "add" => add(tail),
+            "update" => update(tail),
+            _ => vendor(tail),
+        }
+        return;
+    }
 
     let (building, mut rest) = match args.split_first() {
         Some((command, tail)) if command == "build" => (true, tail),
@@ -162,6 +192,72 @@ fn run() {
 
     match kmpl_codegen::run(&module, &locate, program_args, options) {
         Ok(status) => std::process::exit(exit_code(status)),
+        Err(message) => fail(&message),
+    }
+}
+
+/// `kmpl add`, on the real network and from the current directory.
+fn add(args: &[String]) {
+    let (source, name) = match args {
+        [source] => (source, None),
+        [source, name] => (source, Some(name.as_str())),
+        _ => usage(),
+    };
+    if source.starts_with('-') {
+        usage();
+    }
+    match package::add(
+        Path::new("."),
+        source,
+        name,
+        remote::default_cache(),
+        &remote::http_get,
+    ) {
+        Ok(line) => println!("{line}"),
+        Err(message) => fail(&message),
+    }
+}
+
+/// `kmpl update`, on the real network and from the current directory.
+fn update(args: &[String]) {
+    let dry_run = args.iter().any(|arg| arg == "--dry-run");
+    let words: Vec<&str> = args
+        .iter()
+        .map(String::as_str)
+        .filter(|arg| *arg != "--dry-run")
+        .collect();
+    if words.iter().any(|word| word.starts_with('-')) {
+        usage();
+    }
+    let (name, version) = match words[..] {
+        [] => (None, None),
+        [name] => (Some(name), None),
+        [name, version] => (Some(name), Some(version)),
+        _ => usage(),
+    };
+    let request = package::Update {
+        name,
+        version,
+        dry_run,
+    };
+    match package::update(
+        Path::new("."),
+        &request,
+        remote::default_cache(),
+        &remote::http_get,
+    ) {
+        Ok(lines) => lines.iter().for_each(|line| println!("{line}")),
+        Err(message) => fail(&message),
+    }
+}
+
+/// `kmpl vendor`, on the real network and from the current directory.
+fn vendor(args: &[String]) {
+    if !args.is_empty() {
+        usage();
+    }
+    match package::vendor(Path::new("."), remote::default_cache(), &remote::http_get) {
+        Ok(line) => println!("{line}"),
         Err(message) => fail(&message),
     }
 }
