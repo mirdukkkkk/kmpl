@@ -1,0 +1,107 @@
+// Operators for your own types: dual numbers (exact derivatives) and fractions.
+
+// A dual number v + d*e with e*e = 0 carries a value and its derivative.
+struct Dual {
+    v: real,
+    d: real,
+}
+
+operator +(a: Dual, b: Dual) -> Dual {
+    return Dual { v: a.v + b.v, d: a.d + b.d };
+}
+
+operator -(a: Dual, b: Dual) -> Dual {
+    return Dual { v: a.v - b.v, d: a.d - b.d };
+}
+
+operator -(a: Dual) -> Dual {
+    return Dual { v: -a.v, d: -a.d };
+}
+
+operator *(a: Dual, b: Dual) -> Dual {
+    return Dual { v: a.v * b.v, d: a.d * b.v + a.v * b.d };
+}
+
+// A mixed definition: each order is its own operator.
+operator *(k: real, a: Dual) -> Dual {
+    return Dual { v: k * a.v, d: k * a.d };
+}
+
+operator +(a: Dual, k: real) -> Dual {
+    return Dual { v: a.v + k, d: a.d };
+}
+
+// f(x) = 3x^3 - x^2 + 2x + 5, written with the operators only.
+fn f(x: Dual) -> Dual {
+    return 3.0 * x * x * x - x * x + 2.0 * x + 5.0;
+}
+
+// The derivative at x: seed the dual part with 1.
+fn derivative(x: real) -> real {
+    return f(Dual { v: x, d: 1.0 }).d;
+}
+
+struct Frac {
+    n: int,
+    d: int,
+}
+
+fn gcd(a: int, b: int) -> int {
+    while b != 0 {
+        let t = a % b;
+        a = b;
+        b = t;
+    }
+    return abs(a);
+}
+
+fn frac(n: int, d: int) -> Frac {
+    let g = gcd(n, d);
+    if d < 0 {
+        g = -g;
+    }
+    return Frac { n: n / g, d: d / g };
+}
+
+operator +(a: Frac, b: Frac) -> Frac {
+    return frac(a.n * b.d + b.n * a.d, a.d * b.d);
+}
+
+operator *(a: Frac, b: Frac) -> Frac {
+    return frac(a.n * b.n, a.d * b.d);
+}
+
+operator /(a: Frac, b: Frac) -> Frac {
+    return frac(a.n * b.d, a.d * b.n);
+}
+
+operator <(a: Frac, b: Frac) -> bool {
+    return a.n * b.d < b.n * a.d;
+}
+
+fn show(a: Frac) -> string {
+    return string(a.n) + "/" + string(a.d);
+}
+
+// Constants can use operators too.
+const HALF: Frac = Frac { n: 1, d: 2 };
+
+fn main() {
+    // f'(x) = 9x^2 - 2x + 2, so f'(2) = 34 and f'(-1) = 13.
+    print(derivative(2.0));
+    print(derivative(-1.0));
+
+    let y = f(Dual { v: 2.0, d: 1.0 });
+    print(y.v);
+    print(-y);
+
+    // Harmonic numbers 1 + 1/2 + ... + 1/6, exactly.
+    let sum = frac(0, 1);
+    for k in 1..=6 {
+        sum += frac(1, k);
+    }
+    print(show(sum));
+    print(show(sum / HALF));
+    print(HALF < sum);
+    print(sum < HALF);
+}

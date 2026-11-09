@@ -54,7 +54,7 @@ fn function_span() {
 fn errors() {
     assert_eq!(
         error("let x = 1;"),
-        "expected `const`, `fn`, `struct` or `enum`, found `let`"
+        "expected `const`, `fn`, `operator`, `struct` or `enum`, found `let`"
     );
     assert_eq!(error("const N = 1;"), "expected `:`, found `=`");
     assert_eq!(error("fn f(a) { }"), "expected `:`, found `)`");
@@ -159,7 +159,7 @@ fn import_errors() {
     );
     assert_eq!(
         error(r#"fn f() { } import a from "x";"#),
-        "expected `const`, `fn`, `struct` or `enum`, found `import`"
+        "expected `const`, `fn`, `operator`, `struct` or `enum`, found `import`"
     );
 }
 
@@ -177,4 +177,118 @@ fn structs() {
         error("struct P { x: real y: int }"),
         "expected `}`, found identifier `y`"
     );
+}
+
+const V: &str = "struct V { x: real } ";
+
+#[test]
+fn every_operator_symbol() {
+    for (symbol, word) in [
+        ("+", "add"),
+        ("-", "sub"),
+        ("*", "mul"),
+        ("/", "div"),
+        ("%", "rem"),
+        ("<", "lt"),
+        ("<=", "le"),
+        (">", "gt"),
+        (">=", "ge"),
+    ] {
+        assert_eq!(
+            tree(&format!(
+                "operator {symbol}(a: V, b: V) -> V {{ return a; }}"
+            )),
+            format!("(operator {symbol} operator#{word}#0 [(a V) (b V)] V [(return a)])"),
+        );
+    }
+}
+
+#[test]
+fn unary_minus_operator() {
+    assert_eq!(
+        tree("operator -(a: V) -> V { return a; }"),
+        "(operator - operator#neg#0 [(a V)] V [(return a)])"
+    );
+}
+
+#[test]
+fn operator_name_is_the_item_index() {
+    assert_eq!(
+        tree(&format!(
+            "{V}operator +(a: V, b: V) -> V {{ return a; }} operator +(a: V, b: real) -> V {{ return a; }}"
+        )),
+        "(struct V [(x real)]) \
+         (operator + operator#add#1 [(a V) (b V)] V [(return a)]) \
+         (operator + operator#add#2 [(a V) (b real)] V [(return a)])"
+    );
+}
+
+#[test]
+fn operator_with_generic_struct_parameter() {
+    assert_eq!(
+        tree("operator +(a: Pair<real>, b: Pair<real>) -> Pair<real> { return a; }"),
+        "(operator + operator#add#0 [(a Pair<real>) (b Pair<real>)] Pair<real> [(return a)])"
+    );
+}
+
+#[test]
+fn operator_can_be_an_ordinary_name() {
+    assert_eq!(tree("fn operator() { }"), "(fn operator [] _ [])");
+    assert_eq!(
+        tree("fn f(operator: int) -> int { return operator; }"),
+        "(fn f [(operator int)] int [(return operator)])"
+    );
+    assert_eq!(
+        tree("fn main() { let operator = 1; operator = operator + 1; operator(); }"),
+        "(fn main [] _ [(let operator _ 1) (= operator (+ operator 1)) (call operator [])])"
+    );
+}
+
+#[test]
+fn operator_errors() {
+    assert_eq!(
+        error("operator ==(a: V, b: V) -> bool { }"),
+        "expected one of the operators `+ - * / % < <= > >=`, found `==`"
+    );
+    assert_eq!(
+        error("operator !(a: V) -> bool { }"),
+        "expected one of the operators `+ - * / % < <= > >=`, found `!`"
+    );
+    assert_eq!(
+        error("operator &&(a: V, b: V) -> bool { }"),
+        "expected one of the operators `+ - * / % < <= > >=`, found `&&`"
+    );
+    assert_eq!(
+        error("operator (a: V) -> V { }"),
+        "expected one of the operators `+ - * / % < <= > >=`, found `(`"
+    );
+    assert_eq!(
+        error("operator +(a: V) -> V { }"),
+        "operator `+` takes two parameters"
+    );
+    assert_eq!(
+        error("operator <(a: V, b: V, c: V) -> bool { }"),
+        "operator `<` takes two parameters"
+    );
+    assert_eq!(
+        error("operator +() -> V { }"),
+        "operator `+` takes two parameters"
+    );
+    assert_eq!(
+        error("operator -() -> V { }"),
+        "operator `-` takes one or two parameters"
+    );
+    assert_eq!(
+        error("operator -(a: V, b: V, c: V) -> V { }"),
+        "operator `-` takes one or two parameters"
+    );
+    assert_eq!(
+        error("operator +(a: V, b: V) { }"),
+        "an operator gives a value: write `-> type` after its parameters"
+    );
+    assert_eq!(
+        error("pub operator +(a: V, b: V) -> V { }"),
+        "an operator needs no `pub`: it works wherever its types do"
+    );
+    assert!(parse_program("operator +<T>(a: T, b: T) -> T { }").is_err());
 }

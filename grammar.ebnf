@@ -8,7 +8,12 @@ import      ::= 'import' (IDENT | '(' imported (',' imported)* ','? ')') 'from' 
 imported    ::= IDENT ('as' IDENT)?
 
 (* items *)
-item        ::= 'pub'? (const | function | struct | enum)
+item        ::= 'pub'? (const | function | struct | enum) | operator
+(* 'operator' is an ordinary IDENT, special only where an item starts; no 'pub'.
+   Two parameters for every symbol, or one for '-' (unary minus). At least one
+   parameter is a struct or an enum of the program; the return type is required. *)
+operator    ::= 'operator' op '(' params? ')' '->' type block
+op          ::= '+' | '-' | '*' | '/' | '%' | '<' | '<=' | '>' | '>='
 typeparams  ::= '<' IDENT (',' IDENT)* ','? '>'
 struct      ::= 'struct' IDENT typeparams? '{' (field (',' field)* ','?)? '}'
 field       ::= IDENT ':' type

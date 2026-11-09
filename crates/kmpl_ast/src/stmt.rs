@@ -47,10 +47,13 @@ pub enum StmtKind {
     },
     /// `let (a, b) = value;`. A name `_` is an element nobody needs.
     LetTuple { names: Vec<Ident>, value: Expr },
-    /// `name = value`, or `name += value` when `op` is set.
+    /// `name = value`, or `name += value` when `op` is set. `via` is the
+    /// function to call for `op` when a program defines that operator for
+    /// these types; the checker fills it in.
     Assign {
         name: Ident,
         op: Option<BinOp>,
+        via: Option<Ident>,
         value: Expr,
     },
     /// `name[i].x = value`: one step per `[...]` or `.field`. `op` is set
@@ -60,6 +63,8 @@ pub enum StmtKind {
         name: Ident,
         path: Vec<PathStep>,
         op: Option<BinOp>,
+        /// As in `Assign`.
+        via: Option<Ident>,
         value: Expr,
     },
     If { cond: Expr, then: Block, otherwise: Option<Block> },

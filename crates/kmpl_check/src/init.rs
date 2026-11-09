@@ -113,7 +113,9 @@ impl<'a> InitChecker<'a> {
                 }
                 false
             }
-            StmtKind::Assign { name, op, value } => {
+            StmtKind::Assign {
+                name, op, value, ..
+            } => {
                 self.expr(value);
                 if op.is_some() {
                     self.read(name);

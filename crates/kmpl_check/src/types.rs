@@ -193,7 +193,7 @@ enum Slot {
 }
 
 /// Union-find over type variables.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Unifier {
     slots: Vec<Slot>,
     /// The element variables of every tuple.

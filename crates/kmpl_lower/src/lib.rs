@@ -713,22 +713,20 @@ impl<'c, 'p> Builder<'c, 'p> {
                 self.declare(&name.name, value);
             }
             StmtKind::LetTuple { names, value } => self.let_tuple(names, value),
-            StmtKind::Assign { name, op, value } => {
+            StmtKind::Assign {
+                name,
+                op,
+                via,
+                value,
+            } => {
                 let value = self.expr(value);
                 let var = self.lookup(&name.name).expect("checked by resolve");
                 let result = match op {
                     Some(op) => {
                         let old = self.register_of(var);
                         let ty = self.reg_type(old);
-                        self.value(
-                            Op::Binary {
-                                op: *op,
-                                a: old,
-                                b: value,
-                            },
-                            ty,
-                            stmt.span,
-                        )
+                        let op = self.operation(*op, via.as_ref(), old, value);
+                        self.value(op, ty, stmt.span)
                     }
                     None => value,
                 };
@@ -738,8 +736,9 @@ impl<'c, 'p> Builder<'c, 'p> {
                 name,
                 path,
                 op,
+                via,
                 value,
-            } => self.path_assign(name, path, *op, value, stmt.span),
+            } => self.path_assign(name, path, *op, via.as_ref(), value, stmt.span),
             StmtKind::If {
                 cond,
                 then,
@@ -846,6 +845,7 @@ impl<'c, 'p> Builder<'c, 'p> {
         name: &Ident,
         path: &'p [PathStep],
         op: Option<BinOp>,
+        via: Option<&Ident>,
         value: &'p Expr,
         span: Span,
     ) {
@@ -883,15 +883,8 @@ impl<'c, 'p> Builder<'c, 'p> {
                 ty.clone(),
                 span,
             );
-            value = self.value(
-                Op::Binary {
-                    op,
-                    a: old,
-                    b: value,
-                },
-                ty,
-                span,
-            );
+            let op = self.operation(op, via, old, value);
+            value = self.value(op, ty, span);
         }
 
         let base_ty = self.reg_type(base);
@@ -906,6 +899,18 @@ impl<'c, 'p> Builder<'c, 'p> {
             span,
         );
         self.vars[var] = Some(result);
+    }
+
+    /// `a op b` in `x op= b`: the built-in operator, or a call to the
+    /// function behind an operator the program defines.
+    fn operation(&self, op: BinOp, via: Option<&Ident>, a: Reg, b: Reg) -> Op {
+        match via {
+            Some(function) => Op::Call {
+                func: self.ctx.functions[function.name.as_str()],
+                args: vec![a, b],
+            },
+            None => Op::Binary { op, a, b },
+        }
     }
 
     /// Position and type of a field of the struct type `ty`.

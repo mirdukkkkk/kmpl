@@ -379,7 +379,12 @@ fn assign_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
 
     let span = name.span.to(end);
     Ok(Stmt {
-        kind: StmtKind::Assign { name, op, value },
+        kind: StmtKind::Assign {
+            name,
+            op,
+            via: None,
+            value,
+        },
         span,
     })
 }
@@ -429,6 +434,7 @@ fn path_assign(ts: &mut TokenStream, target: Expr) -> PResult<Stmt> {
             name,
             path,
             op,
+            via: None,
             value,
         },
         span: start.to(end),

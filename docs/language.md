@@ -355,6 +355,73 @@ In the header of `if`, `while` and `for` a literal needs brackets, as above,
 because `{` would start the body. A struct can hold itself only through an
 array or an optional: `children: [Node]`, `next: Node?`.
 
+## Operators for your own types
+
+`operator` defines what `+ - * / %` and `< <= > >=` do for a struct or an enum.
+It is an item like `fn`, with the symbol in place of the name and a required
+return type.
+
+```kmpl
+struct Vec {
+    x: real,
+    y: real,
+}
+
+operator +(a: Vec, b: Vec) -> Vec {
+    return Vec { x: a.x + b.x, y: a.y + b.y };
+}
+
+operator -(a: Vec) -> Vec {
+    return Vec { x: -a.x, y: -a.y };
+}
+
+operator *(k: real, a: Vec) -> Vec {
+    return Vec { x: k * a.x, y: k * a.y };
+}
+
+operator <(a: Vec, b: Vec) -> bool {
+    return a.x * a.x + a.y * a.y < b.x * b.x + b.y * b.y;
+}
+
+fn main() {
+    let a = Vec { x: 1.0, y: 2.0 };
+    let b = Vec { x: 3.0, y: 4.0 };
+    print(a + b);  // Vec { x: 4.0, y: 6.0 }
+    print(-a);  // Vec { x: -1.0, y: -2.0 }
+    print(2.0 * a);  // Vec { x: 2.0, y: 4.0 }
+    print(a < b);  // true
+    a += b;
+    print(a);  // Vec { x: 4.0, y: 6.0 }
+}
+```
+
+Rules:
+
+- Two parameters for `+ - * / %` and `< <= > >=`; `-` may also have one
+  parameter, which is unary minus. `==` and `!=` cannot be defined: they keep
+  comparing structs field by field. `&& || !` and the bit operators cannot be
+  defined either.
+- At least one parameter is a struct or an enum of the program, so `int + int`
+  cannot be redefined. The return type can be any type.
+- One definition per combination of parameter types. `Vec * real` and
+  `real * Vec` are two definitions.
+- `a += b` (also `-= *= /= %=`, also on fields and array elements) uses the
+  operator and stores the result.
+- A number literal as the other operand takes its usual default. With
+  definitions for `int` and for `real`, `s * 2` uses the `int` one and
+  `s * 2.0` the `real` one.
+- An operator has no generic parameters, but a parameter can be `Pair<real>`.
+  An unbounded generic function such as `fn twice<T>(x: T) -> T { return x + x; }`
+  cannot be used with such a type yet.
+- There is no `pub`, and nothing to import: an operator works wherever its types
+  can be used.
+- An operator is an ordinary function call, so constants can use it.
+- `operator` is not a keyword. It has a meaning only where an item starts, so
+  it can still be a variable name.
+
+See [`examples/operators.kmpl`](../examples/operators.kmpl) for dual numbers
+(exact derivatives) and fractions.
+
 ## Enums and optionals
 
 An enum holds one of its variants, and a variant can carry values. `match` runs
