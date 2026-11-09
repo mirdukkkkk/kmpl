@@ -1,0 +1,32 @@
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      # One PR for every patch/minor bump. Majors stay out of the group, so a
+      # potentially breaking bump gets its own PR.
+      routine:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+          - "minor"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # flake.lock pins the dev shell; nothing else bumps it.
+  - package-ecosystem: "nix"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      # One PR for all flake inputs instead of one per input.
+      flake-inputs:
+        patterns:
+          - "*"
