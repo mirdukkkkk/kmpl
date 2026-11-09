@@ -1,0 +1,22 @@
+// Estimates pi by throwing random points at a square. With `seed` the result
+// is the same on every run.
+
+import random from "std:random";
+
+fn main() {
+    random.seed(42);
+
+    let inside = 0;
+    let total = 100000;
+    for i in 0..total {
+        let x = random.real();
+        let y = random.real();
+        if x * x + y * y < 1.0 {
+            inside += 1;
+        }
+    }
+    print(4.0 * real(inside) / real(total));
+
+    print(random.int(1, 7));
+    print(random.shuffle([1, 2, 3, 4, 5]));
+}

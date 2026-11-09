@@ -14,10 +14,12 @@ mod value;
 #[cfg(test)]
 mod tests;
 
+pub use stdlib::Random;
 pub use value::{EnumValue, StructLayout, StructValue, Value};
 
 use std::io::{BufRead, Write};
 use std::sync::Arc;
+use std::time::Instant;
 
 use kmpl_ast::Type;
 
@@ -46,6 +48,10 @@ pub struct Io<'a> {
     pub input: &'a mut dyn BufRead,
     /// What `args` returns.
     pub args: &'a [String],
+    /// The generator of `std:random`.
+    pub random: &'a mut Random,
+    /// When the program started, for `std:time`.
+    pub started: Instant,
 }
 
 /// Built-ins whose value depends on how the program is run, so constants
@@ -56,6 +62,12 @@ const DEPENDS_ON_RUN: &[&str] = &[
     "_fs_read",
     "_fs_read_text",
     "_fs_write",
+    "_random_real",
+    "_random_int",
+    "_random_normal",
+    "_random_shuffle",
+    "_time_now",
+    "_time_clock",
 ];
 
 pub fn depends_on_run(name: &str) -> bool {

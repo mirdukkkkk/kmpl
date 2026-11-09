@@ -745,11 +745,54 @@ fn every_std_library_can_be_imported() {
 }
 
 #[test]
+fn random_and_time_under_their_own_names() {
+    let out = run(
+        "std_random_time",
+        "import random from \"std:random\";
+         import time from \"std:time\";
+         fn main() {
+             random.seed(1);
+             print(random.real() < 1.0);
+             print(random.int(3, 4));
+             print(random.normal(1.5, 0.0));
+             print(random.shuffle([\"a\"]));
+             let start = time.clock();
+             time.sleep(0.0);
+             print(time.clock() >= start);
+             print(time.now() > 0.0);
+             print(int(2.5));
+         }",
+    );
+    assert_eq!(
+        stdout(&out),
+        "true\n3\n1.5\n[a]\ntrue\ntrue\n2\n",
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn a_constant_cannot_use_random_through_the_library() {
+    let out = run(
+        "const_random",
+        "import random from \"std:random\"; const X: real = random.real(); fn main() { }",
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).contains("depends on how the program is run"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
 fn an_unknown_library_lists_the_known_ones() {
     let out = run("std_unknown", "import x from \"std:nope\"; fn main() { }");
     assert_eq!(out.status.code(), Some(1));
     assert!(
-        stderr(&out).contains("there is no library `std:nope`, there are: bits, fs, io, text"),
+        stderr(&out).contains(
+            "there is no library `std:nope`, there are: bits, fs, io, random, text, time"
+        ),
         "{}",
         stderr(&out)
     );

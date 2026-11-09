@@ -9,9 +9,10 @@ mod operations;
 use std::cell::RefCell;
 use std::io::{BufReader, BufWriter, Stdin, Stdout, Write};
 use std::sync::Arc;
+use std::time::Instant;
 
 use kmpl_builtins::abi::{self, ArrayView, Slot};
-use kmpl_builtins::{Builtin, Io, StructLayout, Value, ops};
+use kmpl_builtins::{Builtin, Io, Random, StructLayout, Value, ops};
 
 use operations::{operation, to_slot, value};
 
@@ -20,6 +21,8 @@ pub(crate) struct State {
     out: BufWriter<Stdout>,
     input: BufReader<Stdin>,
     args: Vec<String>,
+    random: Random,
+    started: Instant,
     /// Reused for the arguments of built-ins.
     scratch: Vec<Value>,
     pub(crate) layouts: Vec<Arc<StructLayout>>,
@@ -35,6 +38,8 @@ thread_local! {
             .skip(1)
             .map(|arg| arg.to_string_lossy().into_owned())
             .collect(),
+        random: Random::default(),
+        started: Instant::now(),
         scratch: Vec::new(),
         layouts: Vec::new(),
         builtins: kmpl_builtins::all().collect(),
@@ -272,6 +277,8 @@ pub unsafe extern "C" fn kmpl_rt_builtin(
             out: &mut state.out,
             input: &mut state.input,
             args: &state.args,
+            random: &mut state.random,
+            started: state.started,
         };
         let outcome = (state.builtins[id as usize].func)(&mut values, &mut io);
         // Holding on to the arguments would make a later write to one of

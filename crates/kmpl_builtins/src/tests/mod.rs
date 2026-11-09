@@ -32,10 +32,13 @@ fn call_with_out(
     out: &mut dyn Write,
 ) -> Result<Option<Value>, String> {
     let mut input: &[u8] = &[];
+    let mut random = crate::Random::default();
     let mut io = Io {
         out,
         input: &mut input,
         args: &[],
+        random: &mut random,
+        started: std::time::Instant::now(),
     };
     (b.func)(&mut args.to_vec(), &mut io)
 }
@@ -95,9 +98,17 @@ fn signatures_match_implementations() {
         };
 
         for &t in choices {
-            // Stopping the program is all it does.
-            // Their sample arguments would not make sense.
-            if ["panic", "_text_code", "_text_join"].contains(&b.name) {
+            // These stop the program, would wait, or would not make sense
+            // with the sample arguments.
+            if [
+                "panic",
+                "_text_code",
+                "_text_join",
+                "_time_sleep",
+                "_random_int",
+            ]
+            .contains(&b.name)
+            {
                 continue;
             }
             let args: Vec<Value> = b

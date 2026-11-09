@@ -244,8 +244,9 @@ impl Linker<'_> {
 
     /// Prefixes the name of an item. With a prefix `resolve` could no longer
     /// see that it reuses the name of a built-in, so that is checked here.
+    /// A `std:` library may: `random.real` and `random.int` are good names.
     fn declared(&mut self, name: &mut Ident) {
-        if !self.prefix.is_empty() {
+        if !self.prefix.is_empty() && !self.prefix.starts_with("std:") {
             if kmpl_builtins::lookup(&name.name).is_some() {
                 self.error(format!("`{}` is a built-in function", name.name), name);
             } else if kmpl_builtins::lookup_const(&name.name).is_some() {
