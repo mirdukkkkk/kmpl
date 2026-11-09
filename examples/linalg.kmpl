@@ -1,0 +1,27 @@
+// Linear algebra from `std:linalg`: a system of equations, a determinant, an
+// inverse.
+
+import linalg from "std:linalg";
+
+fn main() {
+    let a = [[2.0, 0.0], [0.0, 4.0]];
+
+    match linalg.solve(a, [2.0, 8.0]) {
+        some(x) => {
+            print(x);
+        }
+        none => {
+            panic("the matrix is singular");
+        }
+    }
+
+    print(linalg.det(a));
+    print(linalg.inverse(a));
+    print(linalg.transpose([[1.0, 2.0, 3.0]]));
+    print(linalg.identity(2));
+    print(linalg.trace(a));
+    print(linalg.norm([[3.0, 4.0]]));
+
+    // The second row is twice the first.
+    print(linalg.inverse([[1.0, 2.0], [2.0, 4.0]]));
+}

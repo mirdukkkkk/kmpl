@@ -122,6 +122,10 @@ fn signatures_match_implementations() {
                     ParamType::OptionalOfElem => {
                         Value::Optional(Some(std::sync::Arc::new(sample(t))))
                     }
+                    ParamType::Reals => Value::Reals(std::sync::Arc::new(vec![2.0])),
+                    ParamType::Matrix => Value::Array(std::sync::Arc::new(vec![Value::Reals(
+                        std::sync::Arc::new(vec![2.0]),
+                    )])),
                     ParamType::Collection | ParamType::ArrayOfElem => {
                         Value::Array(std::sync::Arc::new(vec![sample(t)]))
                     }
@@ -132,6 +136,14 @@ fn signatures_match_implementations() {
             // `Value::ty` covers only the closed list of types.
             if matches!(b.ret, RetType::ArrayOfElem | RetType::ArrayOf(_)) {
                 assert!(matches!(result, Some(Value::Array(_))), "`{}`", b.name);
+                continue;
+            }
+            if matches!(b.ret, RetType::Matrix) {
+                assert!(matches!(result, Some(Value::Array(_))), "`{}`", b.name);
+                continue;
+            }
+            if matches!(b.ret, RetType::OptionalMatrix | RetType::OptionalReals) {
+                assert!(matches!(result, Some(Value::Optional(_))), "`{}`", b.name);
                 continue;
             }
             if let RetType::Optional(inner) = b.ret {
@@ -163,7 +175,10 @@ fn signatures_match_implementations() {
                 RetType::ArrayOfElem
                 | RetType::ArrayOf(_)
                 | RetType::Pair(..)
-                | RetType::Optional(_) => {
+                | RetType::Optional(_)
+                | RetType::Matrix
+                | RetType::OptionalMatrix
+                | RetType::OptionalReals => {
                     unreachable!("handled above")
                 }
             };

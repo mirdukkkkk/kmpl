@@ -20,10 +20,11 @@ use crate::manifest::{self, Manifest};
 use crate::remote::{self, Fetch, Remote};
 
 /// The `std:` libraries, by name.
-const LIBRARIES: [(&str, &str); 6] = [
+const LIBRARIES: [(&str, &str); 7] = [
     ("bits", include_str!("../std/bits/mod.kmpl")),
     ("fs", include_str!("../std/fs/mod.kmpl")),
     ("io", include_str!("../std/io/mod.kmpl")),
+    ("linalg", include_str!("../std/linalg/mod.kmpl")),
     ("random", include_str!("../std/random/mod.kmpl")),
     ("text", include_str!("../std/text/mod.kmpl")),
     ("time", include_str!("../std/time/mod.kmpl")),

@@ -92,6 +92,10 @@ pub enum ParamType {
     ArrayOfElem,
     /// `E?`
     OptionalOfElem,
+    /// `[[real]]`
+    Matrix,
+    /// `[real]`
+    Reals,
 }
 
 /// What a built-in returns.
@@ -116,6 +120,12 @@ pub enum RetType {
     Optional(Type),
     /// `real` for a vector, `int` for what is counted. Used by `length`.
     Length,
+    /// `[[real]]`
+    Matrix,
+    /// `[[real]]?`
+    OptionalMatrix,
+    /// `[real]?`
+    OptionalReals,
 }
 
 const REAL: ParamType = ParamType::Exact(Type::Real);

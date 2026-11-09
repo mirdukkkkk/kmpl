@@ -685,6 +685,28 @@ fn a_dot_call_is_a_call_with_the_value_first() {
 }
 
 #[test]
+fn linalg_reports_bad_shapes_as_errors() {
+    let message = |name: &str, body: &str| {
+        let source = format!("import linalg from \"std:linalg\"; fn main() {{ {body} }}");
+        let out = run(name, &source);
+        assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+        stderr(&out)
+    };
+    assert!(
+        message("la_square", "print(linalg.det([[1.0, 2.0]]));")
+            .contains("`linalg.det` needs a square matrix, this one is 1 by 2")
+    );
+    assert!(
+        message("la_ragged", "print(linalg.norm([[1.0], []]));")
+            .contains("the rows of this matrix have different lengths")
+    );
+    assert!(
+        message("la_vector", "print(linalg.solve([[1.0]], [1.0, 2.0]));")
+            .contains("a matrix with 1 rows and a vector of 2 numbers")
+    );
+}
+
+#[test]
 fn optionals_read_well_with_a_dot() {
     let out = run(
         "dot_unwrap",
@@ -729,6 +751,17 @@ fn generic_types_with_dot_calls() {
          }",
     );
     assert_eq!(stdout(&out), "3\n", "{}", stderr(&out));
+}
+
+#[test]
+fn linalg_works_in_a_constant_and_with_int_literals() {
+    let out = run(
+        "la_const",
+        "import linalg from \"std:linalg\";
+         const D: real = linalg.det([[2, 0], [0, 3]]);
+         fn main() { print(D); print(linalg.identity(1) * [5.0]); }",
+    );
+    assert_eq!(stdout(&out), "6.0\n[5.0]\n", "{}", stderr(&out));
 }
 
 #[test]
@@ -791,7 +824,7 @@ fn an_unknown_library_lists_the_known_ones() {
     assert_eq!(out.status.code(), Some(1));
     assert!(
         stderr(&out).contains(
-            "there is no library `std:nope`, there are: bits, fs, io, random, text, time"
+            "there is no library `std:nope`, there are: bits, fs, io, linalg, random, text, time"
         ),
         "{}",
         stderr(&out)

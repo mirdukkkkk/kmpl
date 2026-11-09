@@ -1024,6 +1024,14 @@ impl<'a> Infer<'a> {
                     let optional = self.u.new_optional(elem);
                     self.unify(arg_ty, optional, arg.span);
                 }
+                ParamType::Reals => {
+                    let expected = self.reals();
+                    self.unify(arg_ty, expected, arg.span);
+                }
+                ParamType::Matrix => {
+                    let expected = self.matrix();
+                    self.unify(arg_ty, expected, arg.span);
+                }
                 ParamType::ArrayOfElem if on_bytes || self.is_bytes(arg_ty) => {
                     on_bytes = true;
                     self.expect(elem, Type::Int, arg.span);
@@ -1049,6 +1057,15 @@ impl<'a> Infer<'a> {
             RetType::Length if on_vector => Some(self.known(Type::Real)),
             RetType::Length => Some(self.known(Type::Int)),
             RetType::Elem => Some(elem),
+            RetType::Matrix => Some(self.matrix()),
+            RetType::OptionalMatrix => {
+                let inner = self.matrix();
+                Some(self.u.new_optional(inner))
+            }
+            RetType::OptionalReals => {
+                let inner = self.reals();
+                Some(self.u.new_optional(inner))
+            }
             RetType::Optional(ty) => {
                 let inner = self.known(ty);
                 Some(self.u.new_optional(inner))
@@ -1069,6 +1086,18 @@ impl<'a> Infer<'a> {
                 }
             }
         }
+    }
+
+    /// `[real]`
+    fn reals(&mut self) -> TyVar {
+        let element = self.known(Type::Real);
+        self.u.new_array(element)
+    }
+
+    /// `[[real]]`
+    fn matrix(&mut self) -> TyVar {
+        let row = self.reals();
+        self.u.new_array(row)
     }
 
     /// A call to a user function. For a generic one, each parameter gets a

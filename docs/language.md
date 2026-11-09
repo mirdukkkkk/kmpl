@@ -518,8 +518,26 @@ Libraries that come with `kmpl` are imported from `std:`:
 | `std:io` | `args read_line` |
 | `std:text` | `parse_int parse_real split join trim starts_with ends_with contains find replace repeat to_upper to_lower is_digit is_letter is_space code from_code` |
 | `std:bits` | `shr_logical` |
+| `std:linalg` | `solve det inverse transpose identity trace norm` |
 | `std:random` | `seed real int normal shuffle` |
 | `std:time` | `clock now sleep` |
+
+`std:linalg` works on matrices written as `[[real]]`:
+
+```kmpl
+import linalg from "std:linalg";
+
+fn main() {
+    let a = [[2.0, 0.0], [0.0, 4.0]];
+    print(linalg.solve(a, [2.0, 8.0]));  // some([1.0, 2.0])
+    print(linalg.det(a));  // 8.0
+    print(linalg.inverse([[1.0, 2.0], [2.0, 4.0]]));  // none
+}
+```
+
+`solve` and `inverse` return `none` for a singular matrix, and a matrix of the wrong
+shape stops the program. Its numbers are copied, so a function of this library is
+as fast as Rust, while a loop over `a[i][j]` in your own code is slower.
 
 `random.real()` is from 0.0 up to 1.0, and `random.int(1, 7)` from 1 to 6, like
 `1..7`. An empty range stops the program. After `random.seed(n)` the numbers are

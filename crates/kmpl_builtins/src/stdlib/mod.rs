@@ -5,6 +5,7 @@
 mod bits;
 mod fs;
 mod io;
+mod linalg;
 mod random;
 mod text;
 mod time;
@@ -13,7 +14,8 @@ pub use random::Random;
 
 use crate::Builtin;
 
-pub(crate) static GROUPS: [&[Builtin]; 6] = [
+pub(crate) static GROUPS: [&[Builtin]; 7] = [
+    linalg::BUILTINS,
     fs::BUILTINS,
     io::BUILTINS,
     text::BUILTINS,
