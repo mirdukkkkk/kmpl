@@ -6,8 +6,9 @@
 //! the VM does, so reference counts are the same and an array is copied
 //! exactly when the VM would copy it.
 
+use inkwell::intrinsics::Intrinsic;
 use inkwell::values::{BasicValueEnum, IntValue, PointerValue};
-use kmpl_ast::UnOp;
+use kmpl_ast::{Ty, Type, UnOp};
 use kmpl_builtins::abi;
 use kmpl_ir::{Constant, Inst, Op, Reg, Step};
 
@@ -333,6 +334,44 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
         }
     }
 
+    /// The built-ins that are a single machine operation with exactly the
+    /// result of their Rust version.
+    fn direct_builtin(
+        &self,
+        id: usize,
+        args: &[Reg],
+        current: &Current<'ctx, 'm>,
+    ) -> Result<Option<BasicValueEnum<'ctx>>> {
+        let [arg] = args else {
+            return Ok(None);
+        };
+        let f64_type = self.context.f64_type();
+        let name = self.ir.builtins[id].as_str();
+        match (name, current.ty(*arg)) {
+            ("real", Ty::Prim(Type::Int)) => Ok(Some(
+                self.builder
+                    .build_signed_int_to_float(current.int(*arg), f64_type, "")?
+                    .into(),
+            )),
+            ("real", Ty::Prim(Type::Real)) => Ok(Some(current.value(*arg))),
+            ("sqrt" | "abs" | "floor" | "ceil" | "round", Ty::Prim(Type::Real)) => {
+                let intrinsic = match name {
+                    "abs" => "llvm.fabs".to_owned(),
+                    other => format!("llvm.{other}"),
+                };
+                let declaration = Intrinsic::find(&intrinsic)
+                    .expect("LLVM has this intrinsic")
+                    .get_declaration(&self.llvm, &[f64_type.into()])
+                    .expect("the intrinsic takes this type");
+                let call =
+                    self.builder
+                        .build_call(declaration, &[current.value(*arg).into()], "")?;
+                Ok(call.try_as_basic_value().basic())
+            }
+            _ => Ok(None),
+        }
+    }
+
     /// Calls entry `id` of `Module::builtins`. An argument used for the
     /// last time is moved, so the built-in can reuse it.
     pub(crate) fn builtin(
@@ -342,6 +381,10 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
         inst: &Inst,
         current: &Current<'ctx, 'm>,
     ) -> Result<Option<BasicValueEnum<'ctx>>> {
+        if let Some(value) = self.direct_builtin(id, args, current)? {
+            return Ok(Some(value));
+        }
+
         let mut slots = Vec::with_capacity(args.len());
         for (position, reg) in args.iter().enumerate() {
             let last_use = inst.frees.contains(reg) && !args[position + 1..].contains(reg);

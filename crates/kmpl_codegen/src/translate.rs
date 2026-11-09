@@ -35,7 +35,7 @@ pub struct Translator<'ctx, 'm> {
     pub(crate) context: &'ctx Context,
     pub(crate) llvm: Module<'ctx>,
     pub(crate) builder: Builder<'ctx>,
-    ir: &'m kmpl_ir::Module,
+    pub(crate) ir: &'m kmpl_ir::Module,
     pub(crate) locate: &'m dyn Fn(Span) -> String,
     functions: Vec<FunctionValue<'ctx>>,
     globals: Vec<Option<PointerValue<'ctx>>>,

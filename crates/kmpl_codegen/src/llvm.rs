@@ -4,6 +4,7 @@ use std::sync::OnceLock;
 
 use inkwell::OptimizationLevel;
 use inkwell::context::Context;
+use inkwell::passes::PassBuilderOptions;
 use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
 };
@@ -27,6 +28,10 @@ pub fn object_code(module: &Module, locate: &dyn Fn(Span) -> String) -> Result<V
             e.to_string()
         )
     })?;
+
+    // No fast-math flags: `real` arithmetic must not be rearranged.
+    llvm.run_passes("default<O2>", &machine, PassBuilderOptions::create())
+        .map_err(|e| e.to_string())?;
 
     let object = machine
         .write_to_memory_buffer(&llvm, FileType::Object)
