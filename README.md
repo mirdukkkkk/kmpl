@@ -61,8 +61,8 @@ With Nix: `nix run . -- examples/demo.kmpl`.
 ## Usage
 
 ```text
-kmpl [--ast | --ir] [--no-opt] <file> [args...]
-kmpl build [--no-opt] <file> [-o <output>]
+kmpl [--ast | --ir | --llvm-ir] [-v | -vv] [--no-opt] <file> [args...]
+kmpl build [-v | -vv] [--no-opt] <file> [-o <output>]
 ```
 
 Everything after the file is passed to the program. `kmpl --help` lists the

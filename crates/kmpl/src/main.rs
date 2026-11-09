@@ -6,16 +6,17 @@ use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 
 use diagnostics::Sources;
+use kmpl_codegen::{Options, timed};
 
-const USAGE: &str = "usage: kmpl [--ast | --ir] [--no-opt] <file> [args...]
-       kmpl build [--no-opt] <file> [-o <output>]";
+const USAGE: &str = "usage: kmpl [--ast | --ir | --llvm-ir] [-v | -vv] [--no-opt] <file> [args...]
+       kmpl build [-v | -vv] [--no-opt] <file> [-o <output>]";
 
 const HELP: &str = "\
 kmpl: the Kepler Math Programming Language
 
 Usage:
-    kmpl [--ast | --ir] [--no-opt] <file> [args...]
-    kmpl build [--no-opt] <file> [-o <output>]
+    kmpl [--ast | --ir | --llvm-ir] [-v | -vv] [--no-opt] <file> [args...]
+    kmpl build [-v | -vv] [--no-opt] <file> [-o <output>]
 
 Running or building a program needs a C compiler named `cc` to link it.
 
@@ -29,6 +30,10 @@ Arguments:
 Options:
     --ast        check the program and print its syntax tree, without running it
     --ir         check the program and print its intermediate representation
+    --llvm-ir    check the program and print its optimized LLVM IR
+    -v           report the time of each compiler stage and the linker's
+                 command, on standard error
+    -vv          also report every LLVM pass
     --no-opt     do not optimize the intermediate representation
     -o <output>  where `build` writes the executable, by default the name of
                  the file without `.kmpl`, in the current directory
@@ -68,9 +73,12 @@ fn run() {
     };
     let mut print_flag = None;
     let mut optimize = true;
+    let mut options = Options::default();
     while let [flag, tail @ ..] = rest {
         match flag.as_str() {
-            "--ast" | "--ir" if !building => print_flag = Some(flag.as_str()),
+            "--ast" | "--ir" | "--llvm-ir" if !building => print_flag = Some(flag.as_str()),
+            "-v" | "--verbose" => options.verbosity = options.verbosity.max(1),
+            "-vv" => options.verbosity = 2,
             "--no-opt" => optimize = false,
             _ => break,
         }
@@ -90,7 +98,7 @@ fn run() {
     let output = building.then(|| build_output(path, program_args));
 
     let mut sources = Sources::default();
-    let modules = match loader::load(path, &mut sources) {
+    let modules = match timed(options, "read", || loader::load(path, &mut sources)) {
         Ok(modules) => modules,
         Err(message) => fail(&message),
     };
@@ -109,7 +117,7 @@ fn run() {
         Err(errors) => fail(&render_all(errors)),
     };
 
-    let types = match kmpl_check::check(&mut program) {
+    let types = match timed(options, "check", || kmpl_check::check(&mut program)) {
         Ok(types) => types,
         Err(errors) => fail(&render_all(errors)),
     };
@@ -119,9 +127,9 @@ fn run() {
         return;
     }
 
-    let mut module = kmpl_lower::lower(&program, &types);
+    let mut module = timed(options, "lower", || kmpl_lower::lower(&program, &types));
     if optimize {
-        kmpl_ir::optimize(&mut module);
+        timed(options, "optimize IR", || kmpl_ir::optimize(&mut module));
     }
     if print_flag == Some("--ir") {
         print!("{module}");
@@ -130,14 +138,21 @@ fn run() {
     kmpl_ir::annotate(&mut module);
 
     let locate = |span| sources.location(span);
+    if print_flag == Some("--llvm-ir") {
+        match kmpl_codegen::llvm_ir(&module, &locate, options) {
+            Ok(text) => print!("{text}"),
+            Err(message) => fail(&message),
+        }
+        return;
+    }
     if let Some(output) = output {
-        if let Err(message) = kmpl_codegen::build(&module, &output, &locate) {
+        if let Err(message) = kmpl_codegen::build(&module, &output, &locate, options) {
             fail(&message);
         }
         return;
     }
 
-    match kmpl_codegen::run(&module, &locate, program_args) {
+    match kmpl_codegen::run(&module, &locate, program_args, options) {
         Ok(status) => std::process::exit(exit_code(status)),
         Err(message) => fail(&message),
     }

@@ -12,17 +12,49 @@ use kmpl_ast::Span;
 use kmpl_ir::Module;
 
 use crate::translate::Translator;
+use crate::{Options, timed};
 
-pub fn object_code(module: &Module, locate: &dyn Fn(Span) -> String) -> Result<Vec<u8>, String> {
+pub fn object_code(
+    module: &Module,
+    locate: &dyn Fn(Span) -> String,
+    options: Options,
+) -> Result<Vec<u8>, String> {
     let context = Context::create();
-    let llvm = Translator::new(&context, module, locate)
-        .translate()
-        .map_err(|e| e.to_string())?;
-
     let machine = target_machine()?;
+    let llvm = optimized(&context, &machine, module, locate, options)?;
+    let object = timed(options, "llvm: machine code", || {
+        machine.write_to_memory_buffer(&llvm, FileType::Object)
+    })
+    .map_err(|e| e.to_string())?;
+    Ok(object.as_slice().to_vec())
+}
+
+pub fn text(
+    module: &Module,
+    locate: &dyn Fn(Span) -> String,
+    options: Options,
+) -> Result<String, String> {
+    let context = Context::create();
+    let machine = target_machine()?;
+    let llvm = optimized(&context, &machine, module, locate, options)?;
+    Ok(llvm.to_string())
+}
+
+fn optimized<'ctx>(
+    context: &'ctx Context,
+    machine: &TargetMachine,
+    module: &Module,
+    locate: &dyn Fn(Span) -> String,
+    options: Options,
+) -> Result<inkwell::module::Module<'ctx>, String> {
+    let llvm = timed(options, "llvm: translate", || {
+        Translator::new(context, module, locate).translate()
+    })
+    .map_err(|e| e.to_string())?;
+
     llvm.set_triple(&machine.get_triple());
     llvm.set_data_layout(&machine.get_target_data().get_data_layout());
-    record_compiler(&context, &llvm)?;
+    record_compiler(context, &llvm)?;
     llvm.verify().map_err(|e| {
         format!(
             "kmpl: generated invalid code, this is a bug in kmpl: {}",
@@ -30,14 +62,14 @@ pub fn object_code(module: &Module, locate: &dyn Fn(Span) -> String) -> Result<V
         )
     })?;
 
+    let pass_options = PassBuilderOptions::create();
+    pass_options.set_debug_logging(options.verbosity >= 2);
     // No fast-math flags: `real` arithmetic must not be rearranged.
-    llvm.run_passes("default<O2>", &machine, PassBuilderOptions::create())
-        .map_err(|e| e.to_string())?;
-
-    let object = machine
-        .write_to_memory_buffer(&llvm, FileType::Object)
-        .map_err(|e| e.to_string())?;
-    Ok(object.as_slice().to_vec())
+    timed(options, "llvm: optimize", || {
+        llvm.run_passes("default<O2>", machine, pass_options)
+    })
+    .map_err(|e| e.to_string())?;
+    Ok(llvm)
 }
 
 /// Puts `kmpl <version>` into the `.comment` section of the executable, next

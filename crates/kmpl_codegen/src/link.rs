@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use crate::{Options, timed};
+
 static RUNTIME: &[u8] = include_bytes!(env!("KMPL_RT_LIB"));
 
 /// What a Rust static library needs from the system on Linux.
@@ -53,12 +55,13 @@ impl Drop for TempDir {
     }
 }
 
-pub fn link(object: &[u8], output: &Path) -> Result<(), String> {
+pub fn link(object: &[u8], output: &Path, options: Options) -> Result<(), String> {
     let dir = TempDir::new()?;
     let object = dir.write("program.o", object)?;
     let runtime = dir.write("libkmpl_rt.a", RUNTIME)?;
 
-    let result = Command::new("cc")
+    let mut command = Command::new("cc");
+    command
         .arg(&object)
         .arg(&runtime)
         .arg("-o")
@@ -66,8 +69,11 @@ pub fn link(object: &[u8], output: &Path) -> Result<(), String> {
         // Drops unused code, and the symbol table nothing needs: runtime
         // errors are reported by the program itself.
         .args(["-Wl,--gc-sections", "-Wl,-s"])
-        .args(SYSTEM_LIBS)
-        .output()
+        .args(SYSTEM_LIBS);
+    if options.verbosity >= 1 {
+        eprintln!("kmpl: {command:?}");
+    }
+    let result = timed(options, "link", || command.output())
         .map_err(|e| format!("kmpl: cannot run the linker `cc`: {e}"))?;
     if !result.status.success() {
         return Err(format!(
