@@ -94,6 +94,9 @@ pub enum Token {
 
     #[regex(r"[0-9]+", |l| l.slice().parse::<i64>().ok())]
     Int(i64),
+    /// One past the largest `int`. It is only a number after a minus sign.
+    #[token("9223372036854775808")]
+    MinIntDigits,
 }
 
 /// `None` (a lex error) for literals too large for `f64`, like `1e400`,
@@ -198,6 +201,7 @@ impl std::fmt::Display for Token {
             Token::Imag(v) => return write!(f, "number `{v:?}i`"),
             Token::Real(v) => return write!(f, "number `{v:?}`"),
             Token::Int(v) => return write!(f, "number `{v}`"),
+            Token::MinIntDigits => return write!(f, "number `9223372036854775808`"),
         };
         write!(f, "`{text}`")
     }

@@ -1679,6 +1679,21 @@ fn format_refuses_a_bad_number_of_digits() {
 }
 
 #[test]
+fn the_smallest_int_can_be_written() {
+    assert_eq!(
+        output(
+            "let a = -9223372036854775808;
+             print(a);
+             print(a + 1);
+             print(a == -9223372036854775807 - 1);
+             let b: real = -9223372036854775808;
+             print(b);"
+        ),
+        "-9223372036854775808\n-9223372036854775807\ntrue\n-9.223372036854776e18\n"
+    );
+}
+
+#[test]
 fn array_writes_in_a_loop_do_not_copy() {
     // Quadratic copying would make this take far too long to finish.
     let src = "fn main() {
