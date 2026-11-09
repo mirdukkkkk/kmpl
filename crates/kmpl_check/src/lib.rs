@@ -16,7 +16,25 @@ pub use error::CheckError;
 pub use generics::MAX_INSTANCES;
 pub use modules::{Module, ModuleImport, link};
 
-use kmpl_ast::{Item, Program};
+use std::collections::HashMap;
+
+use kmpl_ast::{Item, Program, Span, Ty};
+
+/// The inferred type of every expression of a checked program, so later
+/// stages do not need to work types out again.
+#[derive(Debug, Default)]
+pub struct TypeInfo {
+    types: HashMap<(usize, Span), Ty>,
+}
+
+impl TypeInfo {
+    /// The type of the expression at `span` in `program.items[item]`. The
+    /// same span can appear in several copies of a generic function, so
+    /// both are needed. Brackets share the span of what they contain.
+    pub fn of(&self, item: usize, span: Span) -> Option<&Ty> {
+        self.types.get(&(item, span))
+    }
+}
 
 /// Runs all checks. Returns every error found, not just the first.
 ///
@@ -24,7 +42,7 @@ use kmpl_ast::{Item, Program};
 /// - number literals have their inferred types (`1` used as `real` is `1.0`);
 /// - every generic function is replaced by its copies (`lerp<real>`,
 ///   `lerp<vec2>`, ...), and calls name the copy they use.
-pub fn check(program: &mut Program) -> Result<(), Vec<CheckError>> {
+pub fn check(program: &mut Program) -> Result<TypeInfo, Vec<CheckError>> {
     // Checks that do not depend on types run on the program as written.
     let mut errors = resolve::resolve(program);
     // Inference needs every name to exist, so it runs only after
@@ -54,8 +72,27 @@ pub fn check(program: &mut Program) -> Result<(), Vec<CheckError>> {
     }
 
     literals::rewrite(program, &inference);
-    program
-        .items
-        .retain(|item| !matches!(item, Item::Function(f) if !f.generics.is_empty()));
-    Ok(())
+
+    // Removing the generic originals moves later items, so the recorded
+    // item indices have to follow.
+    let mut new_index = Vec::with_capacity(program.items.len());
+    let mut next = 0;
+    for item in &program.items {
+        new_index.push(next);
+        if !is_generic(item) {
+            next += 1;
+        }
+    }
+    program.items.retain(|item| !is_generic(item));
+
+    let types = inference
+        .expr_types
+        .into_iter()
+        .map(|((item, span), ty)| ((new_index[item], span), ty))
+        .collect();
+    Ok(TypeInfo { types })
+}
+
+fn is_generic(item: &Item) -> bool {
+    matches!(item, Item::Function(f) if !f.generics.is_empty())
 }

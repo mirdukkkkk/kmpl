@@ -8,6 +8,7 @@ mod main_fn;
 mod modules;
 mod resolve;
 mod returns;
+mod type_info;
 mod types;
 
 use crate::check;
@@ -30,7 +31,7 @@ fn errors_exact(src: &str) -> Vec<String> {
     let program = kmpl_parse::parse(tokens).unwrap();
     let mut program = program;
     match check(&mut program) {
-        Ok(()) => Vec::new(),
+        Ok(_) => Vec::new(),
         Err(errors) => errors.into_iter().map(|e| e.message).collect(),
     }
 }

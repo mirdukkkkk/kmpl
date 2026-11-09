@@ -42,6 +42,16 @@ impl Type {
     }
 }
 
+/// A fully inferred type, as later stages see it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Ty {
+    Prim(Type),
+    Array(Box<Ty>),
+    Tuple(Vec<Ty>),
+    /// The struct's name, with its module prefix.
+    Struct(String),
+}
+
 /// A type as written in the source.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeExpr {

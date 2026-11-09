@@ -7,9 +7,15 @@ license.workspace = true
 [lints]
 workspace = true
 
+[features]
+dynamic-llvm = ["kmpl_codegen/dynamic-llvm"]
+
 [dependencies]
 kmpl_ast.workspace = true
 kmpl_lexer.workspace = true
 kmpl_parse.workspace = true
 kmpl_check.workspace = true
-kmpl_interp.workspace = true
+kmpl_lower.workspace = true
+kmpl_ir.workspace = true
+kmpl_vm.workspace = true
+kmpl_codegen.workspace = true

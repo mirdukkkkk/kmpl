@@ -180,8 +180,8 @@ print(push(a, 4.0));  // [1.0, 2.0, 3.0, 4.0]
 print(concat([1], [2, 3]));  // [1, 2, 3]
 ```
 
-`push` and `concat` return a new array, so write `a = push(a, x);`. Each call
-copies the array, so create arrays of the final size in long loops.
+`push` and `concat` return a new array and leave the old one alone, so write
+`a = push(a, x);`.
 
 `+`, `-` and unary `-` work element by element. `*` and `/` by a number apply to
 every element. A matrix is just a `[[real]]`, and `*` on matrices is the matrix
@@ -292,6 +292,7 @@ used.
 ## Input
 
 `kmpl program.kmpl a b` gives the program its arguments through `args()`.
+A program compiled with `kmpl build program.kmpl` gets its own: `./program a b`.
 `read_line` returns a line and `false` at the end of input. `parse_int` and
 `parse_real` return a value and whether the text was a number.
 
@@ -319,10 +320,7 @@ let (line, more) = read_line();
 | Vectors | `vec2 vec3 vec4 dot length distance normalize cross` |
 | Arrays and strings | `len push concat` |
 | Text | `parse_int parse_real` |
-| Input and output | `print args read_line plot` |
-
-`plot(xs, ys, "chart.svg")` draws a line through the points of two `[real]`
-arrays and writes an SVG file. `NaN` and infinite points leave a gap in the line.
+| Input and output | `print args read_line` |
 
 These functions work on single values. `sqrt` of an array is an error, so use a
 loop.

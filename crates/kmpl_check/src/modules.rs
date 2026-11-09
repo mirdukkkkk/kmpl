@@ -377,21 +377,26 @@ impl Linker<'_> {
             ExprKind::Swizzle { base, .. } => self.expr(base),
             ExprKind::Field { base, name } => {
                 if let ExprKind::Var(first) = &base.kind {
-                    let (head, is_known) = (
-                        first.name.clone(),
-                        self.is_local(&first.name)
-                            || self.own.contains(&first.name)
-                            || kmpl_builtins::lookup_const(&first.name).is_some(),
-                    );
-                    // A variable or constant has fields; anything else
-                    // before the dot has to be a module.
-                    if self.is_module(&head) || !is_known {
+                    let head = first.name.clone();
+                    if self.is_module(&head) {
                         let mut item = Ident {
                             name: format!("{head}.{}", name.name),
                             span: e.span,
                         };
                         self.module_item(&mut item);
                         e.kind = ExprKind::Var(item);
+                        return;
+                    }
+
+                    let is_known = self.is_local(&head)
+                        || self.own.contains(&head)
+                        || kmpl_builtins::lookup_const(&head).is_some();
+                    if !is_known {
+                        // A typo in a variable looks just like a missing import.
+                        self.errors.push(CheckError::new(
+                            format!("`{head}` is not a variable or an imported module"),
+                            base.span,
+                        ));
                         return;
                     }
                 }

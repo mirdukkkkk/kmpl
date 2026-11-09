@@ -716,24 +716,6 @@ fn string_built_ins() {
     );
 }
 
-#[test]
-fn plot_signature() {
-    assert_ok(r#"fn f(a: [real]) { plot(a, a, "out.svg"); plot([1, 2], [3, 4], "out.svg"); }"#);
-    assert_error(
-        r#"fn f(a: [int]) { plot(a, [1.0], "x"); }"#,
-        "mismatched types: expected `[real]`, found `[int]`",
-    );
-    assert_error(
-        "fn f(a: [real]) { plot(a, a, 1); }",
-        "mismatched types: expected `string`, found `int`, `real` or `complex`",
-    );
-    // Writes a file and returns nothing, so a constant cannot use it.
-    assert_error(
-        r#"const A: real = plot([1.0], [1.0], "x");"#,
-        "`plot` returns no value",
-    );
-}
-
 const POINT: &str = "struct P { x: real, n: int } ";
 
 fn with_point(src: &str) -> String {

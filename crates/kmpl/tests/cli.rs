@@ -36,7 +36,7 @@ fn stdout(out: &Output) -> String {
 fn no_arguments_prints_usage() {
     let out = kmpl(&[]);
     assert_eq!(out.status.code(), Some(2));
-    assert!(stderr(&out).contains("usage: kmpl [--ast] <file>"));
+    assert!(stderr(&out).contains("usage: kmpl [--ast | --ir] [--no-opt] <file>"));
 }
 
 #[test]
@@ -303,7 +303,10 @@ fn link_errors_are_reported_with_the_file() {
     );
     assert_eq!(out.status.code(), Some(1));
     let err = stderr(&out);
-    assert!(err.contains("unknown module `a`, add `import a;`"), "{err}");
+    assert!(
+        err.contains("`a` is not a variable or an imported module"),
+        "{err}"
+    );
     assert!(err.contains("main.kmpl:1:19"), "{err}");
 }
 
@@ -330,7 +333,10 @@ fn help_is_printed_to_stdout() {
         let out = kmpl(&args);
         assert_eq!(out.status.code(), Some(0), "{flags:?}");
         let text = stdout(&out);
-        assert!(text.contains("kmpl [--ast] <file> [args...]"), "{text}");
+        assert!(
+            text.contains("kmpl [--ast | --ir] [--no-opt] <file> [args...]"),
+            "{text}"
+        );
         assert!(text.contains("--ast"), "{text}");
         assert!(text.contains("-h, --help"), "{text}");
         assert_eq!(stderr(&out), "");
@@ -375,4 +381,110 @@ fn end_of_input_without_any_data() {
     );
     let out = kmpl_with_input(&[path.as_os_str()], b"");
     assert_eq!(stdout(&out), "false\n");
+}
+
+#[test]
+fn ir_flag_prints_the_ir() {
+    let path = source_file(
+        "ir_flag",
+        "fn f(x: real) -> real { return x * x; } fn main() { print(f(2.0)); }",
+    );
+    let out = kmpl(&["--ir".as_ref(), path.as_os_str()]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("fn f(v0: real) -> real {"), "{text}");
+    assert!(text.contains("v1 = mul v0, v0"), "{text}");
+    assert!(!text.contains("4.0\n"), "must not run: {text}");
+}
+
+#[test]
+fn no_opt_runs_the_program_the_same() {
+    let path = source_file(
+        "no_opt",
+        "fn main() { let x = 0; for i in 1..=3 { x += i; } print(x); print(args()); }",
+    );
+    let out = kmpl(&["--no-opt".as_ref(), path.as_os_str(), "a".as_ref()]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "6\n[a]\n");
+}
+
+fn assert_too_deep(test: &str, src: &str) {
+    let out = run(test, src);
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("nested too deeply"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn deep_nesting_in_source_is_an_error_not_a_crash() {
+    let n = 100_000;
+    let open_close = |open: &str, close: &str| (open.repeat(n), close.repeat(n));
+
+    let (open, close) = open_close("(", ")");
+    assert_too_deep(
+        "deep_parens",
+        &format!("fn main() {{ print({open}1{close}); }}"),
+    );
+
+    let (open, close) = open_close("[", "]");
+    assert_too_deep(
+        "deep_arrays",
+        &format!("fn main() {{ let a = {open}1{close}; }}"),
+    );
+    assert_too_deep(
+        "deep_types",
+        &format!("fn f(a: {open}int{close}) {{ }} fn main() {{ }}"),
+    );
+
+    let minus = "-".repeat(n);
+    assert_too_deep("deep_unary", &format!("fn main() {{ print({minus}1); }}"));
+
+    let (open, close) = open_close("if true { ", "} ");
+    assert_too_deep("deep_blocks", &format!("fn main() {{ {open} {close} }}"));
+
+    let chain = "if false { } else ".repeat(n);
+    assert_too_deep("deep_else", &format!("fn main() {{ {chain} {{ }} }}"));
+}
+
+#[test]
+fn reasonable_nesting_works() {
+    let open = "(".repeat(200);
+    let close = ")".repeat(200);
+    let out = run(
+        "ok_parens",
+        &format!("fn main() {{ print({open}1{close}); }}"),
+    );
+    assert_eq!(stdout(&out), "1\n", "{}", stderr(&out));
+}
+
+#[test]
+fn a_long_expression_compiles() {
+    let chain = " + 1".repeat(20_000);
+    let out = run("long_chain", &format!("fn main() {{ print(0{chain}); }}"));
+    assert_eq!(stdout(&out), "20000\n", "{}", stderr(&out));
+}
+
+#[test]
+fn deeply_nested_data_is_freed_printed_and_compared() {
+    let build = "struct Node { children: [Node] }
+                 fn deep(n: int) -> Node {
+                     let node = Node { children: [] };
+                     for i in 0..n { node = Node { children: [node] }; }
+                     return node;
+                 }";
+    let out = run(
+        "deep_data",
+        &format!(
+            "{build} fn main() {{
+                 let a = deep(100000);
+                 print(a == deep(100000));
+                 print(len(string(a)) > 100000);
+             }}"
+        ),
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "true\ntrue\n");
 }

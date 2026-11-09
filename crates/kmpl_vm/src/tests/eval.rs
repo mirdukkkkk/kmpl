@@ -139,14 +139,16 @@ fn real_division_by_zero_is_not_an_error() {
 fn runtime_error_span_points_at_the_operation() {
     let src = "fn main() { let z = 0; let y = 10 / z; }";
     let mut program = kmpl_parse::parse(kmpl_lexer::lex(src).unwrap()).unwrap();
-    kmpl_check::check(&mut program).unwrap();
+    let types = kmpl_check::check(&mut program).unwrap();
+    let mut module = kmpl_lower::lower(&program, &types);
+    kmpl_ir::annotate(&mut module);
     let (mut out, mut input) = (Vec::new(), &b""[..]);
     let io = crate::Io {
         out: &mut out,
         input: &mut input,
         args: &[],
     };
-    let err = crate::run(&program, io).unwrap_err();
+    let err = crate::run(&module, io).unwrap_err();
     assert_eq!(&src[err.span.start..err.span.end], "10 / z");
 }
 
@@ -899,33 +901,6 @@ fn strings_in_generics_and_constants() {
     assert_eq!(run(src).unwrap(), "hi!hi!\n4\n");
 }
 
-#[test]
-fn plot_writes_a_file() {
-    let path = std::env::temp_dir().join(format!("kmpl_plot_{}.svg", std::process::id()));
-    let path_text = path.to_str().unwrap();
-    let src =
-        format!(r#"fn main() {{ plot([0, 1, 2], [1, 3, 2], "{path_text}"); print("done"); }}"#);
-    assert_eq!(run(&src).unwrap(), "done\n");
-
-    let image = std::fs::read_to_string(&path).unwrap();
-    std::fs::remove_file(&path).unwrap();
-    assert!(image.starts_with("<svg"), "{image}");
-    assert!(image.contains("<polyline"), "{image}");
-}
-
-#[test]
-fn plot_errors() {
-    assert_eq!(
-        runtime_error(r#"fn main() { plot([1.0, 2.0], [1.0], "x.svg"); }"#),
-        "`plot` needs as many x values as y values, got 2 and 1"
-    );
-    let message = runtime_error(r#"fn main() { plot([1.0], [1.0], "/nonexistent-dir/x.svg"); }"#);
-    assert!(
-        message.starts_with("cannot write `/nonexistent-dir/x.svg`: "),
-        "{message}"
-    );
-}
-
 const POINT: &str = "struct P { x: real, n: int } ";
 
 fn with_point(body: &str) -> String {
@@ -1116,4 +1091,300 @@ fn parsing_numbers() {
     assert_eq!(parsed(r#"parse_real("nan")"#), "(0.0, false)\n");
     assert_eq!(parsed(r#"parse_real("inf")"#), "(0.0, false)\n");
     assert_eq!(parsed(r#"parse_real("1e400")"#), "(0.0, false)\n");
+}
+
+#[test]
+fn array_writes_in_a_loop_do_not_copy() {
+    // Quadratic copying would make this take far too long to finish.
+    let src = "fn main() {
+                   let n = 200000;
+                   let a = [0; n];
+                   for i in 0..n { a[i] = i; }
+                   print(a[n - 1]);
+               }";
+    assert_eq!(run(src).unwrap(), "199999\n");
+}
+
+#[test]
+fn struct_and_nested_writes_in_a_loop_do_not_copy() {
+    let src = "struct S { values: [int] }
+               fn fill(s: S, n: int) -> S {
+                   for i in 0..n { s.values[i] = i; }
+                   return s;
+               }
+               fn main() {
+                   let n = 200000;
+                   let s = fill(S { values: [0; n] }, n);
+                   print(s.values[n - 1]);
+               }";
+    assert_eq!(run(src).unwrap(), "199999\n");
+}
+
+#[test]
+fn a_write_after_a_copy_still_leaves_the_copy_alone() {
+    let src = "fn main() {
+                   let a = [1, 2];
+                   let i = 0;
+                   let saved = a;
+                   while i < 2 { a[i] = 9; i += 1; }
+                   print(saved);
+                   print(a);
+               }";
+    assert_eq!(run(src).unwrap(), "[1, 2]\n[9, 9]\n");
+}
+
+#[test]
+fn branches_and_loops_merge_variables() {
+    let src = "fn f(c: bool) -> int {
+                   let x = 1;
+                   let y;
+                   if c { x = 2; y = 10; } else { y = 20; }
+                   let i = 0;
+                   while i < 3 {
+                       if i == 1 { i += 1; continue; }
+                       x += y;
+                       i += 1;
+                   }
+                   return x;
+               }
+               fn main() { print(f(true)); print(f(false)); }";
+    assert_eq!(run(src).unwrap(), "22\n41\n");
+}
+
+#[test]
+fn break_carries_the_current_values() {
+    let src = "fn main() {
+                   let x = 0;
+                   let i = 0;
+                   while true {
+                       x = i * 2;
+                       if i == 3 { break; }
+                       i += 1;
+                   }
+                   print(x);
+                   let a = 0;
+                   for j in 0..10 {
+                       a = j;
+                       if j == 4 { break; }
+                   }
+                   print(a);
+               }";
+    assert_eq!(run(src).unwrap(), "6\n4\n");
+}
+
+#[test]
+fn swapping_through_a_loop() {
+    let src = "fn main() {
+                   let a = 1;
+                   let b = 2;
+                   for i in 0..3 {
+                       let t = a;
+                       a = b;
+                       b = t;
+                   }
+                   print(a);
+                   print(b);
+               }";
+    assert_eq!(run(src).unwrap(), "2\n1\n");
+}
+
+#[test]
+fn deep_recursion_is_not_limited_by_the_rust_stack() {
+    let src = "fn down(n: int) -> int { if n == 0 { return 0; } return 1 + down(n - 1); }
+               fn main() { print(down(9000)); }";
+    assert_eq!(run(src).unwrap(), "9000\n");
+}
+
+#[test]
+fn optimizations_keep_errors_where_they_were() {
+    let error = |body: &str| run(&format!("fn main() {{ {body} }}")).unwrap_err();
+    // Unused results still fail, after what was printed before them.
+    assert_eq!(
+        error("print(1); let x = 1 / 0; print(2);"),
+        ("division by zero".to_owned(), "1\n".to_owned())
+    );
+    assert_eq!(
+        error("let x = 9223372036854775807 + 1;").0,
+        "integer overflow"
+    );
+    assert_eq!(
+        error("let a = [1]; let x = a[5];").0,
+        "index 5 is out of bounds for an array of length 1"
+    );
+    assert_eq!(
+        error("let a = [1] + [1, 2];").0,
+        "arrays have different lengths: 1 and 2"
+    );
+    assert_eq!(
+        error("for i in 0..3 step 0 { }").0,
+        "loop step cannot be zero"
+    );
+}
+
+#[test]
+fn an_error_in_a_loop_that_never_runs_does_not_happen() {
+    assert_eq!(output("for i in 0..0 { let x = 1 / 0; } print(1);"), "1\n");
+    assert_eq!(
+        output("let a = [1]; if false { print(a[9]); } print(2);"),
+        "2\n"
+    );
+}
+
+#[test]
+fn floats_keep_their_exact_value() {
+    assert_eq!(output("print(0.1 + 0.2);"), "0.30000000000000004\n");
+    assert_eq!(output("print(1e308 * 10 * 0.1);"), "inf\n");
+    assert_eq!(output("print(0.0 / 0.0 == 0.0 / 0.0);"), "false\n");
+    assert_eq!(output("print(-0.0);"), "-0.0\n");
+}
+
+#[test]
+fn loops_with_constant_conditions() {
+    assert_eq!(
+        output("let i = 0; while true { i += 1; if i > 2 { break; } } print(i);"),
+        "3\n"
+    );
+    assert_eq!(output("while false { print(1); } print(2);"), "2\n");
+    assert_eq!(output("if true { print(1); } else { print(2); }"), "1\n");
+    assert_eq!(output("if false { print(1); } else { print(2); }"), "2\n");
+}
+
+#[test]
+fn swapping_values_in_a_while_loop() {
+    assert_eq!(
+        output(
+            "let a = 1; let b = 2; let i = 0; while i < 3 { let t = a; a = b; b = t; i += 1; } print(a); print(b);"
+        ),
+        "2\n1\n"
+    );
+    assert_eq!(
+        output(
+            r#"let a = "x"; let b = "y"; let i = 0; while i < 3 { let t = a; a = b; b = t; i += 1; } print(a + b);"#
+        ),
+        "yx\n"
+    );
+}
+
+#[test]
+fn a_loop_that_never_runs_keeps_moved_work_harmless() {
+    assert_eq!(
+        output("for i in 0..0 { print(2.0 * 3.0); } print(1);"),
+        "1\n"
+    );
+    assert_eq!(
+        output("let x = 2.0; let i = 0; while i < 0 { print(x * x); i += 1; } print(x);"),
+        "2.0\n"
+    );
+}
+
+#[test]
+fn an_array_made_in_a_loop_is_new_every_round() {
+    assert_eq!(
+        output("for i in 0..2 { let a = [0, 0]; a[i] = 1; print(a); }"),
+        "[1, 0]\n[0, 1]\n"
+    );
+}
+
+#[test]
+fn moved_work_in_nested_and_branching_loops() {
+    let src = "fn f(c: bool, n: int) -> real {
+                   let s = 0.0;
+                   if c {
+                       for i in 0..n {
+                           let j = 0;
+                           while j < n {
+                               if j == 1 { j += 1; continue; }
+                               s += 0.25 * 2.0;
+                               j += 1;
+                           }
+                       }
+                   }
+                   return s;
+               }
+               fn main() { print(f(true, 3)); print(f(false, 3)); }";
+    assert_eq!(run(src).unwrap(), "3.0\n0.0\n");
+}
+
+#[test]
+fn ranges_near_the_end_of_int() {
+    let max = "9223372036854775807";
+    assert_eq!(
+        output(&format!("for i in {max}-1..{max} {{ print(i); }}")),
+        format!("{}\n", 9223372036854775806_i64)
+    );
+    assert_eq!(
+        output(&format!("for i in {max}-1..={max} {{ print(i); }}")),
+        format!("{}\n{max}\n", 9223372036854775806_i64)
+    );
+    assert_eq!(
+        output(&format!("for i in {max}-3..{max} step 2 {{ print(i); }}")),
+        "9223372036854775804\n9223372036854775806\n"
+    );
+    let min = "(-9223372036854775807 - 1)";
+    assert_eq!(
+        output(&format!("for i in {min}+1..{min} step -1 {{ print(i); }}")),
+        "-9223372036854775807\n"
+    );
+    assert_eq!(
+        output(&format!("for i in {min}+1..={min} step -1 {{ print(i); }}")),
+        "-9223372036854775807\n-9223372036854775808\n"
+    );
+}
+
+#[test]
+fn reading_an_array_does_not_make_the_next_write_copy_it() {
+    let src = "fn main() {
+                   let n = 200000;
+                   let a = [0; n];
+                   for i in 0..n { a[i] = len(a); }
+                   print(a[n - 1]);
+               }";
+    assert_eq!(run(src).unwrap(), "200000\n");
+}
+
+#[test]
+fn a_loop_of_pushes_does_not_copy() {
+    let src = "fn main() {
+                   let a: [int] = [];
+                   for i in 0..200000 { a = push(a, i); }
+                   print(len(a));
+                   print(a[199999]);
+               }";
+    assert_eq!(run(src).unwrap(), "200000\n199999\n");
+}
+
+#[test]
+fn push_and_concat_leave_other_holders_alone() {
+    assert_eq!(
+        output("let a = [1]; let b = a; a = push(a, 2); print(a); print(b);"),
+        "[1, 2]\n[1]\n"
+    );
+    assert_eq!(
+        output(
+            "let a = [1]; let b = push(a, 2); let c = push(a, 3); print(a); print(b); print(c);"
+        ),
+        "[1]\n[1, 2]\n[1, 3]\n"
+    );
+    assert_eq!(
+        output("let a = [1, 2]; print(concat(a, a));"),
+        "[1, 2, 1, 2]\n"
+    );
+    assert_eq!(
+        output("let a = [1]; let b = a; a = concat(a, [2]); print(a); print(b);"),
+        "[1, 2]\n[1]\n"
+    );
+    assert_eq!(
+        output("let m = [[1]]; m = push(m, m[0]); m[0][0] = 9; print(m);"),
+        "[[9], [1]]\n"
+    );
+}
+
+#[test]
+fn matrix_product_of_every_number_type() {
+    assert_eq!(output("print([[1.5, 2.0]] * [0.5, 2.0]);"), "[4.75]\n");
+    assert_eq!(output("print([[2, 3]] * [4, 5]);"), "[23]\n");
+    assert_eq!(
+        output("print([[1.0i, 2.0i]] * [1.0i, 1.0i]);"),
+        "[-3.0+0.0i]\n"
+    );
 }

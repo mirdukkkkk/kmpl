@@ -1,11 +1,10 @@
-//! Runs every `examples/*.kmpl` and compares its output with the
-//! `.out` file next to it.
+//! Runs every `examples/*.kmpl`, on the VM and as a built executable, and
+//! compares its output with the `.out` file next to it.
 
-use std::path::Path;
-use std::process::Command;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
 
-#[test]
-fn examples_match_expected_output() {
+fn sources() -> Vec<PathBuf> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
     let mut sources: Vec<_> = std::fs::read_dir(&dir)
         .unwrap()
@@ -14,13 +13,13 @@ fn examples_match_expected_output() {
         .collect();
     sources.sort();
     assert!(!sources.is_empty(), "no examples in {}", dir.display());
+    sources
+}
 
-    // Examples may write files; keep them out of the repository.
-    let work_dir = std::env::temp_dir().join(format!("kmpl_examples_{}", std::process::id()));
-    std::fs::create_dir_all(&work_dir).unwrap();
-
+/// Compares what `run` produces for every example with its `.out` file.
+fn check_examples(run: impl Fn(&Path) -> Output) {
     let mut failures = Vec::new();
-    for source in &sources {
+    for source in &sources() {
         let name = source.file_name().unwrap().to_string_lossy();
         let expected = match std::fs::read_to_string(source.with_extension("out")) {
             Ok(text) => text,
@@ -30,11 +29,7 @@ fn examples_match_expected_output() {
             }
         };
 
-        let out = Command::new(env!("CARGO_BIN_EXE_kmpl"))
-            .arg(source)
-            .current_dir(&work_dir)
-            .output()
-            .unwrap();
+        let out = run(source);
         let actual = String::from_utf8_lossy(&out.stdout);
 
         if !out.status.success() {
@@ -47,6 +42,36 @@ fn examples_match_expected_output() {
         }
     }
 
-    std::fs::remove_dir_all(&work_dir).unwrap();
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+}
+
+#[test]
+fn examples_match_expected_output() {
+    check_examples(|source| {
+        Command::new(env!("CARGO_BIN_EXE_kmpl"))
+            .arg(source)
+            .output()
+            .unwrap()
+    });
+}
+
+#[test]
+fn built_examples_match_expected_output() {
+    let dir = std::env::temp_dir().join(format!("kmpl-built-examples-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    check_examples(|source| {
+        let executable = dir.join(source.file_stem().unwrap());
+        let build = Command::new(env!("CARGO_BIN_EXE_kmpl"))
+            .arg("build")
+            .arg(source)
+            .arg("-o")
+            .arg(&executable)
+            .output()
+            .unwrap();
+        if !build.status.success() {
+            return build;
+        }
+        Command::new(&executable).output().unwrap()
+    });
 }

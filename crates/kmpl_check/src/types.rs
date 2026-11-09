@@ -13,7 +13,7 @@
 //! work the same way, with the `TUPLE` and `STRUCT` bits. Structs compare by
 //! name, not by their fields.
 
-use kmpl_ast::Type;
+use kmpl_ast::{Ty, Type};
 
 /// A set of `Type`s, one bit per type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -355,6 +355,20 @@ impl Unifier {
             Slot::Array(elem) => self.is_resolved(elem),
             Slot::Tuple(t) => self.tuples[t].iter().all(|&e| self.is_resolved(e)),
             Slot::Struct(_) => true,
+            Slot::Link(_) => unreachable!("root() returns a root"),
+        }
+    }
+
+    /// The final type of `var`, or `None` if it never got one.
+    pub fn resolve(&self, var: TyVar) -> Option<Ty> {
+        match self.slots[self.root(var)] {
+            Slot::Root(set) => set.default_type().map(Ty::Prim),
+            Slot::Array(elem) => Some(Ty::Array(Box::new(self.resolve(elem)?))),
+            Slot::Tuple(t) => {
+                let items = self.tuples[t].iter().map(|&e| self.resolve(e));
+                Some(Ty::Tuple(items.collect::<Option<_>>()?))
+            }
+            Slot::Struct(id) => Some(Ty::Struct(self.struct_names[id].clone())),
             Slot::Link(_) => unreachable!("root() returns a root"),
         }
     }

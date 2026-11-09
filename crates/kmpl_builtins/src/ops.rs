@@ -3,10 +3,10 @@
 //! The checker has already verified operand types, so a type combination
 //! not handled here is a checker bug and panics. Errors that depend on
 //! the values (integer division by zero, overflow) are returned as
-//! messages; `eval` attaches the span.
+//! messages; the caller attaches the span.
 //!
-//! `&&` and `||` are not here: they skip the right side, so `eval`
-//! handles them.
+//! `&&` and `||` are not here: they skip the right side, so they are
+//! lowered to branches.
 //!
 //! Arrays: `+`, `-` and unary `-` work element by element, an array with a
 //! non-array applies the operator to every element, and `*` on two arrays
@@ -15,8 +15,8 @@
 
 use std::sync::Arc;
 
+use crate::Value;
 use kmpl_ast::{BinOp, UnOp};
-use kmpl_builtins::Value;
 
 pub fn unary(op: UnOp, v: Value) -> Result<Value, String> {
     let result = match (op, &v) {
@@ -178,25 +178,85 @@ fn matrix_rows(matrix: &[Value]) -> Result<(Vec<&[Value]>, usize), String> {
 fn sum_of_products<'v>(x: &[Value], y: impl Iterator<Item = &'v Value>) -> Result<Value, String> {
     let mut total = None;
     for (p, q) in x.iter().zip(y) {
-        let term = binary(BinOp::Mul, p.clone(), q.clone())?;
-        total = Some(match total {
-            Some(sum) => binary(BinOp::Add, sum, term)?,
-            None => term,
+        total = Some(match (total, p, q) {
+            // Matrices are nearly always `real`.
+            (Some(Value::Real(sum)), Value::Real(a), Value::Real(b)) => Value::Real(sum + a * b),
+            (None, Value::Real(a), Value::Real(b)) => Value::Real(a * b),
+            (total, p, q) => {
+                let term = binary(BinOp::Mul, p.clone(), q.clone())?;
+                match total {
+                    Some(sum) => binary(BinOp::Add, sum, term)?,
+                    None => term,
+                }
+            }
         });
     }
     Ok(total.expect("the caller checked there is at least one column"))
 }
 
-const OVERFLOW: &str = "integer overflow";
+pub const OVERFLOW: &str = "integer overflow";
+pub const DIVISION_BY_ZERO: &str = "division by zero";
+pub const ZERO_STEP: &str = "loop step cannot be zero";
 
-fn int_op(op: BinOp, a: i64, b: i64) -> Result<Value, String> {
+/// Deepest allowed chain of function calls. Deeper recursion stops with an
+/// error instead of using up all memory.
+pub const MAX_CALL_DEPTH: usize = 10_000;
+
+/// `i` as a position in an array of length `len`.
+pub fn checked_index(i: i64, len: usize) -> Result<usize, String> {
+    match usize::try_from(i) {
+        Ok(position) if position < len => Ok(position),
+        _ => Err(format!(
+            "index {i} is out of bounds for an array of length {len}"
+        )),
+    }
+}
+
+/// The range `from..to` of an array of length `len`, or `from..=to`.
+pub fn slice_bounds(
+    from: i64,
+    to: i64,
+    inclusive: bool,
+    len: usize,
+) -> Result<std::ops::Range<usize>, String> {
+    let bounds = (|| {
+        let start = usize::try_from(from).ok()?;
+        let end = usize::try_from(to).ok()?;
+        let end = if inclusive { end.checked_add(1)? } else { end };
+        (start <= end && end <= len).then_some(start..end)
+    })();
+    let dots = if inclusive { "..=" } else { ".." };
+    bounds.ok_or_else(|| {
+        format!("slice {from}{dots}{to} is out of bounds for an array of length {len}")
+    })
+}
+
+/// `[item; n]`.
+pub fn array_fill(item: Value, n: i64) -> Result<Value, String> {
+    let count =
+        usize::try_from(n).map_err(|_| format!("array length cannot be negative, got {n}"))?;
+
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(count)
+        .map_err(|_| format!("an array of {n} elements is too large"))?;
+    values.resize(count, item);
+    Ok(Value::Array(Arc::new(values)))
+}
+
+pub fn stack_overflow_message() -> String {
+    format!("stack overflow: more than {MAX_CALL_DEPTH} nested calls")
+}
+
+#[inline]
+pub fn int_op(op: BinOp, a: i64, b: i64) -> Result<Value, String> {
     let checked = |v: Option<i64>| v.map(Value::Int).ok_or_else(|| OVERFLOW.to_owned());
 
     match op {
         BinOp::Add => checked(a.checked_add(b)),
         BinOp::Sub => checked(a.checked_sub(b)),
         BinOp::Mul => checked(a.checked_mul(b)),
-        BinOp::Div if b == 0 => Err("division by zero".to_owned()),
+        BinOp::Div if b == 0 => Err(DIVISION_BY_ZERO.to_owned()),
         // Truncates toward zero; only `i64::MIN / -1` overflows.
         BinOp::Div => checked(a.checked_div(b)),
         BinOp::Lt => Ok(Value::Bool(a < b)),
@@ -210,7 +270,8 @@ fn int_op(op: BinOp, a: i64, b: i64) -> Result<Value, String> {
 }
 
 /// IEEE 754: dividing by zero gives `inf` or `NaN`, not an error.
-fn real_op(op: BinOp, a: f64, b: f64) -> Option<Value> {
+#[inline]
+pub fn real_op(op: BinOp, a: f64, b: f64) -> Option<Value> {
     let v = match op {
         BinOp::Add => Value::Real(a + b),
         BinOp::Sub => Value::Real(a - b),

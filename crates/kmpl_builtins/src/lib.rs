@@ -4,9 +4,10 @@
 //! interpreter calls `func`. Adding a built-in means adding one entry
 //! to `BUILTINS`.
 
+pub mod abi;
 mod complex;
 mod math;
-mod plot;
+pub mod ops;
 mod value;
 
 #[cfg(test)]
@@ -32,15 +33,16 @@ pub struct Builtin {
     pub func: BuiltinFn,
 }
 
-pub type BuiltinFn = fn(&[Value], &mut Io) -> Result<Option<Value>, String>;
+/// The arguments are mutable so a built-in can reuse one it gets to own,
+/// instead of copying it.
+pub type BuiltinFn = fn(&mut [Value], &mut Io) -> Result<Option<Value>, String>;
 
-/// What a running program can reach outside itself. `Send` because the
-/// interpreter runs on its own thread.
+/// What a running program can reach outside itself.
 pub struct Io<'a> {
     /// Where `print` writes.
-    pub out: &'a mut (dyn Write + Send),
+    pub out: &'a mut dyn Write,
     /// Where `read_line` reads from.
-    pub input: &'a mut (dyn BufRead + Send),
+    pub input: &'a mut dyn BufRead,
     /// What `args` returns.
     pub args: &'a [String],
 }
@@ -63,8 +65,6 @@ pub enum ParamType {
     Any,
     /// An array of any element type, or a string. Used by `len`.
     Collection,
-    /// An array of exactly this element type.
-    ArrayOf(Type),
     /// The element type `E`: any type, arrays included. All `E` positions
     /// in one call are the same type. Used by `push`.
     Elem,
@@ -105,7 +105,6 @@ const FLOAT_OR_VECTOR: &[Type] = &[
     Type::Vec4,
 ];
 const VEC3: ParamType = ParamType::Exact(Type::Vec3);
-const REAL_ARRAY: ParamType = ParamType::ArrayOf(Type::Real);
 
 pub static BUILTINS: &[Builtin] = &[
     // ----- `T -> T` with `T` in `real, complex` -----
@@ -394,16 +393,20 @@ pub static BUILTINS: &[Builtin] = &[
         },
     },
     // Arrays are values, so these return a new array and leave the
-    // argument alone: `a = push(a, x);`.
+    // argument alone: `a = push(a, x);`. If nothing else holds the array it
+    // grows in place, so a loop of pushes does not copy it each time.
     Builtin {
         name: "push",
         generic: &[],
         params: &[ParamType::ArrayOfElem, ParamType::Elem],
         ret: RetType::ArrayOfElem,
         func: |a, _| {
-            let mut items = a[0].as_array().to_vec();
-            items.push(a[1].clone());
-            ok(Value::Array(Arc::new(items)))
+            let mut array = std::mem::replace(&mut a[0], Value::Int(0));
+            match &mut array {
+                Value::Array(items) => Arc::make_mut(items).push(a[1].clone()),
+                other => panic!("expected an array, got {other:?}"),
+            }
+            ok(array)
         },
     },
     Builtin {
@@ -412,8 +415,12 @@ pub static BUILTINS: &[Builtin] = &[
         params: &[ParamType::ArrayOfElem, ParamType::ArrayOfElem],
         ret: RetType::ArrayOfElem,
         func: |a, _| {
-            let items = [a[0].as_array(), a[1].as_array()].concat();
-            ok(Value::Array(Arc::new(items)))
+            let mut array = std::mem::replace(&mut a[0], Value::Int(0));
+            match &mut array {
+                Value::Array(items) => Arc::make_mut(items).extend_from_slice(a[1].as_array()),
+                other => panic!("expected an array, got {other:?}"),
+            }
+            ok(array)
         },
     },
     // ----- strings -----
@@ -494,16 +501,6 @@ pub static BUILTINS: &[Builtin] = &[
         },
     },
     // ----- output -----
-    Builtin {
-        name: "plot",
-        generic: &[],
-        params: &[REAL_ARRAY, REAL_ARRAY, ParamType::Exact(Type::Str)],
-        ret: RetType::Nothing,
-        func: |a, _| {
-            plot::plot(a[0].as_array(), a[1].as_array(), a[2].as_str())?;
-            Ok(None)
-        },
-    },
     Builtin {
         name: "print",
         generic: &[],

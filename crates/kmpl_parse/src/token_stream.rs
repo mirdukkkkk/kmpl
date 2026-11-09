@@ -3,6 +3,10 @@ use kmpl_lexer::Token;
 
 use crate::error::{PResult, ParseError};
 
+/// How deep brackets, blocks and types can nest. Parsing is recursive, so
+/// without a limit a hostile file could use up the stack.
+const MAX_NESTING: usize = 1000;
+
 pub struct TokenStream {
     tokens: Vec<(Token, Span)>,
     pos: usize,
@@ -11,6 +15,7 @@ pub struct TokenStream {
     /// Off in the header of `if`, `while` and `for`, where a `{` after a
     /// name starts the body. Back on inside any brackets.
     pub struct_literals: bool,
+    nesting: usize,
 }
 
 impl TokenStream {
@@ -22,7 +27,25 @@ impl TokenStream {
             pos: 0,
             eof: Span::new(end, end),
             struct_literals: true,
+            nesting: 0,
         }
+    }
+
+    /// Call when going one level deeper, and `leave` when coming back. An
+    /// error ends the whole parse, so there is no need to balance it.
+    pub fn enter(&mut self) -> PResult<()> {
+        self.nesting += 1;
+        if self.nesting > MAX_NESTING {
+            return Err(ParseError {
+                message: "this code is nested too deeply".to_owned(),
+                span: self.peek_span(),
+            });
+        }
+        Ok(())
+    }
+
+    pub fn leave(&mut self) {
+        self.nesting -= 1;
     }
 
     pub fn peek(&self) -> Option<&Token> {
