@@ -11,7 +11,7 @@ use std::io::{BufReader, BufWriter, Stdin, Stdout, Write};
 use std::sync::Arc;
 
 use kmpl_builtins::abi::{self, ArrayView, Slot};
-use kmpl_builtins::{BUILTINS, Io, StructLayout, Value, ops};
+use kmpl_builtins::{Builtin, Io, StructLayout, Value, ops};
 
 use operations::{operation, to_slot, value};
 
@@ -23,6 +23,8 @@ pub(crate) struct State {
     /// Reused for the arguments of built-ins.
     scratch: Vec<Value>,
     pub(crate) layouts: Vec<Arc<StructLayout>>,
+    /// By position, as generated code refers to them.
+    builtins: Vec<&'static Builtin>,
 }
 
 thread_local! {
@@ -35,6 +37,7 @@ thread_local! {
             .collect(),
         scratch: Vec::new(),
         layouts: Vec::new(),
+        builtins: kmpl_builtins::all().collect(),
     });
 }
 
@@ -242,7 +245,7 @@ pub unsafe extern "C" fn kmpl_rt_op(
     }
 }
 
-/// Calls entry `id` of `BUILTINS`. A null `result` drops what it returns.
+/// Calls built-in number `id`. A null `result` drops what it returns.
 ///
 /// # Safety
 /// `args` points to `count` valid slots, `result` is null or points to
@@ -270,7 +273,7 @@ pub unsafe extern "C" fn kmpl_rt_builtin(
             input: &mut state.input,
             args: &state.args,
         };
-        let outcome = (BUILTINS[id as usize].func)(&mut values, &mut io);
+        let outcome = (state.builtins[id as usize].func)(&mut values, &mut io);
         // Holding on to the arguments would make a later write to one of
         // those arrays copy it.
         values.clear();

@@ -1033,7 +1033,7 @@ fn structs_in_if_headers_with_brackets() {
 
 #[test]
 fn args_are_strings() {
-    let src = "fn main() { print(args()); print(len(args())); }";
+    let src = "fn main() { print(_io_args()); print(len(_io_args())); }";
     assert_eq!(run_with(src, &["a", "b c"], b"").unwrap(), "[a, b c]\n2\n");
     assert_eq!(run(src).unwrap(), "[]\n0\n");
 }
@@ -1042,11 +1042,11 @@ fn args_are_strings() {
 fn read_line_goes_through_the_input() {
     let src = "fn main() {
                    while true {
-                       let (line, ok) = read_line();
+                       let (line, ok) = _io_read_line();
                        if !ok { break; }
                        print(\"<\" + line + \">\");
                    }
-                   print(read_line());
+                   print(_io_read_line());
                }";
     assert_eq!(
         run_with(src, &[], b"one\r\ntwo\n\nlast").unwrap(),
@@ -1057,30 +1057,30 @@ fn read_line_goes_through_the_input() {
 
 #[test]
 fn input_that_is_not_text_is_an_error() {
-    let (message, _) = run_with("fn main() { read_line(); }", &[], &[0xff, b'\n']).unwrap_err();
+    let (message, _) = run_with("fn main() { _io_read_line(); }", &[], &[0xff, b'\n']).unwrap_err();
     assert!(message.starts_with("cannot read input: "), "{message}");
 }
 
 #[test]
 fn parsing_numbers() {
     let parsed = |call: &str| output(&format!("print({call});"));
-    assert_eq!(parsed(r#"parse_int("42")"#), "(42, true)\n");
-    assert_eq!(parsed(r#"parse_int(" -7 ")"#), "(-7, true)\n");
-    assert_eq!(parsed(r#"parse_int("4.5")"#), "(0, false)\n");
-    assert_eq!(parsed(r#"parse_int("")"#), "(0, false)\n");
+    assert_eq!(parsed(r#"_text_parse_int("42")"#), "(42, true)\n");
+    assert_eq!(parsed(r#"_text_parse_int(" -7 ")"#), "(-7, true)\n");
+    assert_eq!(parsed(r#"_text_parse_int("4.5")"#), "(0, false)\n");
+    assert_eq!(parsed(r#"_text_parse_int("")"#), "(0, false)\n");
     assert_eq!(
-        parsed(r#"parse_int("9223372036854775808")"#),
+        parsed(r#"_text_parse_int("9223372036854775808")"#),
         "(0, false)\n"
     );
 
-    assert_eq!(parsed(r#"parse_real("1.5")"#), "(1.5, true)\n");
-    assert_eq!(parsed(r#"parse_real("1e3")"#), "(1000.0, true)\n");
-    assert_eq!(parsed(r#"parse_real(".5")"#), "(0.5, true)\n");
-    assert_eq!(parsed(r#"parse_real("2")"#), "(2.0, true)\n");
-    assert_eq!(parsed(r#"parse_real("abc")"#), "(0.0, false)\n");
-    assert_eq!(parsed(r#"parse_real("nan")"#), "(0.0, false)\n");
-    assert_eq!(parsed(r#"parse_real("inf")"#), "(0.0, false)\n");
-    assert_eq!(parsed(r#"parse_real("1e400")"#), "(0.0, false)\n");
+    assert_eq!(parsed(r#"_text_parse_real("1.5")"#), "(1.5, true)\n");
+    assert_eq!(parsed(r#"_text_parse_real("1e3")"#), "(1000.0, true)\n");
+    assert_eq!(parsed(r#"_text_parse_real(".5")"#), "(0.5, true)\n");
+    assert_eq!(parsed(r#"_text_parse_real("2")"#), "(2.0, true)\n");
+    assert_eq!(parsed(r#"_text_parse_real("abc")"#), "(0.0, false)\n");
+    assert_eq!(parsed(r#"_text_parse_real("nan")"#), "(0.0, false)\n");
+    assert_eq!(parsed(r#"_text_parse_real("inf")"#), "(0.0, false)\n");
+    assert_eq!(parsed(r#"_text_parse_real("1e400")"#), "(0.0, false)\n");
 }
 
 #[test]
@@ -1530,7 +1530,7 @@ fn shifts() {
         output("print(3 << 4); print(-16 >> 2); print(1 << 63);"),
         "48\n-4\n-9223372036854775808\n"
     );
-    assert_eq!(output("print(shr_logical(-1, 60));"), "15\n");
+    assert_eq!(output("print(_bits_shr_logical(-1, 60));"), "15\n");
     assert_eq!(output("let x = 1; x <<= 3; x >>= 1; print(x);"), "4\n");
 }
 
@@ -1543,7 +1543,7 @@ fn a_shift_out_of_range_is_an_error() {
         );
         assert_eq!(
             runtime_error(&format!(
-                "fn main() {{ let n = {amount}; print(shr_logical(1, n)); }}"
+                "fn main() {{ let n = {amount}; print(_bits_shr_logical(1, n)); }}"
             )),
             "shift amount must be from 0 to 63"
         );
@@ -1617,5 +1617,25 @@ fn bytes_are_checked_like_arrays() {
     assert_eq!(
         runtime_error("fn main() { let b = bytes(\"a\"); let i = 1; print(b[i]); }"),
         "index 1 is out of bounds for an array of length 1"
+    );
+}
+
+#[test]
+fn constants_are_computed_by_functions() {
+    assert_eq!(
+        run("const A: int = 2;
+             fn twice(n: int) -> int { return n * A; }
+             const B: int = twice(3);
+             fn main() { print(B); }")
+        .unwrap(),
+        "6\n"
+    );
+}
+
+#[test]
+fn a_function_failing_for_a_constant_is_a_runtime_error() {
+    assert_eq!(
+        runtime_error("fn f(z: int) -> int { return 1 / z; } const A: int = f(0); fn main() { }"),
+        "division by zero"
     );
 }

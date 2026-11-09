@@ -258,22 +258,55 @@ fn for_each_scope() {
 }
 
 #[test]
-fn constants_call_only_built_ins() {
+fn constants_call_functions_when_it_is_safe() {
     assert_ok("const A: real = sqrt(2.0);");
     assert_ok("const A: real = 1.0; const B: real = max(A, 2.0);");
     assert_ok("fn f() -> real { return A; } const A: real = 1.0;");
-    assert_error(
-        "fn f() -> real { return 1.0; } const A: real = f();",
-        "a constant can only call built-in functions, `f` is not one",
+    assert_ok("fn f() -> real { return 1.0; } const A: real = f();");
+    assert_ok("fn f() -> real { return 1.0; } const A: real = sqrt(f());");
+    assert_ok(
+        "const A: int = 2; fn twice(n: int) -> int { return n * A; } const B: int = twice(3);",
     );
-    assert_error(
-        "fn f() -> real { return 1.0; } const A: real = sqrt(f());",
-        "a constant can only call built-in functions, `f` is not one",
+    // Through other functions, in any order.
+    assert_ok(
+        "const A: int = 2; const B: int = f(); fn f() -> int { return g(); } fn g() -> int { return A; }",
     );
-    // The bug this rule closes: `f` reads `B` before it has a value.
+    // Recursion ends the search.
+    assert_ok(
+        "fn f(n: int) -> int { if n == 0 { return 0; } return f(n - 1); } const A: int = f(3);",
+    );
+}
+
+#[test]
+fn a_constant_cannot_reach_a_constant_without_a_value() {
     assert_error(
         "fn f() -> real { return B; } const A: real = f(); const B: real = 2.0;",
-        "a constant can only call built-in functions, `f` is not one",
+        "a constant cannot call `f`: it reads `B`, which has no value yet",
+    );
+    assert_error(
+        "fn f() -> real { return A; } const A: real = f();",
+        "a constant cannot call `f`: it reads `A`, which has no value yet",
+    );
+    assert_error(
+        "fn g() -> int { return B; } fn f() -> int { return g(); } const A: int = f(); const B: int = 1;",
+        "a constant cannot call `f`: it reads `B`, which has no value yet",
+    );
+}
+
+#[test]
+fn a_local_variable_is_not_the_constant_of_that_name() {
+    assert_ok("fn f(B: int) -> int { return B; } const A: int = f(1); const B: int = 2;");
+    assert_ok("fn f() -> int { let B = 1; return B; } const A: int = f(); const B: int = 2;");
+    assert_ok(
+        "fn f() -> int { for B in 0..1 { return B; } return 0; } const A: int = f(); const B: int = 2;",
+    );
+}
+
+#[test]
+fn a_function_that_depends_on_the_run_cannot_give_a_constant() {
+    assert_error(
+        "fn f() -> int { return len(_io_args()); } const A: int = f();",
+        "a constant cannot call `f`: its value depends on how the program is run",
     );
 }
 
@@ -412,22 +445,22 @@ fn struct_names_are_not_values() {
 #[test]
 fn constants_cannot_depend_on_the_run() {
     assert_error(
-        "const A: [string] = args();",
-        "a constant cannot call `args`: its value depends on how the program is run",
+        "const A: [string] = _io_args();",
+        "a constant cannot call `_io_args`: its value depends on how the program is run",
     );
     assert_error(
-        "const A: int = len(args());",
-        "a constant cannot call `args`: its value depends on how the program is run",
+        "const A: int = len(_io_args());",
+        "a constant cannot call `_io_args`: its value depends on how the program is run",
     );
     assert_error(
-        "const A: (string, bool) = read_line();",
-        "a constant cannot call `read_line`: its value depends on how the program is run",
+        "const A: (string, bool) = _io_read_line();",
+        "a constant cannot call `_io_read_line`: its value depends on how the program is run",
     );
-    assert_ok(r#"const A: (int, bool) = parse_int("1");"#);
+    assert_ok(r#"const A: (int, bool) = _text_parse_int("1");"#);
     assert_error(
-        "fn f() { args(1); }",
-        "`args` takes 0 arguments, but 1 was given",
+        "fn f() { _io_args(1); }",
+        "`_io_args` takes 0 arguments, but 1 was given",
     );
-    assert_error("fn args() { }", "`args` is a built-in function");
+    assert_error("fn len() { }", "`len` is a built-in function");
     assert_ok("fn f() { let args = 1; print(args); }");
 }

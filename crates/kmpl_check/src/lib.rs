@@ -1,3 +1,4 @@
+mod const_calls;
 mod error;
 mod generics;
 mod infer;
@@ -55,6 +56,7 @@ pub fn check(program: &mut Program) -> Result<TypeInfo, Vec<CheckError>> {
     if !names_ok {
         return Err(errors);
     }
+    errors.extend(const_calls::check_const_calls(program));
 
     match generics::instances(program) {
         Ok(copies) => program.items.extend(copies.into_iter().map(Item::Function)),

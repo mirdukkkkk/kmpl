@@ -1,0 +1,6 @@
+// Operations on the bits of an `int`.
+
+// `>>` keeps the sign. This fills with zeros, as for an unsigned number.
+fn shr_logical(value: int, amount: int) -> int {
+    return _bits_shr_logical(value, amount);
+}

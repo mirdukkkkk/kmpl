@@ -1,5 +1,7 @@
 mod diagnostics;
 mod loader;
+mod manifest;
+mod remote;
 
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
@@ -8,15 +10,16 @@ use std::process::ExitStatus;
 use diagnostics::Sources;
 use kmpl_codegen::{Options, timed};
 
-const USAGE: &str = "usage: kmpl [--ast | --ir | --llvm-ir] [-v | -vv] [--no-opt] <file> [args...]
-       kmpl build [-v | -vv] [--no-opt] <file> [-o <output>]";
+const USAGE: &str =
+    "usage: kmpl [--ast | --ir | --llvm-ir] [-v | -vv] [--no-opt] [--locked] <file> [args...]
+       kmpl build [-v | -vv] [--no-opt] [--locked] <file> [-o <output>]";
 
 const HELP: &str = "\
 kmpl: the Kepler Math Programming Language
 
 Usage:
-    kmpl [--ast | --ir | --llvm-ir] [-v | -vv] [--no-opt] <file> [args...]
-    kmpl build [-v | -vv] [--no-opt] <file> [-o <output>]
+    kmpl [--ast | --ir | --llvm-ir] [-v | -vv] [--no-opt] [--locked] <file> [args...]
+    kmpl build [-v | -vv] [--no-opt] [--locked] <file> [-o <output>]
 
 Running or building a program needs a C compiler named `cc` to link it.
 
@@ -35,6 +38,7 @@ Options:
                  command, on standard error
     -vv          also report every LLVM pass
     --no-opt     do not optimize the intermediate representation
+    --locked     fail instead of adding anything to `kmpl.lock`
     -o <output>  where `build` writes the executable, by default the name of
                  the file without `.kmpl`, in the current directory
     -h, --help   show this help
@@ -74,12 +78,14 @@ fn run() {
     let mut print_flag = None;
     let mut optimize = true;
     let mut options = Options::default();
+    let mut load_options = loader::LoadOptions::default();
     while let [flag, tail @ ..] = rest {
         match flag.as_str() {
             "--ast" | "--ir" | "--llvm-ir" if !building => print_flag = Some(flag.as_str()),
             "-v" | "--verbose" => options.verbosity = options.verbosity.max(1),
             "-vv" => options.verbosity = 2,
             "--no-opt" => optimize = false,
+            "--locked" => load_options.locked = true,
             _ => break,
         }
         rest = tail;
@@ -98,7 +104,9 @@ fn run() {
     let output = building.then(|| build_output(path, program_args));
 
     let mut sources = Sources::default();
-    let modules = match timed(options, "read", || loader::load(path, &mut sources)) {
+    let modules = match timed(options, "read", || {
+        loader::load(path, &mut sources, load_options)
+    }) {
         Ok(modules) => modules,
         Err(message) => fail(&message),
     };

@@ -8,8 +8,9 @@
 //! only see the `lerp<vec2>` copies of a generic function.
 //!
 //! Rules:
-//! - `stats.mean` needs `import ...stats;` in the same file. Imports are
-//!   not transitive.
+//! - `stats.mean` needs `import stats from "...";` in the same file, and
+//!   plain `mean` needs `import (mean) from "...";`. Imports are not
+//!   transitive.
 //! - A local variable hides a module of the same name: `stats.mean` then
 //!   reads a field of the variable.
 //! - A local variable hides an item of its own module, like it hides a
@@ -19,7 +20,8 @@
 use std::collections::{HashMap, HashSet};
 
 use kmpl_ast::{
-    Block, Expr, ExprKind, Function, Ident, Item, PathStep, Program, Stmt, StmtKind, Type, TypeExpr,
+    Block, Expr, ExprKind, Function, Ident, ImportNames, Item, PathStep, Program, Stmt, StmtKind,
+    Type, TypeExpr,
 };
 
 use crate::error::CheckError;
@@ -32,8 +34,8 @@ pub struct Module {
 }
 
 pub struct ModuleImport {
-    /// The name the code uses: the last part of the import path.
-    pub name: Ident,
+    /// The names the code uses.
+    pub names: ImportNames,
     /// `Module::prefix` of the imported module.
     pub target: String,
 }
@@ -49,24 +51,17 @@ pub fn link(modules: Vec<Module>) -> Result<Program, Vec<CheckError>> {
     let mut items = Vec::new();
     let mut errors = Vec::new();
     for mut module in modules {
-        let mut imports = HashMap::new();
+        let own = &exports[&module.prefix];
+        let mut names = ImportedNames::default();
         for import in &module.imports {
-            let name = &import.name;
-            if imports
-                .insert(name.name.clone(), import.target.clone())
-                .is_some()
-            {
-                errors.push(CheckError::new(
-                    format!("`{}` is already imported", name.name),
-                    name.span,
-                ));
-            }
+            names.add(import, own, &exports[&import.target], &mut errors);
         }
 
         let mut linker = Linker {
             prefix: &module.prefix,
-            own: &exports[&module.prefix],
-            imports: &imports,
+            own,
+            imports: &names.modules,
+            items: &names.items,
             exports: &exports,
             scopes: Vec::new(),
             type_params: HashSet::new(),
@@ -101,12 +96,83 @@ fn item_names(program: &Program) -> HashSet<String> {
         .collect()
 }
 
+/// What the imports of one file bring into it.
+#[derive(Default)]
+struct ImportedNames {
+    /// Name used in the code -> full name of the module.
+    modules: HashMap<String, String>,
+    /// Name used in the code -> full name of the item.
+    items: HashMap<String, String>,
+}
+
+impl ImportedNames {
+    fn add(
+        &mut self,
+        import: &ModuleImport,
+        own: &HashSet<String>,
+        exported: &HashSet<String>,
+        errors: &mut Vec<CheckError>,
+    ) {
+        match &import.names {
+            ImportNames::Module(name) => {
+                if self.is_taken(&name.name) {
+                    errors.push(already_imported(name));
+                }
+                self.modules
+                    .insert(name.name.clone(), import.target.clone());
+            }
+            ImportNames::Items(list) => {
+                for item in list {
+                    if !exported.contains(&item.name.name) {
+                        errors.push(CheckError::new(
+                            format!("this module has no `{}`", item.name.name),
+                            item.name.span,
+                        ));
+                    } else if self.is_taken(&item.alias.name) {
+                        errors.push(already_imported(&item.alias));
+                    } else if let Some(problem) = name_clash(&item.alias.name, own) {
+                        errors.push(CheckError::new(problem, item.alias.span));
+                    } else {
+                        let full = format!("{}.{}", import.target, item.name.name);
+                        self.items.insert(item.alias.name.clone(), full);
+                    }
+                }
+            }
+        }
+    }
+
+    fn is_taken(&self, name: &str) -> bool {
+        self.modules.contains_key(name) || self.items.contains_key(name)
+    }
+}
+
+fn already_imported(name: &Ident) -> CheckError {
+    CheckError::new(format!("`{}` is already imported", name.name), name.span)
+}
+
+/// Why an imported item cannot be called `name` in this file, if it cannot.
+fn name_clash(name: &str, own: &HashSet<String>) -> Option<String> {
+    if own.contains(name) {
+        Some(format!("`{name}` is already defined in this file"))
+    } else if kmpl_builtins::lookup(name).is_some() {
+        Some(format!("`{name}` is a built-in function"))
+    } else if kmpl_builtins::lookup_const(name).is_some() {
+        Some(format!("`{name}` is a built-in constant"))
+    } else if Type::from_name(name).is_some() {
+        Some(format!("`{name}` is a built-in type"))
+    } else {
+        None
+    }
+}
+
 struct Linker<'a> {
     prefix: &'a str,
     /// Names of the items of this module.
     own: &'a HashSet<String>,
     /// Name used in the code -> full name of the module.
     imports: &'a HashMap<String, String>,
+    /// Name used in the code -> full name of an imported item.
+    items: &'a HashMap<String, String>,
     exports: &'a HashMap<String, HashSet<String>>,
     /// Local variables. Innermost scope is last.
     scopes: Vec<HashSet<String>>,
@@ -196,7 +262,7 @@ impl Linker<'_> {
 
         let Some(target) = self.imports.get(&module) else {
             self.error(
-                format!("unknown module `{module}`, add `import {module};`"),
+                format!("unknown module `{module}`, add `import {module} from \"...\";`"),
                 name,
             );
             return;
@@ -211,6 +277,15 @@ impl Linker<'_> {
     /// The name of a function or struct at a call or a literal: not a
     /// variable, so locals do not hide items.
     fn item_name(&mut self, name: &mut Ident) {
+        let internal = name.name.starts_with('_') && kmpl_builtins::lookup(&name.name).is_some();
+        if internal && !self.prefix.starts_with("std:") {
+            self.error(
+                format!("`{}` belongs to the standard library", name.name),
+                name,
+            );
+            return;
+        }
+
         if let Some((module, _)) = name.name.split_once('.') {
             if self.is_local(module) {
                 let message = format!("`{module}` is a variable, not a module");
@@ -218,15 +293,24 @@ impl Linker<'_> {
             } else {
                 self.module_item(name);
             }
-        } else if self.own.contains(&name.name) {
+        } else {
+            self.plain_item(name);
+        }
+    }
+
+    /// `name` without a module: an item of this file or an imported one.
+    fn plain_item(&mut self, name: &mut Ident) {
+        if self.own.contains(&name.name) {
             name.name = self.full_name(&name.name);
+        } else if let Some(full) = self.items.get(&name.name) {
+            name.name = full.clone();
         }
     }
 
     /// A variable that is read or assigned to.
     fn variable(&mut self, name: &mut Ident) {
-        if !self.is_local(&name.name) && self.own.contains(&name.name) {
-            name.name = self.full_name(&name.name);
+        if !self.is_local(&name.name) {
+            self.plain_item(name);
         }
     }
 
@@ -242,8 +326,8 @@ impl Linker<'_> {
             }
             TypeExpr::Param(name) if name.name.contains('.') => self.module_item(name),
             TypeExpr::Param(name) => {
-                if !self.type_params.contains(&name.name) && self.own.contains(&name.name) {
-                    name.name = self.full_name(&name.name);
+                if !self.type_params.contains(&name.name) {
+                    self.plain_item(name);
                 }
             }
         }
@@ -390,6 +474,7 @@ impl Linker<'_> {
 
                     let is_known = self.is_local(&head)
                         || self.own.contains(&head)
+                        || self.items.contains_key(&head)
                         || kmpl_builtins::lookup_const(&head).is_some();
                     if !is_known {
                         // A typo in a variable looks just like a missing import.

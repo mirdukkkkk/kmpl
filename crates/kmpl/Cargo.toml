@@ -8,7 +8,12 @@ license.workspace = true
 workspace = true
 
 [features]
+default = ["bundled-tls"]
 dynamic-llvm = ["kmpl_codegen/dynamic-llvm"]
+# TLS for downloading modules: built in, or the system's OpenSSL for
+# distributions (build with `--no-default-features --features dynamic-tls`).
+bundled-tls = ["minreq/https-rustls"]
+dynamic-tls = ["minreq/https-native-tls"]
 
 [dependencies]
 kmpl_ast.workspace = true
@@ -18,3 +23,5 @@ kmpl_check.workspace = true
 kmpl_lower.workspace = true
 kmpl_ir.workspace = true
 kmpl_codegen.workspace = true
+minreq.workspace = true
+sha2.workspace = true

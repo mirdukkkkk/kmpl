@@ -3,6 +3,9 @@
 //   kmpl examples/sum.kmpl 1 2.5
 //   printf '3\n4\n' | kmpl examples/sum.kmpl
 
+import (args, read_line) from "std:io";
+import (parse_real) from "std:text";
+
 struct Total {
     sum: real,
     count: int,

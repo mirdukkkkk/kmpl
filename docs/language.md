@@ -63,6 +63,9 @@ fn main() {
 }
 ```
 
+A constant can call functions. It is an error if a call reaches a constant declared
+later, or something that depends on how the program is run, such as `args`.
+
 `bytes` holds raw data. `b[i]` and `for x in b` give `int`s, and slices, `len`,
 `push`, `concat` and `==` work as on arrays. `string(b)` decodes UTF-8 and stops the
 program if the data is not valid UTF-8, while `print(b)` shows the numbers:
@@ -91,7 +94,7 @@ print(v * 2.0 + v);  // (3.0, 6.0, 9.0)
 ```
 
 `%` is the remainder, with the sign of the left side. `& | ^ ~ << >>` work on
-`int`; `>>` keeps the sign and `shr_logical(x, n)` fills with zeros. Shifting by
+`int`; `>>` keeps the sign and `shr_logical(x, n)` from `std:bits` fills with zeros. Shifting by
 less than 0 or more than 63 stops the program with an error.
 
 Assignments can be combined with `+ - * / % & | ^ << >>`:
@@ -278,8 +281,9 @@ array: `children: [Node]`.
 
 ## Modules
 
-`import a.b;` at the top of a file reads `a/b.kmpl` next to that file. The code
-then uses the last part of the path:
+`import` goes at the top of a file. `from` says where the module is, relative to
+that file: `"./lib/stats"` is `lib/stats.kmpl` or `lib/stats/mod.kmpl`, and there
+must be exactly one of them. With `.kmpl` at the end it is exactly that file.
 
 ```kmpl
 // lib/stats.kmpl
@@ -294,18 +298,76 @@ fn mean(a: [real]) -> real {
 
 ```kmpl
 // main.kmpl
-import lib.stats;
+import stats from "./lib/stats";
 
 fn main() {
     print(stats.mean([1.0, 2.0, 6.0]));  // 3.0
 }
 ```
 
+To use items without the module's name, list them in brackets. `as` gives one
+another name, and a name that is already taken is an error:
+
+```kmpl
+import (mean, mean as average) from "./lib/stats";
+```
+
 Everything in a module is public. A file must import a module itself to use it,
 even if a module it imports already does. Only the `main` of the file you run is
 used.
 
-## Input
+## Dependencies
+
+A plain name after `from` is looked up in `kmpl.toml`, which is searched for from
+the file you run upward. The version says which format the file uses:
+
+```toml
+version = 1
+
+[dependencies]
+helpers = "../helpers"
+```
+
+```text
+import helpers from "helpers";
+```
+
+A dependency, or an import itself, can also be a link. On GitHub it names a tag,
+a branch or a commit, and a path inside the repository can follow it:
+
+```toml
+[dependencies]
+pb = "https://github.com/user/pb/v1.2.0"
+```
+
+Any other `https://` link ending in `.kmpl` is that file; otherwise `/mod.kmpl` is
+added. `kmpl.lock`, next to `kmpl.toml`, records the commit behind every GitHub link
+and the sha256 of every downloaded file. Commit it to your repository: a moved tag
+or a new push to a branch changes nothing until you delete its line, and a file
+that differs from its hash stops the build. `--locked` refuses to add anything new.
+
+## Libraries
+
+Libraries that come with `kmpl` are imported from `std:`:
+
+| Library | Functions |
+|---|---|
+| `std:fs` | `read read_text write write_text` |
+| `std:io` | `args read_line` |
+| `std:text` | `parse_int parse_real` |
+| `std:bits` | `shr_logical` |
+
+Functions in `std:fs` also return the text of an error, empty if all went well:
+
+```text
+import fs from "std:fs";
+
+fn main() {
+    let error = fs.write_text("note.txt", "hello");
+    let (text, read_error) = fs.read_text("note.txt");
+    print(text);  // hello
+}
+```
 
 `kmpl program.kmpl a b` gives the program its arguments through `args()`.
 A program compiled with `kmpl build program.kmpl` gets its own: `./program a b`.
@@ -313,16 +375,23 @@ A program compiled with `kmpl build program.kmpl` gets its own: `./program a b`.
 `parse_real` return a value and whether the text was a number.
 
 ```kmpl
-let (n, ok) = parse_int("42");
-print(n + 1);  // 43
-print(ok);  // true
-print(parse_real("abc"));  // (0.0, false)
+import (parse_int, parse_real) from "std:text";
+
+fn main() {
+    let (n, ok) = parse_int("42");
+    print(n + 1);  // 43
+    print(ok);  // true
+    print(parse_real("abc"));  // (0.0, false)
+}
 ```
 
 ```text
-for arg in args() { print(arg); }
+import (args, read_line) from "std:io";
 
-let (line, more) = read_line();
+fn main() {
+    for arg in args() { print(arg); }
+    let (line, more) = read_line();
+}
 ```
 
 ## Built-in functions
@@ -335,8 +404,7 @@ let (line, more) = read_line();
 | Conversion | `real int complex string` |
 | Vectors | `vec2 vec3 vec4 dot length distance normalize cross` |
 | Arrays and strings | `len push concat` |
-| Text | `parse_int parse_real` |
-| Input and output | `print args read_line` |
+| Output | `print` |
 
 These functions work on single values. `sqrt` of an array is an error, so use a
 loop.

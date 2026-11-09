@@ -1,6 +1,13 @@
-use kmpl_ast::{Ident, Item, Span};
+use kmpl_ast::{Ident, ImportNames, ImportedItem, Item, Span};
 
 use crate::{Module, ModuleImport, check, link};
+
+fn ident(name: &str) -> Ident {
+    Ident {
+        name: name.to_owned(),
+        span: Span::new(0, 0),
+    }
+}
 
 /// A module with `imports` as (name in the code, full name of the module).
 fn module(prefix: &str, imports: &[(&str, &str)], src: &str) -> Module {
@@ -9,10 +16,7 @@ fn module(prefix: &str, imports: &[(&str, &str)], src: &str) -> Module {
         imports: imports
             .iter()
             .map(|(name, target)| ModuleImport {
-                name: Ident {
-                    name: (*name).to_owned(),
-                    span: Span::new(0, 0),
-                },
+                names: ImportNames::Module(ident(name)),
                 target: (*target).to_owned(),
             })
             .collect(),
@@ -124,22 +128,19 @@ fn locals_hide_items_of_the_module() {
 }
 
 #[test]
-fn constants_can_use_imported_constants_but_not_functions() {
+fn constants_can_use_imported_constants_and_functions() {
     assert_ok(vec![
-        module("a", &[], "const G: real = 2.0;"),
+        module(
+            "a",
+            &[],
+            "const G: real = 2.0; fn f() -> real { return G; }",
+        ),
         module(
             "",
             &[("a", "a")],
-            "const H: real = a.G * 2.0; fn main() { }",
+            "const H: real = a.G * 2.0; const I: real = a.f(); fn main() { }",
         ),
     ]);
-    assert_eq!(
-        errors(vec![
-            module("a", &[], "fn f() -> real { return 1.0; }"),
-            module("", &[("a", "a")], "const H: real = a.f(); fn main() { }"),
-        ]),
-        ["a constant can only call built-in functions, `a.f` is not one"]
-    );
 }
 
 #[test]
@@ -285,7 +286,7 @@ fn missing_types_in_modules() {
     );
     assert_eq!(
         link_errors(vec![module("", &[], "fn f(p: g.P) { } fn main() { }")]),
-        ["unknown module `g`, add `import g;`"]
+        ["unknown module `g`, add `import g from \"...\";`"]
     );
     assert_eq!(
         link_errors(vec![
@@ -381,6 +382,108 @@ fn module_items_cannot_be_assigned() {
 fn a_call_or_type_from_an_unknown_module_suggests_an_import() {
     assert_eq!(
         link_errors(vec![module("", &[], "fn main() { a.f(); }")]),
-        ["unknown module `a`, add `import a;`"]
+        ["unknown module `a`, add `import a from \"...\";`"]
     );
+}
+
+/// A module importing `items` (name, alias) from `target`.
+fn importing_items(target: &str, items: &[(&str, &str)], src: &str) -> Module {
+    let mut importer = module("", &[], src);
+    importer.imports.push(ModuleImport {
+        names: ImportNames::Items(
+            items
+                .iter()
+                .map(|(name, alias)| ImportedItem {
+                    name: ident(name),
+                    alias: ident(alias),
+                })
+                .collect(),
+        ),
+        target: target.to_owned(),
+    });
+    importer
+}
+
+const LIB: &str = "const K: int = 2; struct P { x: int } fn twice(n: int) -> int { return n * K; }";
+
+#[test]
+fn imported_items_are_used_without_a_prefix() {
+    assert_ok(vec![
+        module("lib", &[], LIB),
+        importing_items(
+            "lib",
+            &[("twice", "twice"), ("K", "K"), ("P", "P")],
+            "fn main() { let p: P = P { x: K }; print(twice(p.x)); }",
+        ),
+    ]);
+}
+
+#[test]
+fn an_alias_replaces_the_name() {
+    assert_ok(vec![
+        module("lib", &[], LIB),
+        importing_items(
+            "lib",
+            &[("twice", "double")],
+            "fn main() { print(double(1)); }",
+        ),
+    ]);
+}
+
+#[test]
+fn a_local_variable_hides_an_imported_constant() {
+    assert_ok(vec![
+        module("lib", &[], LIB),
+        importing_items(
+            "lib",
+            &[("K", "K")],
+            "fn main() { let K = 1.5; print(K * 2.0); }",
+        ),
+    ]);
+}
+
+#[test]
+fn imported_items_must_exist() {
+    assert_eq!(
+        link_errors(vec![
+            module("lib", &[], LIB),
+            importing_items("lib", &[("nope", "nope")], MAIN),
+        ]),
+        ["this module has no `nope`"]
+    );
+}
+
+#[test]
+fn imported_items_cannot_clash() {
+    for (src, items, message) in [
+        (
+            "fn twice() { } fn main() { }",
+            &[("twice", "twice")][..],
+            "`twice` is already defined in this file",
+        ),
+        (
+            MAIN,
+            &[("twice", "len")][..],
+            "`len` is a built-in function",
+        ),
+        (MAIN, &[("twice", "PI")][..], "`PI` is a built-in constant"),
+        (
+            MAIN,
+            &[("twice", "real")][..],
+            "`real` is a built-in function",
+        ),
+        (
+            MAIN,
+            &[("twice", "a"), ("K", "a")][..],
+            "`a` is already imported",
+        ),
+    ] {
+        assert_eq!(
+            link_errors(vec![
+                module("lib", &[], LIB),
+                importing_items("lib", items, src)
+            ]),
+            [message]
+        );
+    }
 }

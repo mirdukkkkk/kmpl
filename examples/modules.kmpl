@@ -1,7 +1,7 @@
-// Modules: `import lib.geometry;` reads `lib/geometry.kmpl` next to this
-// file, and the code then says `geometry.name`.
-import lib.geometry;
-import lib.stats;
+// Modules: `import geometry from "./lib/geometry";` reads `lib/geometry.kmpl` next
+// to this file, and the code then says `geometry.name`.
+import geometry from "./lib/geometry";
+import stats from "./lib/stats";
 
 fn main() {
     print(geometry.circle_area(2.0));

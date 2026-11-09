@@ -1,0 +1,9 @@
+// Working with text. The second value says whether the text was a number.
+
+fn parse_int(text: string) -> (int, bool) {
+    return _text_parse_int(text);
+}
+
+fn parse_real(text: string) -> (real, bool) {
+    return _text_parse_real(text);
+}

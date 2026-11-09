@@ -1,7 +1,8 @@
 //! Top-level items: `const` and `fn`.
 
 use kmpl_ast::{
-    Const, Function, Generic, Import, Item, Param, Program, StructDef, StructField, Type,
+    Const, Function, Generic, Import, ImportNames, ImportedItem, Item, Param, Program, StructDef,
+    StructField, Type,
 };
 use kmpl_lexer::Token;
 
@@ -24,19 +25,59 @@ pub fn program(ts: &mut TokenStream) -> PResult<Program> {
     Ok(Program { imports, items })
 }
 
-/// `'import' IDENT ('.' IDENT)* ';'`
+/// `'import' (IDENT | '(' imported (',' imported)* ','? ')') 'from' STRING ';'`
 fn import(ts: &mut TokenStream) -> PResult<Import> {
     let start = ts.expect(Token::Import)?;
-    let mut path = vec![ts.expect_ident()?];
-    while ts.eat(&Token::Dot).is_some() {
-        path.push(ts.expect_ident()?);
+    let names = match ts.eat(&Token::LParen) {
+        Some(_) => ImportNames::Items(imported_items(ts)?),
+        None => ImportNames::Module(ts.expect_ident()?),
+    };
+
+    if !at_word(ts, "from") {
+        return Err(ts.error_expected("`from`"));
     }
+    ts.next();
+
+    let source_span = ts.peek_span();
+    let Some(Token::Str(source)) = ts.peek().cloned() else {
+        return Err(ts.error_expected("a string"));
+    };
+    ts.next();
     let end = ts.expect(Token::Semi)?;
 
     Ok(Import {
-        path,
+        names,
+        source,
+        source_span,
         span: start.to(end),
     })
+}
+
+/// `from` and `as` mean something only here, so they stay ordinary names.
+fn at_word(ts: &TokenStream, word: &str) -> bool {
+    matches!(ts.peek(), Some(Token::Ident(name)) if name == word)
+}
+
+/// The rest of `'(' imported (',' imported)* ','? ')'`.
+fn imported_items(ts: &mut TokenStream) -> PResult<Vec<ImportedItem>> {
+    let mut items = Vec::new();
+    loop {
+        let name = ts.expect_ident()?;
+        let alias = match at_word(ts, "as") {
+            true => {
+                ts.next();
+                ts.expect_ident()?
+            }
+            false => name.clone(),
+        };
+        items.push(ImportedItem { name, alias });
+
+        if ts.eat(&Token::Comma).is_none() || ts.peek() == Some(&Token::RParen) {
+            break;
+        }
+    }
+    ts.expect(Token::RParen)?;
+    Ok(items)
 }
 
 fn item(ts: &mut TokenStream) -> PResult<Item> {
