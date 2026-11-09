@@ -36,7 +36,7 @@ fn main() {
 
 ## Status
 
-kmpl is a hobby project at version 0.1, and the language can still change.
+kmpl is a hobby project at version 0.2, and the language can still change.
 Programs are compiled through an optimized SSA intermediate representation and
 LLVM to native code for Linux on x86-64 or ARM64. `kmpl file` compiles and runs a
 program, `kmpl build file` keeps the executable. There is no file I/O yet, only
