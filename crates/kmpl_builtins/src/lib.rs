@@ -389,7 +389,7 @@ pub static BUILTINS: &[Builtin] = &[
         func: |a, _| match &a[0] {
             // Characters, not bytes: `len("привет")` is 6.
             Value::Str(text) => ok(Value::Int(text.chars().count() as i64)),
-            array => ok(Value::Int(array.as_array().len() as i64)),
+            array => ok(Value::Int(array.array_len() as i64)),
         },
     },
     // Arrays are values, so these return a new array and leave the
@@ -404,6 +404,8 @@ pub static BUILTINS: &[Builtin] = &[
             let mut array = std::mem::replace(&mut a[0], Value::Int(0));
             match &mut array {
                 Value::Array(items) => Arc::make_mut(items).push(a[1].clone()),
+                Value::Reals(items) => Arc::make_mut(items).push(a[1].as_real()),
+                Value::Ints(items) => Arc::make_mut(items).push(a[1].as_int()),
                 other => panic!("expected an array, got {other:?}"),
             }
             ok(array)
@@ -418,6 +420,8 @@ pub static BUILTINS: &[Builtin] = &[
             let mut array = std::mem::replace(&mut a[0], Value::Int(0));
             match &mut array {
                 Value::Array(items) => Arc::make_mut(items).extend_from_slice(a[1].as_array()),
+                Value::Reals(items) => Arc::make_mut(items).extend_from_slice(a[1].as_reals()),
+                Value::Ints(items) => Arc::make_mut(items).extend_from_slice(a[1].as_ints()),
                 other => panic!("expected an array, got {other:?}"),
             }
             ok(array)

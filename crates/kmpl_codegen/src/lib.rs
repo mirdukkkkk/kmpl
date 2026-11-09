@@ -3,6 +3,7 @@
 
 mod arith;
 mod boxed;
+mod flat;
 mod link;
 mod llvm;
 mod memory;

@@ -46,6 +46,11 @@ pub enum Value {
     /// array is shared (`Arc::make_mut`). `Arc` rather than `Rc` because
     /// `Value` is stored in the `static` table of built-in constants.
     Array(Arc<Vec<Value>>),
+    /// `[real]`: the numbers directly, next to each other in memory. Which
+    /// form an array has follows from its static type, also when it is empty.
+    Reals(Arc<Vec<f64>>),
+    /// `[int]`, like `Reals`.
+    Ints(Arc<Vec<i64>>),
     /// Never changed after it is built, so it is simply shared.
     Tuple(Arc<[Value]>),
     /// A value too, written through `Arc::make_mut` like an array.
@@ -66,7 +71,9 @@ impl Value {
             Value::Vec3(_) => Type::Vec3,
             Value::Vec4(_) => Type::Vec4,
             Value::Str(_) => Type::Str,
-            Value::Array(_) => panic!("an array has no `Type`"),
+            Value::Array(_) | Value::Reals(_) | Value::Ints(_) => {
+                panic!("an array has no `Type`")
+            }
             Value::Tuple(_) => panic!("a tuple has no `Type`"),
             Value::Struct(_) => panic!("a struct has no `Type`"),
         }
@@ -96,6 +103,40 @@ impl Value {
     pub fn as_array(&self) -> &[Value] {
         match self {
             Value::Array(items) => items,
+            other => panic!("expected an array, got {other:?}"),
+        }
+    }
+
+    /// Numbers of a `[real]`. Panics on other variants, like `as_real`.
+    pub fn as_reals(&self) -> &[f64] {
+        match self {
+            Value::Reals(items) => items,
+            other => panic!("expected a [real], got {other:?}"),
+        }
+    }
+
+    /// Numbers of an `[int]`. Panics on other variants, like `as_real`.
+    pub fn as_ints(&self) -> &[i64] {
+        match self {
+            Value::Ints(items) => items,
+            other => panic!("expected an [int], got {other:?}"),
+        }
+    }
+
+    /// The inner `i64` of an `Int`. Panics on other variants, like `as_real`.
+    pub fn as_int(&self) -> i64 {
+        match self {
+            Value::Int(v) => *v,
+            other => panic!("expected an int, got {other:?}"),
+        }
+    }
+
+    /// The length of an array of any form. Panics on other variants.
+    pub fn array_len(&self) -> usize {
+        match self {
+            Value::Array(items) => items.len(),
+            Value::Reals(items) => items.len(),
+            Value::Ints(items) => items.len(),
             other => panic!("expected an array, got {other:?}"),
         }
     }
@@ -162,6 +203,15 @@ impl std::fmt::Display for Value {
             Value::Vec4(v) => write_components(f, v),
             Value::Array(items) => {
                 let parts: Vec<String> = items.iter().map(Value::to_string).collect();
+                write!(f, "[{}]", parts.join(", "))
+            }
+            // The same text as an array of `Value::Real` would give.
+            Value::Reals(items) => {
+                let parts: Vec<String> = items.iter().map(|v| format!("{v:?}")).collect();
+                write!(f, "[{}]", parts.join(", "))
+            }
+            Value::Ints(items) => {
+                let parts: Vec<String> = items.iter().map(i64::to_string).collect();
                 write!(f, "[{}]", parts.join(", "))
             }
             Value::Tuple(items) => {

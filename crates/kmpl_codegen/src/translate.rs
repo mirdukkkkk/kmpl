@@ -16,6 +16,7 @@ use kmpl_ast::{Span, Ty, Type, UnOp};
 use kmpl_builtins::{BUILTINS, abi, ops};
 use kmpl_ir::{Constant, Function, Inst, Op, Reg, Step, Target, Terminator};
 
+use crate::flat::{FlatSlots, is_flat};
 use crate::vector::vector_size;
 
 /// The symbol `kmpl_rt` calls to start the program.
@@ -33,6 +34,9 @@ pub(crate) struct Runtime<'ctx> {
     pub drop: FunctionValue<'ctx>,
     pub box_vector: FunctionValue<'ctx>,
     pub unbox_vector: FunctionValue<'ctx>,
+    pub array_view: FunctionValue<'ctx>,
+    pub array_unique: FunctionValue<'ctx>,
+    pub index_error: FunctionValue<'ctx>,
 }
 
 pub struct Translator<'ctx, 'm> {
@@ -61,6 +65,8 @@ pub(crate) struct Current<'ctx, 'm> {
     values: Vec<Option<BasicValueEnum<'ctx>>>,
     /// The stack slot of every register that holds a boxed value.
     slots: Vec<Option<PointerValue<'ctx>>>,
+    /// What is known about each register holding a `[real]` or `[int]`.
+    flat: Vec<Option<FlatSlots<'ctx>>>,
     /// Where arguments for the runtime are written.
     pub arguments: PointerValue<'ctx>,
     /// Where the runtime writes a result.
@@ -84,6 +90,10 @@ impl<'ctx> Current<'ctx, '_> {
 
     pub fn slot(&self, reg: Reg) -> Option<PointerValue<'ctx>> {
         self.slots[reg.0 as usize]
+    }
+
+    pub fn flat(&self, reg: Reg) -> Option<FlatSlots<'ctx>> {
+        self.flat[reg.0 as usize]
     }
 
     /// Which number `reg` holds, as the tag of an `abi::Slot`.
@@ -256,12 +266,16 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
         // would take more stack on every iteration.
         self.builder.position_at_end(start);
         let mut slots = vec![None; ir.types.len()];
+        let mut flat = vec![None; ir.types.len()];
         for (reg, ty) in ir.types.iter().enumerate() {
             if !is_unboxed(ty) {
                 let slot = self.builder.build_alloca(self.pointer_type(), "")?;
                 self.builder
                     .build_store(slot, self.pointer_type().const_null())?;
                 slots[reg] = Some(slot);
+                if is_flat(ty) {
+                    flat[reg] = Some(self.flat_slots()?);
+                }
             }
         }
         let arguments_type = i64_type.array_type(2 * buffer_slots(ir));
@@ -276,6 +290,7 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
             phis: vec![Vec::new(); ir.blocks.len()],
             values: vec![None; ir.types.len()],
             slots,
+            flat,
             arguments,
             result,
             edges: Vec::new(),
@@ -307,6 +322,7 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
                 .expect("declared with these parameters");
             if let Some(slot) = current.slot(*param) {
                 self.builder.build_store(slot, argument)?;
+                self.refresh_view(*param, &current)?;
                 continue;
             }
             let phi = ir.blocks[0].params.iter().position(|p| p == param);
@@ -419,17 +435,22 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
                 continue;
             };
             let once = target.args.iter().filter(|a| *a == arg).count() == 1;
-            let value = match frees.contains(arg) && once {
+            let moved = frees.contains(arg) && once;
+            let view = self.capture_view(*arg, moved, current)?;
+            let value = match moved {
                 true => self.take(slot)?,
                 false => self.clone_value(self.load_pointer(slot)?)?,
             };
-            passed.push((*param, value));
+            passed.push((*param, value, view));
         }
         self.release_all(frees, current)?;
-        for (param, value) in passed {
+        for (param, value, view) in passed {
             let slot = current.slot(param).expect("the argument is boxed too");
             self.release(slot, current)?;
             self.builder.build_store(slot, value)?;
+            if let Some(view) = view {
+                self.restore_view(param, view, current)?;
+            }
         }
 
         let from = self.builder.get_insert_block().expect("positioned");
@@ -455,6 +476,7 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
                 Some(slot) => {
                     self.release(slot, current)?;
                     self.builder.build_store(slot, value)?;
+                    self.refresh_view(dest, current)?;
                 }
                 None => current.values[dest.0 as usize] = Some(value),
             }
@@ -510,7 +532,10 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
             Op::SetGlobal(id, reg) => {
                 let global = self.globals[*id].expect("this use gave the global a type");
                 let value: BasicValueEnum = match current.slot(*reg) {
-                    Some(slot) => self.clone_value(self.load_pointer(slot)?)?.into(),
+                    Some(slot) => {
+                        self.forget_unique(*reg, current)?;
+                        self.clone_value(self.load_pointer(slot)?)?.into()
+                    }
                     None => current.value(*reg),
                 };
                 self.builder.build_store(global, value)?;
@@ -631,7 +656,10 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
                     let once = args.iter().filter(|a| *a == arg).count() == 1;
                     match inst.frees.contains(arg) && once {
                         true => self.take(slot)?.into(),
-                        false => self.clone_value(self.load_pointer(slot)?)?.into(),
+                        false => {
+                            self.forget_unique(*arg, current)?;
+                            self.clone_value(self.load_pointer(slot)?)?.into()
+                        }
                     }
                 }
                 None => current.value(*arg),
@@ -680,15 +708,26 @@ fn declare_runtime<'ctx>(context: &'ctx Context, llvm: &Module<'ctx>) -> Runtime
         void.fn_type(&[ptr, int, ptr, int], false),
         None,
     );
-    for attribute in ["noreturn", "cold"] {
-        let kind = Attribute::get_named_enum_kind_id(attribute);
-        error.add_attribute(
-            AttributeLoc::Function,
-            context.create_enum_attribute(kind, 0),
-        );
+    let index_error = llvm.add_function(
+        "kmpl_rt_index_error",
+        void.fn_type(&[int, int, ptr, int], false),
+        None,
+    );
+    for function in [error, index_error] {
+        for attribute in ["noreturn", "cold"] {
+            let kind = Attribute::get_named_enum_kind_id(attribute);
+            function.add_attribute(
+                AttributeLoc::Function,
+                context.create_enum_attribute(kind, 0),
+            );
+        }
     }
+    let view = Translator::view_type(context);
 
     Runtime {
+        index_error,
+        array_view: llvm.add_function("kmpl_rt_array_view", view.fn_type(&[ptr], false), None),
+        array_unique: llvm.add_function("kmpl_rt_array_unique", view.fn_type(&[ptr], false), None),
         init: llvm.add_function("kmpl_rt_init", void.fn_type(&[ptr, int], false), None),
         error,
         builtin: llvm.add_function(

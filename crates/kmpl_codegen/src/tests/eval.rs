@@ -1378,3 +1378,106 @@ fn matrix_product_of_every_number_type() {
         "[-3.0+0.0i]\n"
     );
 }
+
+#[test]
+fn flat_arrays_keep_value_semantics() {
+    assert_eq!(
+        output("let a = [1.0, 2.0]; let b = a; a[0] = 9.0; print(a); print(b);"),
+        "[9.0, 2.0]\n[1.0, 2.0]\n"
+    );
+    assert_eq!(
+        output("let a = [1, 2]; let b = a; b[1] = 7; a[0] = 5; print(a); print(b);"),
+        "[5, 2]\n[1, 7]\n"
+    );
+}
+
+#[test]
+fn a_flat_array_shared_in_a_loop_is_copied_once_and_stays_separate() {
+    assert_eq!(
+        output(
+            "let a = [0; 3]; let saved = a;
+             for i in 0..3 { a[i] = i + 1; if i == 0 { saved = a; } }
+             print(a); print(saved);"
+        ),
+        "[1, 2, 3]\n[1, 0, 0]\n"
+    );
+}
+
+#[test]
+fn writing_a_flat_parameter_does_not_change_the_callers_array() {
+    assert_eq!(
+        run("fn f(a: [real]) -> real { a[0] = 5.0; return a[0]; }
+             fn main() { let x = [1.0]; print(f(x)); print(x); }")
+        .unwrap(),
+        "5.0\n[1.0]\n"
+    );
+}
+
+#[test]
+fn flat_arrays_keep_their_form_when_empty() {
+    assert_eq!(
+        output("let a: [real] = []; a = push(a, 1.5); print(a); print(len(a));"),
+        "[1.5]\n1\n"
+    );
+    assert_eq!(
+        output("let a = [1, 2, 3]; let b = a[1..1]; b = push(b, 4); print(concat(b, a));"),
+        "[4, 1, 2, 3]\n"
+    );
+}
+
+#[test]
+fn flat_indices_are_checked() {
+    for index in ["-1", "3"] {
+        assert_eq!(
+            runtime_error(&format!(
+                "fn main() {{ let a = [1.0, 2.0, 3.0]; let i = {index}; print(a[i]); }}"
+            )),
+            format!("index {index} is out of bounds for an array of length 3")
+        );
+        assert_eq!(
+            runtime_error(&format!(
+                "fn main() {{ let a = [1, 2, 3]; let i = {index}; a[i] = 0; print(a); }}"
+            )),
+            format!("index {index} is out of bounds for an array of length 3")
+        );
+    }
+}
+
+#[test]
+fn flat_elements_inside_matrices_and_structs() {
+    assert_eq!(
+        output(
+            "let m = [[1.0, 2.0], [3.0, 4.0]]; m[1][0] = 8.0;
+             print(m[1][0] + m[0][1]); print(m * m); print(m * [1.0, 1.0]);"
+        ),
+        "10.0\n[[17.0, 10.0], [40.0, 32.0]]\n[3.0, 12.0]\n"
+    );
+    assert_eq!(
+        run("struct S { v: [int] }
+             fn main() { let s = S { v: [1, 2] }; s.v[1] = 9; print(s.v[1]); print(s); }")
+        .unwrap(),
+        "9\nS { v: [1, 9] }\n"
+    );
+}
+
+#[test]
+fn int_matrix_overflow_is_an_error() {
+    assert_eq!(
+        runtime_error(
+            "fn main() { let big = 9223372036854775807; let m = [[big, big]]; print(m * [[2], [1]]); }"
+        ),
+        "integer overflow"
+    );
+}
+
+#[test]
+fn flat_arrays_with_other_elements() {
+    assert_eq!(
+        output("print([1.0, 2.0] * vec2(1.0, 0.5));"),
+        "[(1.0, 0.5), (2.0, 1.0)]\n"
+    );
+    assert_eq!(
+        output("print(-[1.5, 2.5]); print(2 * [1, 2]);"),
+        "[-1.5, -2.5]\n[2, 4]\n"
+    );
+}
