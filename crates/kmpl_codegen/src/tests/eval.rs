@@ -1258,6 +1258,89 @@ fn length_of_everything() {
 }
 
 #[test]
+fn if_let_takes_the_value_out() {
+    let out = output(
+        "let a: int? = some(4);
+         let b: int? = none;
+         if let some(x) = a { print(x + 1); } else { print(\"no\"); }
+         if let some(x) = b { print(x + 1); } else { print(\"no\"); }
+         if let none = b { print(\"empty\"); }
+         if let some(_) = b { print(\"never\"); } else if let some(y) = a { print(y); }",
+    );
+    assert_eq!(out, "5\nno\nempty\n4\n");
+}
+
+#[test]
+fn if_let_on_an_enum_joins_variables() {
+    let src = "enum Kind { A(int), B }
+               fn f(k: Kind) -> int {
+                   let n = 1;
+                   if let Kind::A(v) = k { n = v; }
+                   return n * 2;
+               }
+               fn g(k: Kind) -> int {
+                   if let Kind::A(v) = k { return v; } else { return 0; }
+               }
+               fn main() {
+                   print(f(Kind::A(5))); print(f(Kind::B));
+                   print(g(Kind::A(7))); print(g(Kind::B));
+               }";
+    assert_eq!(run(src).unwrap(), "10\n2\n7\n0\n");
+}
+
+#[test]
+fn while_let_stops_at_the_first_other_value() {
+    let src = "fn next(i: int) -> int? {
+                   if i < 3 { return some(i); }
+                   return none;
+               }
+               fn main() {
+                   let i = 0;
+                   let total = 0;
+                   while let some(v) = next(i) {
+                       i += 1;
+                       if v == 1 { continue; }
+                       total += 10 + v;
+                   }
+                   print(total);
+                   print(i);
+               }";
+    assert_eq!(run(src).unwrap(), "22\n3\n");
+}
+
+#[test]
+fn break_inside_while_let_leaves_the_loop() {
+    let out = output(
+        "let n = 0;
+         let x: int? = some(1);
+         while let some(v) = x { n += v; if n == 3 { break; } }
+         print(n);",
+    );
+    assert_eq!(out, "3\n");
+}
+
+#[test]
+fn unwrapping() {
+    let out = output(
+        "let a: real? = some(1.5);
+         let b: real? = none;
+         print(unwrap(a));
+         print(unwrap_or(a, 2.0));
+         print(unwrap_or(b, 2.0));
+         let flat: [real]? = some([1.0]);
+         let copy = unwrap(flat);
+         copy[0] = 5.0;
+         print(copy);
+         print(flat);
+         let c: int? = none;
+         print(unwrap_or(c, 3) + 1);",
+    );
+    assert_eq!(out, "1.5\n1.5\n2.0\n[5.0]\nsome([1.0])\n4\n");
+    let (message, _) = run("fn main() { let a: int? = none; print(unwrap(a)); }").unwrap_err();
+    assert_eq!(message, "`unwrap` found `none`");
+}
+
+#[test]
 fn array_writes_in_a_loop_do_not_copy() {
     // Quadratic copying would make this take far too long to finish.
     let src = "fn main() {

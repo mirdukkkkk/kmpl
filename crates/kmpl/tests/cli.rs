@@ -685,6 +685,21 @@ fn a_dot_call_is_a_call_with_the_value_first() {
 }
 
 #[test]
+fn optionals_read_well_with_a_dot() {
+    let out = run(
+        "dot_unwrap",
+        "import (parse_int) from \"std:text\";
+         fn main() {
+             print(parse_int(\"4\").unwrap());
+             print(parse_int(\"x\").unwrap_or(7));
+             let a: real? = none;
+             print(a.unwrap_or(2.5).sqrt() > 1.0);
+         }",
+    );
+    assert_eq!(stdout(&out), "4\n7\ntrue\n", "{}", stderr(&out));
+}
+
+#[test]
 fn every_std_library_can_be_imported() {
     let out = run(
         "std_all",

@@ -12,14 +12,11 @@ struct Total {
 }
 
 fn add(t: Total, text: string) -> Total {
-    match parse_real(text) {
-        some(value) => {
-            t.sum += value;
-            t.count += 1;
-        }
-        none => {
-            print("skipping: " + text);
-        }
+    if let some(value) = parse_real(text) {
+        t.sum += value;
+        t.count += 1;
+    } else {
+        print("skipping: " + text);
     }
     return t;
 }
@@ -31,15 +28,8 @@ fn main() {
         total = add(total, arg);
     }
 
-    while true {
-        match read_line() {
-            some(line) => {
-                total = add(total, line);
-            }
-            none => {
-                break;
-            }
-        }
+    while let some(line) = read_line() {
+        total = add(total, line);
     }
 
     print(string(total.count) + " numbers, sum " + string(total.sum));

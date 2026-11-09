@@ -3,6 +3,34 @@ use kmpl_ast::{Item, Span};
 use super::{body, body_error, parse_program};
 
 #[test]
+fn if_let_is_a_match() {
+    assert_eq!(
+        body("if let some(x) = y { a; } else { b; }"),
+        r#"[(match y ("some[\"x\"]" [a]) ("_[]" [b]))]"#
+    );
+    assert_eq!(
+        body("if let A::B(c) = y { }"),
+        r#"[(match y ("A::B[\"c\"]" []) ("_[]" []))]"#
+    );
+    assert_eq!(
+        body("if let none = y { } else if x { a; }"),
+        r#"[(match y ("none[]" []) ("_[]" [(if x [a])]))]"#
+    );
+    assert_eq!(
+        body_error("if let some(x) y { }"),
+        "expected `=`, found identifier `y`"
+    );
+}
+
+#[test]
+fn while_let_is_a_loop_around_a_match() {
+    assert_eq!(
+        body("while let some(x) = y { a; }"),
+        r#"[(while true [(match y ("some[\"x\"]" [a]) ("_[]" [break]))])]"#
+    );
+}
+
+#[test]
 fn unknown_type_names_parse_as_params() {
     // Could be a generic parameter; the checker reports unknown ones.
     assert_eq!(body("let x: T;"), "[(let x T _)]");

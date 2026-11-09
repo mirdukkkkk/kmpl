@@ -78,6 +78,8 @@ pub enum ParamType {
     Elem,
     /// An array of `E`.
     ArrayOfElem,
+    /// `E?`
+    OptionalOfElem,
 }
 
 /// What a built-in returns.
@@ -92,6 +94,8 @@ pub enum RetType {
     Magnitude,
     /// An array of `E`, see `ParamType::Elem`.
     ArrayOfElem,
+    /// `E` itself.
+    Elem,
     /// An array of exactly this element type.
     ArrayOf(Type),
     /// A tuple of two values of these types.
@@ -400,6 +404,26 @@ static BUILTINS: &[Builtin] = &[
             array => ok(Value::Int(array.array_len() as i64)),
         },
     },
+    Builtin {
+        name: "unwrap",
+        generic: &[],
+        params: &[ParamType::OptionalOfElem],
+        ret: RetType::Elem,
+        func: |a, _| match take_optional(&mut a[0]) {
+            Some(value) => ok(value),
+            None => Err("`unwrap` found `none`".to_owned()),
+        },
+    },
+    Builtin {
+        name: "unwrap_or",
+        generic: &[],
+        params: &[ParamType::OptionalOfElem, ParamType::Elem],
+        ret: RetType::Elem,
+        func: |a, _| {
+            let value = take_optional(&mut a[0]);
+            ok(value.unwrap_or_else(|| std::mem::replace(&mut a[1], Value::Int(0))))
+        },
+    },
     // Arrays are values, so these return a new array and leave the
     // argument alone: `a = push(a, x);`. If nothing else holds the array it
     // grows in place, so a loop of pushes does not copy it each time.
@@ -520,6 +544,14 @@ pub fn lookup_const(name: &str) -> Option<&'static BuiltinConst> {
 /// `Ok(Some(value))`, the result of a built-in that cannot fail.
 pub(crate) fn ok(value: Value) -> Result<Option<Value>, String> {
     Ok(Some(value))
+}
+
+/// What an optional argument holds, moved out if nothing else shares it.
+fn take_optional(argument: &mut Value) -> Option<Value> {
+    match std::mem::replace(argument, Value::Int(0)) {
+        Value::Optional(inner) => inner.map(Arc::unwrap_or_clone),
+        other => panic!("expected an optional, got {other:?}"),
+    }
 }
 
 /// `some(value)` or `none`.

@@ -88,22 +88,12 @@ fn let_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
 /// `else if` becomes an `otherwise` block holding a single `If`.
 fn if_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     let start = ts.expect(Token::If)?;
+    if ts.eat(&Token::Let).is_some() {
+        return if_let(ts, start);
+    }
     let cond = header_expr(ts)?;
-    let (then, mut end) = block(ts)?;
-
-    let otherwise = if ts.eat(&Token::Else).is_none() {
-        None
-    } else if ts.peek() == Some(&Token::If) {
-        ts.enter()?;
-        let nested = if_stmt(ts)?;
-        ts.leave();
-        end = nested.span;
-        Some(vec![nested])
-    } else {
-        let (stmts, span) = block(ts)?;
-        end = span;
-        Some(stmts)
-    };
+    let (then, then_end) = block(ts)?;
+    let (otherwise, end) = else_part(ts, then_end)?;
 
     Ok(Stmt {
         kind: StmtKind::If {
@@ -115,14 +105,101 @@ fn if_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     })
 }
 
+/// `('else' (if | block))?`. Also returns where the statement ends, which
+/// is `end` when there is no `else`.
+fn else_part(ts: &mut TokenStream, end: Span) -> PResult<(Option<Block>, Span)> {
+    if ts.eat(&Token::Else).is_none() {
+        return Ok((None, end));
+    }
+    if ts.peek() == Some(&Token::If) {
+        ts.enter()?;
+        let nested = if_stmt(ts)?;
+        ts.leave();
+        let span = nested.span;
+        return Ok((Some(vec![nested]), span));
+    }
+    let (stmts, span) = block(ts)?;
+    Ok((Some(stmts), span))
+}
+
+/// The rest of `'if' 'let' pattern '=' expr block ('else' (if | block))?`,
+/// which is a `match` with `_` for the `else`.
+fn if_let(ts: &mut TokenStream, start: Span) -> PResult<Stmt> {
+    let span = ts.peek_span();
+    let pattern = pattern(ts)?;
+    ts.expect(Token::Assign)?;
+    let value = header_expr(ts)?;
+    let (then, then_end) = block(ts)?;
+    let (otherwise, end) = else_part(ts, then_end)?;
+
+    Ok(Stmt {
+        kind: StmtKind::Match {
+            value,
+            arms: two_arms(pattern, span, then, otherwise.unwrap_or_default()),
+        },
+        span: start.to(end),
+    })
+}
+
+/// The arm of `pattern`, and `_` for everything else.
+fn two_arms(pattern: Pattern, span: Span, body: Block, rest: Block) -> Vec<MatchArm> {
+    vec![
+        MatchArm {
+            pattern,
+            span,
+            body,
+        },
+        MatchArm {
+            pattern: Pattern::Wildcard,
+            span,
+            body: rest,
+        },
+    ]
+}
+
 /// `'while' expr block`
 fn while_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
     let start = ts.expect(Token::While)?;
+    if ts.eat(&Token::Let).is_some() {
+        return while_let(ts, start);
+    }
     let cond = header_expr(ts)?;
     let (body, end) = block(ts)?;
 
     Ok(Stmt {
         kind: StmtKind::While { cond, body },
+        span: start.to(end),
+    })
+}
+
+/// The rest of `'while' 'let' pattern '=' expr block`, which is an endless
+/// loop around a `match` whose `_` leaves it.
+fn while_let(ts: &mut TokenStream, start: Span) -> PResult<Stmt> {
+    let span = ts.peek_span();
+    let pattern = pattern(ts)?;
+    ts.expect(Token::Assign)?;
+    let value = header_expr(ts)?;
+    let (body, end) = block(ts)?;
+
+    let stop = Stmt {
+        kind: StmtKind::Break,
+        span,
+    };
+    let test = Stmt {
+        kind: StmtKind::Match {
+            value,
+            arms: two_arms(pattern, span, body, vec![stop]),
+        },
+        span,
+    };
+    Ok(Stmt {
+        kind: StmtKind::While {
+            cond: Expr {
+                kind: ExprKind::Bool(true),
+                span: start,
+            },
+            body: vec![test],
+        },
         span: start.to(end),
     })
 }

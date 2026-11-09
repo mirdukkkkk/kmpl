@@ -957,6 +957,10 @@ impl<'a> Infer<'a> {
                     }
                 }
                 ParamType::Elem => self.unify(arg_ty, elem, arg.span),
+                ParamType::OptionalOfElem => {
+                    let optional = self.u.new_optional(elem);
+                    self.unify(arg_ty, optional, arg.span);
+                }
                 ParamType::ArrayOfElem if on_bytes || self.is_bytes(arg_ty) => {
                     on_bytes = true;
                     self.expect(elem, Type::Int, arg.span);
@@ -981,6 +985,7 @@ impl<'a> Infer<'a> {
             }
             RetType::Length if on_vector => Some(self.known(Type::Real)),
             RetType::Length => Some(self.known(Type::Int)),
+            RetType::Elem => Some(elem),
             RetType::Optional(ty) => {
                 let inner = self.known(ty);
                 Some(self.u.new_optional(inner))

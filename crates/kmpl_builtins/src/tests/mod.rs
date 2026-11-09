@@ -107,6 +107,9 @@ fn signatures_match_implementations() {
                     ParamType::T => sample(t),
                     ParamType::Any => sample(Type::Int),
                     ParamType::Elem => sample(t),
+                    ParamType::OptionalOfElem => {
+                        Value::Optional(Some(std::sync::Arc::new(sample(t))))
+                    }
                     ParamType::Collection | ParamType::ArrayOfElem => {
                         Value::Array(std::sync::Arc::new(vec![sample(t)]))
                     }
@@ -144,6 +147,7 @@ fn signatures_match_implementations() {
                 RetType::Magnitude => Some(t),
                 // Given an array here.
                 RetType::Length => Some(Type::Int),
+                RetType::Elem => Some(t),
                 RetType::ArrayOfElem
                 | RetType::ArrayOf(_)
                 | RetType::Pair(..)

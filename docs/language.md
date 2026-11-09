@@ -344,6 +344,32 @@ fn main() {
 }
 ```
 
+When only one case matters, `if let` and `while let` are shorter. `unwrap_or` gives
+the value or a replacement, which is computed either way, and `unwrap` gives the
+value or stops the program:
+
+```kmpl
+fn half(x: int) -> int? {
+    if x % 2 == 1 {
+        return none;
+    }
+    return some(x / 2);
+}
+
+fn main() {
+    if let some(v) = half(8) {
+        print(v);  // 4
+    }
+    let i = 16;
+    while let some(v) = half(i) {
+        i = v;
+    }
+    print(i);  // 1
+    print(half(3).unwrap_or(0));  // 0
+    print(half(4).unwrap());  // 2
+}
+```
+
 `match` is a statement, and it works on enums and optionals only. In another
 module an enum is written `geometry.Shape::Circle(1.0)`.
 

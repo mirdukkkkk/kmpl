@@ -32,8 +32,8 @@ block       ::= '{' stmt* '}'
 stmt        ::= let | if | while | for | match | break | continue | return | assign | pathassign | exprstmt
 let         ::= 'let' IDENT (':' type)? ('=' expr)? ';'
               | 'let' '(' IDENT (',' IDENT)+ ','? ')' '=' expr ';'   (* '_' skips an element *)
-if          ::= 'if' expr block ('else' (if | block))?
-while       ::= 'while' expr block
+if          ::= 'if' ('let' pattern '=')? expr block ('else' (if | block))?
+while       ::= 'while' ('let' pattern '=')? expr block
 for         ::= 'for' IDENT 'in' expr (('..' | '..=') expr step?)? block   (* a range, or an array *)
 step        ::= 'step' expr               (* 'step' is an ordinary IDENT, special only here *)
 match       ::= 'match' expr '{' (pattern '=>' block ','?)* '}'
