@@ -23,12 +23,11 @@ fn run_with(src: &str, args: &[&str], input: &[u8]) -> Result<String, (String, S
         "optimizations changed the result of: {src}"
     );
     for optimize in [true, false] {
-        if let Some(native) = run_native(src, args, input, optimize) {
-            assert_eq!(
-                optimized, native,
-                "the executable (optimized: {optimize}) differs from the VM on: {src}"
-            );
-        }
+        let native = run_native(src, args, input, optimize);
+        assert_eq!(
+            optimized, native,
+            "the executable (optimized: {optimize}) differs from the VM on: {src}"
+        );
     }
     optimized.map_err(|(error, printed)| (error.message, printed))
 }
@@ -64,9 +63,8 @@ fn run_mode(src: &str, args: &[&str], input: &[u8], optimize: bool) -> Outcome {
     }
 }
 
-/// Builds the program and runs the executable. `None` if the code generator
-/// cannot translate it yet.
-fn run_native(src: &str, args: &[&str], input: &[u8], optimize: bool) -> Option<Outcome> {
+/// Builds the program and runs the executable.
+fn run_native(src: &str, args: &[&str], input: &[u8], optimize: bool) -> Outcome {
     static NEXT: AtomicU32 = AtomicU32::new(0);
     let path = std::env::temp_dir().join(format!(
         "kmpl-native-test-{}-{}",
@@ -76,11 +74,8 @@ fn run_native(src: &str, args: &[&str], input: &[u8], optimize: bool) -> Option<
 
     // The span instead of source lines, so it can be compared with the VM's.
     let locate = |span: Span| format!("{}..{}\n", span.start, span.end);
-    match kmpl_codegen::build(&module(src, optimize), &path, &locate) {
-        Err(message) if message == kmpl_codegen::UNSUPPORTED => return None,
-        Err(message) => panic!("{message} for: {src}"),
-        Ok(()) => {}
-    }
+    kmpl_codegen::build(&module(src, optimize), &path, &locate)
+        .unwrap_or_else(|message| panic!("{message} for: {src}"));
 
     let mut child = Command::new(&path)
         .args(args)
@@ -95,11 +90,11 @@ fn run_native(src: &str, args: &[&str], input: &[u8], optimize: bool) -> Option<
 
     let printed = String::from_utf8(output.stdout).unwrap();
     let stderr = String::from_utf8(output.stderr).unwrap();
-    Some(match output.status.code() {
+    match output.status.code() {
         Some(0) => Ok(printed),
         Some(1) => Err((parse_error(&stderr), printed)),
         other => panic!("exit code {other:?}, stderr {stderr} for: {src}"),
-    })
+    }
 }
 
 /// `error: message`, then the line that `locate` produced.

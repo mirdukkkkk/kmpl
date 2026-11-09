@@ -119,32 +119,7 @@ fn as_bool(value: &Value) -> bool {
 
 /// `i` as a position in an array of length `len`.
 fn checked_index(i: i64, len: usize, span: Span) -> Result<usize> {
-    match usize::try_from(i) {
-        Ok(position) if position < len => Ok(position),
-        _ => Err(error(
-            format!("index {i} is out of bounds for an array of length {len}"),
-            span,
-        )),
-    }
-}
-
-/// The range `from..to` of an array of length `len`, or `from..=to`.
-fn slice_bounds(
-    from: i64,
-    to: i64,
-    inclusive: bool,
-    len: usize,
-) -> std::result::Result<std::ops::Range<usize>, String> {
-    let bounds = (|| {
-        let start = usize::try_from(from).ok()?;
-        let end = usize::try_from(to).ok()?;
-        let end = if inclusive { end.checked_add(1)? } else { end };
-        (start <= end && end <= len).then_some(start..end)
-    })();
-    let dots = if inclusive { "..=" } else { ".." };
-    bounds.ok_or_else(|| {
-        format!("slice {from}{dots}{to} is out of bounds for an array of length {len}")
-    })
+    ops::checked_index(i, len).map_err(|m| error(m, span))
 }
 
 fn constant(value: &Constant) -> Value {
@@ -407,8 +382,8 @@ impl<'m> Vm<'m, '_> {
                     Some(end) => (as_int(self.reg(base, *end)), *inclusive),
                     None => (items.len() as i64, false),
                 };
-                let range =
-                    slice_bounds(from, to, inclusive, items.len()).map_err(|m| error(m, span))?;
+                let range = ops::slice_bounds(from, to, inclusive, items.len())
+                    .map_err(|m| error(m, span))?;
                 Value::Array(Arc::new(items[range].to_vec()))
             }
             Op::MakeTuple(items) => Value::Tuple(self.collect(base, items).into()),
@@ -508,15 +483,6 @@ impl<'m> Vm<'m, '_> {
 
     fn array_fill(&self, value: Reg, len: Reg, base: usize, span: Span) -> Result<Value> {
         let item = self.reg(base, value).clone();
-        let n = as_int(self.reg(base, len));
-        let count = usize::try_from(n)
-            .map_err(|_| error(format!("array length cannot be negative, got {n}"), span))?;
-
-        let mut values = Vec::new();
-        values
-            .try_reserve_exact(count)
-            .map_err(|_| error(format!("an array of {n} elements is too large"), span))?;
-        values.resize(count, item);
-        Ok(Value::Array(Arc::new(values)))
+        ops::array_fill(item, as_int(self.reg(base, len))).map_err(|m| error(m, span))
     }
 }

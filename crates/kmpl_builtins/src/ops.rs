@@ -202,6 +202,48 @@ pub const ZERO_STEP: &str = "loop step cannot be zero";
 /// error instead of using up all memory.
 pub const MAX_CALL_DEPTH: usize = 10_000;
 
+/// `i` as a position in an array of length `len`.
+pub fn checked_index(i: i64, len: usize) -> Result<usize, String> {
+    match usize::try_from(i) {
+        Ok(position) if position < len => Ok(position),
+        _ => Err(format!(
+            "index {i} is out of bounds for an array of length {len}"
+        )),
+    }
+}
+
+/// The range `from..to` of an array of length `len`, or `from..=to`.
+pub fn slice_bounds(
+    from: i64,
+    to: i64,
+    inclusive: bool,
+    len: usize,
+) -> Result<std::ops::Range<usize>, String> {
+    let bounds = (|| {
+        let start = usize::try_from(from).ok()?;
+        let end = usize::try_from(to).ok()?;
+        let end = if inclusive { end.checked_add(1)? } else { end };
+        (start <= end && end <= len).then_some(start..end)
+    })();
+    let dots = if inclusive { "..=" } else { ".." };
+    bounds.ok_or_else(|| {
+        format!("slice {from}{dots}{to} is out of bounds for an array of length {len}")
+    })
+}
+
+/// `[item; n]`.
+pub fn array_fill(item: Value, n: i64) -> Result<Value, String> {
+    let count =
+        usize::try_from(n).map_err(|_| format!("array length cannot be negative, got {n}"))?;
+
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(count)
+        .map_err(|_| format!("an array of {n} elements is too large"))?;
+    values.resize(count, item);
+    Ok(Value::Array(Arc::new(values)))
+}
+
 pub fn stack_overflow_message() -> String {
     format!("stack overflow: more than {MAX_CALL_DEPTH} nested calls")
 }

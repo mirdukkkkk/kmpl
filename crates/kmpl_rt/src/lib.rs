@@ -4,23 +4,29 @@
 //! convention and hands over raw pointers, so this crate needs `unsafe`.
 #![allow(unsafe_code)]
 
+mod operations;
+
 use std::cell::RefCell;
 use std::io::{BufReader, BufWriter, Stdin, Stdout, Write};
+use std::sync::Arc;
 
-use kmpl_builtins::abi::{self, Slot};
-use kmpl_builtins::{BUILTINS, Io, Value};
+use kmpl_builtins::abi::Slot;
+use kmpl_builtins::{BUILTINS, Io, StructLayout, Value};
+
+use operations::{operation, to_slot, value};
 
 /// What `print`, `read_line` and `args` work with.
-struct State {
+pub(crate) struct State {
     out: BufWriter<Stdout>,
     input: BufReader<Stdin>,
     args: Vec<String>,
     /// Reused for the arguments of built-ins.
     scratch: Vec<Value>,
+    pub(crate) layouts: Vec<Arc<StructLayout>>,
 }
 
 thread_local! {
-    static STATE: RefCell<State> = RefCell::new(State {
+    pub(crate) static STATE: RefCell<State> = RefCell::new(State {
         out: BufWriter::new(std::io::stdout()),
         input: BufReader::new(std::io::stdin()),
         args: std::env::args_os()
@@ -28,6 +34,7 @@ thread_local! {
             .map(|arg| arg.to_string_lossy().into_owned())
             .collect(),
         scratch: Vec::new(),
+        layouts: Vec::new(),
     });
 }
 
@@ -45,13 +52,39 @@ fn stop(state: &mut State, message: &str, location: &str) -> ! {
     std::process::exit(1);
 }
 
+/// Stops the program with a runtime error.
+pub(crate) fn fail(message: &str, location: &str) -> ! {
+    STATE.with_borrow_mut(|state| stop(state, message, location))
+}
+
 /// # Safety
 /// `pointer` and `length` describe readable memory: a constant the code
 /// generator put into the program.
-unsafe fn text(pointer: *const u8, length: u64) -> String {
+pub(crate) unsafe fn text(pointer: *const u8, length: u64) -> String {
     // SAFETY: promised by the caller.
     let bytes = unsafe { std::slice::from_raw_parts(pointer, length as usize) };
     String::from_utf8_lossy(bytes).into_owned()
+}
+
+/// Receives the struct layouts: one line each, the name and then the fields.
+///
+/// # Safety
+/// `layouts` and `length` describe a constant, see `text`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmpl_rt_init(layouts: *const u8, length: u64) {
+    // SAFETY: promised by the caller.
+    let layouts = unsafe { text(layouts, length) };
+    let layouts = layouts
+        .lines()
+        .map(|line| {
+            let mut words = line.split(' ').map(str::to_owned);
+            Arc::new(StructLayout {
+                name: words.next().unwrap_or_default(),
+                fields: words.collect(),
+            })
+        })
+        .collect();
+    STATE.with_borrow_mut(|state| state.layouts = layouts);
 }
 
 /// Stops the program with a runtime error.
@@ -72,41 +105,55 @@ pub unsafe extern "C" fn kmpl_rt_error(
             text(location, location_length),
         )
     };
-    STATE.with_borrow_mut(|state| stop(state, &message, &location))
+    fail(&message, &location)
 }
 
-fn from_slot(slot: Slot) -> Value {
-    match slot.tag {
-        abi::TAG_INT => Value::Int(slot.bits as i64),
-        abi::TAG_REAL => Value::Real(f64::from_bits(slot.bits)),
-        abi::TAG_BOOL => Value::Bool(slot.bits != 0),
-        tag => panic!("bad slot tag {tag}"),
-    }
+/// # Safety
+/// `value` is a valid pointer to a boxed value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmpl_rt_clone(value: *const Value) -> *mut Value {
+    // SAFETY: promised by the caller.
+    Box::into_raw(Box::new(unsafe { (*value).clone() }))
 }
 
-fn to_slot(value: Value) -> Slot {
-    match value {
-        Value::Int(v) => Slot {
-            tag: abi::TAG_INT,
-            bits: v as u64,
-        },
-        Value::Real(v) => Slot {
-            tag: abi::TAG_REAL,
-            bits: v.to_bits(),
-        },
-        Value::Bool(v) => Slot {
-            tag: abi::TAG_BOOL,
-            bits: u64::from(v),
-        },
-        other => panic!("cannot pass {other:?} yet"),
-    }
+/// # Safety
+/// `value` came from this runtime and is not used again.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmpl_rt_drop(value: *mut Value) {
+    // SAFETY: promised by the caller.
+    drop(unsafe { Box::from_raw(value) });
 }
 
-/// Calls entry `id` of `BUILTINS`.
+/// Runs operation `code` of `abi`.
 ///
 /// # Safety
-/// `args` points to `count` slots, `result` to writable memory for one, and
-/// the location is a constant, see `text`.
+/// `args` points to `count` slots as that operation expects, `result` to
+/// writable memory for one, and the location is a constant, see `text`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmpl_rt_op(
+    code: u64,
+    extra: u64,
+    args: *const Slot,
+    count: u64,
+    result: *mut Slot,
+    location: *const u8,
+    location_length: u64,
+) {
+    // SAFETY: promised by the caller.
+    unsafe {
+        let args = std::slice::from_raw_parts(args, count as usize);
+        match operation(code, extra, args) {
+            Ok(value) => result.write(to_slot(value)),
+            Err(message) => fail(&message, &text(location, location_length)),
+        }
+    }
+}
+
+/// Calls entry `id` of `BUILTINS`. A null `result` drops what it returns.
+///
+/// # Safety
+/// `args` points to `count` valid slots, `result` is null or points to
+/// writable memory for one, and the location is a constant, see `text`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kmpl_rt_builtin(
     id: u64,
@@ -122,7 +169,8 @@ pub unsafe extern "C" fn kmpl_rt_builtin(
     STATE.with_borrow_mut(|state| {
         let mut values = std::mem::take(&mut state.scratch);
         values.clear();
-        values.extend(args.iter().copied().map(from_slot));
+        // SAFETY: promised by the caller.
+        values.extend(args.iter().map(|slot| unsafe { value(*slot) }));
 
         let mut io = Io {
             out: &mut state.out,
@@ -130,13 +178,15 @@ pub unsafe extern "C" fn kmpl_rt_builtin(
             args: &state.args,
         };
         let outcome = (BUILTINS[id as usize].func)(&mut values, &mut io);
+        // Holding on to the arguments would make a later write to one of
+        // those arrays copy it.
         values.clear();
         state.scratch = values;
 
         match outcome {
             // SAFETY: promised by the caller.
-            Ok(Some(value)) => unsafe { result.write(to_slot(value)) },
-            Ok(None) => {}
+            Ok(Some(value)) if !result.is_null() => unsafe { result.write(to_slot(value)) },
+            Ok(_) => {}
             Err(message) => {
                 // SAFETY: promised by the caller.
                 let location = unsafe { text(location, location_length) };
