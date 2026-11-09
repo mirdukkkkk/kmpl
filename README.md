@@ -37,16 +37,16 @@ fn main() {
 ## Status
 
 kmpl is a hobby project at version 0.1, and the language can still change.
-Programs are compiled to an optimized SSA intermediate representation. `kmpl file`
-runs it on a virtual machine, and `kmpl build file` compiles it through LLVM to a
-native executable for Linux on x86-64 or ARM64. There is no file I/O yet, only
+Programs are compiled through an optimized SSA intermediate representation and
+LLVM to native code for Linux on x86-64 or ARM64. `kmpl file` compiles and runs a
+program, `kmpl build file` keeps the executable. There is no file I/O yet, only
 standard input and output.
 
 ## Install
 
 You need a recent stable Rust and LLVM 23 (`LLVM_SYS_231_PREFIX` names its
-location; the Nix dev shell sets it up). `kmpl build` also needs a C compiler
-named `cc` to link. LLVM is embedded in the binary; packagers can build with
+location; the Nix dev shell sets it up). Running or building a program also
+needs a C compiler named `cc` to link it. LLVM is embedded in the binary; packagers can build with
 `--features dynamic-llvm` to link against the shared library instead.
 
 ```sh

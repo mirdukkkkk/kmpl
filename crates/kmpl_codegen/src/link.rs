@@ -18,10 +18,10 @@ const SYSTEM_LIBS: [&str; 7] = [
 ];
 
 /// A private directory, deleted when this goes out of scope.
-struct TempDir(PathBuf);
+pub struct TempDir(PathBuf);
 
 impl TempDir {
-    fn new() -> Result<TempDir, String> {
+    pub fn new() -> Result<TempDir, String> {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let name = format!(
             "kmpl-build-{}-{}",
@@ -30,14 +30,18 @@ impl TempDir {
         );
         let path = std::env::temp_dir().join(name);
         std::fs::create_dir(&path)
-            .map_err(|e| format!("kmpl build: cannot create {}: {e}", path.display()))?;
+            .map_err(|e| format!("kmpl: cannot create {}: {e}", path.display()))?;
         Ok(TempDir(path))
     }
 
+    pub fn path(&self, name: &str) -> PathBuf {
+        self.0.join(name)
+    }
+
     fn write(&self, name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
-        let path = self.0.join(name);
+        let path = self.path(name);
         std::fs::write(&path, bytes)
-            .map_err(|e| format!("kmpl build: cannot write {}: {e}", path.display()))?;
+            .map_err(|e| format!("kmpl: cannot write {}: {e}", path.display()))?;
         Ok(path)
     }
 }
@@ -62,10 +66,10 @@ pub fn link(object: &[u8], output: &Path) -> Result<(), String> {
         .arg("-Wl,--gc-sections")
         .args(SYSTEM_LIBS)
         .output()
-        .map_err(|e| format!("kmpl build: cannot run the linker `cc`: {e}"))?;
+        .map_err(|e| format!("kmpl: cannot run the linker `cc`: {e}"))?;
     if !result.status.success() {
         return Err(format!(
-            "kmpl build: linking failed:\n{}",
+            "kmpl: linking failed:\n{}",
             String::from_utf8_lossy(&result.stderr)
         ));
     }

@@ -80,7 +80,6 @@ dependencies = [
  "kmpl_lexer",
  "kmpl_lower",
  "kmpl_parse",
- "kmpl_vm",
 ]
 
 [[package]]
@@ -111,7 +110,11 @@ dependencies = [
  "inkwell",
  "kmpl_ast",
  "kmpl_builtins",
+ "kmpl_check",
  "kmpl_ir",
+ "kmpl_lexer",
+ "kmpl_lower",
+ "kmpl_parse",
 ]
 
 [[package]]
@@ -154,20 +157,6 @@ name = "kmpl_rt"
 version = "0.1.0"
 dependencies = [
  "kmpl_builtins",
-]
-
-[[package]]
-name = "kmpl_vm"
-version = "0.1.0"
-dependencies = [
- "kmpl_ast",
- "kmpl_builtins",
- "kmpl_check",
- "kmpl_codegen",
- "kmpl_ir",
- "kmpl_lexer",
- "kmpl_lower",
- "kmpl_parse",
 ]
 
 [[package]]

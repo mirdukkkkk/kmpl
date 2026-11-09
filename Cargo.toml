@@ -15,7 +15,6 @@ kmpl_parse    = { path = "crates/kmpl_parse" }
 kmpl_check    = { path = "crates/kmpl_check" }
 kmpl_ir       = { path = "crates/kmpl_ir" }
 kmpl_lower    = { path = "crates/kmpl_lower" }
-kmpl_vm       = { path = "crates/kmpl_vm" }
 kmpl_codegen  = { path = "crates/kmpl_codegen" }
 
 logos = "0.16.1"
@@ -24,7 +23,7 @@ inkwell = { version = "0.11.0", default-features = false, features = ["llvm23-1"
 [workspace.lints.rust]
 unsafe_code = "deny"
 
-# The interpreter's speed depends on inlining across crates.
+# The runtime's speed depends on inlining across crates.
 [profile.release]
 lto = "fat"
 codegen-units = 1

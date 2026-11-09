@@ -43,7 +43,7 @@ pub struct Translator<'ctx, 'm> {
     pub(crate) locate: &'m dyn Fn(Span) -> String,
     functions: Vec<FunctionValue<'ctx>>,
     globals: Vec<Option<PointerValue<'ctx>>>,
-    /// How many calls are active, for the same limit the VM has.
+    /// How many calls are active, to stop runaway recursion.
     depth: PointerValue<'ctx>,
     pub(crate) runtime: Runtime<'ctx>,
     /// For each entry of `Module::builtins`, its position in `BUILTINS`.

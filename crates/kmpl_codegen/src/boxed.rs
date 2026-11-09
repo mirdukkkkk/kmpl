@@ -2,9 +2,8 @@
 //! structs, `complex` and vectors.
 //!
 //! Each register of such a type has a stack slot holding an owned pointer,
-//! or null. Writing a slot releases what it held, as writing a register of
-//! the VM does, so reference counts are the same and an array is copied
-//! exactly when the VM would copy it.
+//! or null. Writing a slot releases what it held, and `Inst::frees` empties
+//! a slot at the last use, so an array is copied only when it is shared.
 
 use inkwell::intrinsics::Intrinsic;
 use inkwell::values::{BasicValue, BasicValueEnum, IntValue, PointerValue};

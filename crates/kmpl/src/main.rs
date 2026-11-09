@@ -1,11 +1,11 @@
 mod diagnostics;
 mod loader;
 
-use std::io::Write;
+use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
+use std::process::ExitStatus;
 
 use diagnostics::Sources;
-use kmpl_vm::Io;
 
 const USAGE: &str = "usage: kmpl [--ast | --ir] [--no-opt] <file> [args...]
        kmpl build [--no-opt] <file> [-o <output>]";
@@ -17,11 +17,13 @@ Usage:
     kmpl [--ast | --ir] [--no-opt] <file> [args...]
     kmpl build [--no-opt] <file> [-o <output>]
 
+Running or building a program needs a C compiler named `cc` to link it.
+
 Commands:
-    build        compile the program to a native executable; needs `cc` to link
+    build        compile the program to a native executable and keep it
 
 Arguments:
-    <file>       the program to run, a .kmpl file with `fn main()`
+    <file>       the program to compile and run, a .kmpl file with `fn main()`
     [args...]    passed to the program, which reads them with `args()`
 
 Options:
@@ -39,8 +41,7 @@ Examples:
     kmpl build program.kmpl -o program
 ";
 
-/// Stack for the whole compiler and VM. Compiling a long expression and
-/// freeing, printing or comparing deeply nested data all recurse. Only
+/// Stack for the whole compiler. Compiling a long expression recurses. Only
 /// touched pages are actually allocated.
 const STACK_SIZE: usize = 1 << 30;
 
@@ -128,29 +129,25 @@ fn run() {
     }
     kmpl_ir::annotate(&mut module);
 
+    let locate = |span| sources.location(span);
     if let Some(output) = output {
-        if let Err(message) = kmpl_codegen::build(&module, &output, &|span| sources.location(span))
-        {
+        if let Err(message) = kmpl_codegen::build(&module, &output, &locate) {
             fail(&message);
         }
         return;
     }
 
-    let mut out = std::io::BufWriter::new(std::io::stdout());
-    let mut input = std::io::BufReader::new(std::io::stdin());
-    let io = Io {
-        out: &mut out,
-        input: &mut input,
-        args: program_args,
-    };
-    let result = kmpl_vm::run(&module, io);
-    // Flush first, so output printed before an error appears before it.
-    if let Err(e) = out.flush() {
-        fail(&format!("kmpl: cannot write output: {e}"));
+    match kmpl_codegen::run(&module, &locate, program_args) {
+        Ok(status) => std::process::exit(exit_code(status)),
+        Err(message) => fail(&message),
     }
-    if let Err(err) = result {
-        fail(&sources.render(&err.message, err.span));
-    }
+}
+
+/// The program's own exit code, or the shell's convention if a signal ended it.
+fn exit_code(status: ExitStatus) -> i32 {
+    status
+        .code()
+        .unwrap_or_else(|| 128 + status.signal().unwrap_or(0))
 }
 
 /// Where `kmpl build` writes: `-o <output>` after the file, or else the name
