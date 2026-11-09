@@ -1,4 +1,4 @@
-(* kmpl grammar v0.1 *)
+(* kmpl grammar v0.2 *)
 
 program     ::= import* item*
 

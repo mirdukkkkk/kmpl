@@ -39,17 +39,19 @@ fn main() {
 kmpl is a hobby project at version 0.2, and the language can still change.
 Programs are compiled through an optimized SSA intermediate representation and
 LLVM to native code for Linux on x86-64 or ARM64. `kmpl file` compiles and runs a
-program, `kmpl build file` keeps the executable. There is no file I/O yet, only
-standard input and output.
+program, `kmpl build file` keeps the executable. Modules can come from files, from
+the libraries that ship with `kmpl`, such as `std:fs`, or from a link pinned in
+`kmpl.lock`.
 
 ## Install
 
 You need a recent stable Rust and LLVM 23 (`LLVM_SYS_231_PREFIX` names its
 location; the Nix dev shell sets it up). Running or building a program also
-needs a C compiler named `cc` to link it. LLVM is embedded in the binary; packagers can build with
-`--features dynamic-llvm` to link against the shared library instead. HTTPS for
-downloading modules uses a built-in TLS by default, and the system's OpenSSL with
-`--no-default-features --features dynamic-tls`.
+needs a C compiler named `cc` to link it.
+
+LLVM and TLS for downloading modules are embedded in the binary. Packagers can use
+the system's libraries instead with
+`--no-default-features --features dynamic-llvm,dynamic-tls`.
 
 ```sh
 git clone https://github.com/mirdukkkkk/kmpl
@@ -67,18 +69,20 @@ kmpl [--ast | --ir | --llvm-ir] [-v | -vv] [--no-opt] [--locked] <file> [args...
 kmpl build [-v | -vv] [--no-opt] [--locked] <file> [-o <output>]
 ```
 
-Everything after the file is passed to the program. `kmpl --help` lists the
-options.
+Everything after the file is passed to the program. `-v` shows the time of each
+compiler stage and `--llvm-ir` prints the LLVM IR. `kmpl --help` lists the options.
 
 ## Learn the language
 
 [`docs/language.md`](docs/language.md) is a short tour of the whole language.
 [`examples/`](examples) has working programs. Good ones to start with are
 [`structs`](examples/structs.kmpl), [`matrices`](examples/matrices.kmpl),
-[`generics`](examples/generics.kmpl) and [`sum`](examples/sum.kmpl), which reads
-arguments and standard input.
+[`generics`](examples/generics.kmpl), [`modules`](examples/modules.kmpl) and
+[`sum`](examples/sum.kmpl), which reads arguments and standard input.
 
 ## Development
+
+`nix develop` gives you the right Rust and LLVM.
 
 ```sh
 cargo test --workspace

@@ -51,8 +51,8 @@ print(int(2.9));  // 2
 print(string(n) + "!");  // 3!
 ```
 
-Constants are declared outside functions. They can use earlier constants and
-built-in functions. `PI`, `TAU` and `E` are always available.
+Constants are declared outside functions and can use earlier constants. `PI`,
+`TAU` and `E` are always available.
 
 ```kmpl
 const RADIUS: real = 2.0;
@@ -79,11 +79,11 @@ print(b);  // [97, 66]
 
 ## Operators
 
-From weakest to strongest: `||`, `&&`, `== !=`, `< <= > >=`, `|`, `^`, `&`, `<< >>`, `+ -`, `* / %`, unary
-`! -`, then `[index]` and `.field`, then `:swizzle`.
+From weakest to strongest: `||`, `&&`, `== !=`, `< <= > >=`, `|`, `^`, `&`, `<< >>`,
+`+ -`, `* / %`, unary `! - ~`, then `[index]` and `.field`, then `:swizzle`.
 
-`int` overflow and `int` division by zero stop the program with an error. `real`
-follows IEEE 754, so `1.0 / 0` is `inf`.
+`int` overflow and `int` division or remainder by zero stop the program with an
+error. `real` follows IEEE 754, so `1.0 / 0` is `inf`.
 
 A swizzle picks vector components:
 
@@ -94,8 +94,8 @@ print(v * 2.0 + v);  // (3.0, 6.0, 9.0)
 ```
 
 `%` is the remainder, with the sign of the left side. `& | ^ ~ << >>` work on
-`int`; `>>` keeps the sign and `shr_logical(x, n)` from `std:bits` fills with zeros. Shifting by
-less than 0 or more than 63 stops the program with an error.
+`int`; `>>` keeps the sign and `shr_logical(x, n)` from `std:bits` fills with
+zeros. Shifting by less than 0 or more than 63 stops the program with an error.
 
 Assignments can be combined with `+ - * / % & | ^ << >>`:
 
@@ -226,7 +226,7 @@ A tuple holds a few values of different types, and is read by unpacking it.
 
 ```kmpl
 fn div_rem(a: int, b: int) -> (int, int) {
-    return (a / b, a - a / b * b);
+    return (a / b, a % b);
 }
 
 fn main() {
@@ -341,7 +341,7 @@ pb = "https://github.com/user/pb/v1.2.0"
 ```
 
 Any other `https://` link ending in `.kmpl` is that file; otherwise `/mod.kmpl` is
-added. `kmpl.lock`, next to `kmpl.toml`, records the commit behind every GitHub link
+added. `kmpl.lock`, next to `kmpl.toml` or else next to the program, records the commit behind every GitHub link
 and the sha256 of every downloaded file. Commit it to your repository: a moved tag
 or a new push to a branch changes nothing until you delete its line, and a file
 that differs from its hash stops the build. `--locked` refuses to add anything new.
@@ -401,7 +401,7 @@ fn main() {
 | Math on `real` or `complex` | `sqrt exp log sin cos tan asin acos atan sinh cosh tanh` |
 | Other numbers | `abs pow cbrt floor ceil round atan2 hypot min max clamp is_nan is_inf lerp smoothstep` |
 | Complex | `re im arg conj` |
-| Conversion | `real int complex string` |
+| Conversion | `real int complex string bytes` |
 | Vectors | `vec2 vec3 vec4 dot length distance normalize cross` |
 | Arrays and strings | `len push concat` |
 | Output | `print` |
