@@ -479,26 +479,6 @@ impl<'a> Resolver<'a> {
     fn call_target(&mut self, name: &Ident, given: usize) {
         let n = name.name.as_str();
 
-        if self.current_const.is_some() && kmpl_builtins::depends_on_run(n) {
-            self.error(
-                format!(
-                    "a constant cannot call `{n}`: its value depends on how the program is run"
-                ),
-                name,
-            );
-            return;
-        }
-
-        if self.current_const.is_some()
-            && matches!(self.globals.get(n), Some(Global::Function { .. }))
-        {
-            self.error(
-                format!("a constant can only call built-in functions, `{n}` is not one"),
-                name,
-            );
-            return;
-        }
-
         let message = if let Some(expected) = self.param_count(n) {
             if expected == given {
                 return;

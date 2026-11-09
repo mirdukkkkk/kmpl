@@ -128,22 +128,19 @@ fn locals_hide_items_of_the_module() {
 }
 
 #[test]
-fn constants_can_use_imported_constants_but_not_functions() {
+fn constants_can_use_imported_constants_and_functions() {
     assert_ok(vec![
-        module("a", &[], "const G: real = 2.0;"),
+        module(
+            "a",
+            &[],
+            "const G: real = 2.0; fn f() -> real { return G; }",
+        ),
         module(
             "",
             &[("a", "a")],
-            "const H: real = a.G * 2.0; fn main() { }",
+            "const H: real = a.G * 2.0; const I: real = a.f(); fn main() { }",
         ),
     ]);
-    assert_eq!(
-        errors(vec![
-            module("a", &[], "fn f() -> real { return 1.0; }"),
-            module("", &[("a", "a")], "const H: real = a.f(); fn main() { }"),
-        ]),
-        ["a constant can only call built-in functions, `a.f` is not one"]
-    );
 }
 
 #[test]

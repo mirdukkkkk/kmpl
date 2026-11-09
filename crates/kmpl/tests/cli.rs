@@ -740,3 +740,26 @@ fn a_bad_kmpl_toml_is_reported_with_its_line() {
         stderr(&out)
     );
 }
+
+#[test]
+fn a_constant_can_use_a_pure_library() {
+    let out = run(
+        "const_std_pure",
+        "import (parse_int) from \"std:text\"; const X: (int, bool) = parse_int(\"41\"); fn main() { print(X); }",
+    );
+    assert_eq!(stdout(&out), "(41, true)\n", "{}", stderr(&out));
+}
+
+#[test]
+fn a_constant_cannot_use_input() {
+    let out = run(
+        "const_std_io",
+        "import (args) from \"std:io\"; const X: [string] = args(); fn main() { }",
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).contains("its value depends on how the program is run"),
+        "{}",
+        stderr(&out)
+    );
+}

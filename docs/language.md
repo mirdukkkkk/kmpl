@@ -63,6 +63,9 @@ fn main() {
 }
 ```
 
+A constant can call functions. It is an error if a call reaches a constant declared
+later, or something that depends on how the program is run, such as `args`.
+
 `bytes` holds raw data. `b[i]` and `for x in b` give `int`s, and slices, `len`,
 `push`, `concat` and `==` work as on arrays. `string(b)` decodes UTF-8 and stops the
 program if the data is not valid UTF-8, while `print(b)` shows the numbers:

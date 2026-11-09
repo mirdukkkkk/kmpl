@@ -1619,3 +1619,23 @@ fn bytes_are_checked_like_arrays() {
         "index 1 is out of bounds for an array of length 1"
     );
 }
+
+#[test]
+fn constants_are_computed_by_functions() {
+    assert_eq!(
+        run("const A: int = 2;
+             fn twice(n: int) -> int { return n * A; }
+             const B: int = twice(3);
+             fn main() { print(B); }")
+        .unwrap(),
+        "6\n"
+    );
+}
+
+#[test]
+fn a_function_failing_for_a_constant_is_a_runtime_error() {
+    assert_eq!(
+        runtime_error("fn f(z: int) -> int { return 1 / z; } const A: int = f(0); fn main() { }"),
+        "division by zero"
+    );
+}
