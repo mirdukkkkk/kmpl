@@ -10,8 +10,8 @@ use std::cell::RefCell;
 use std::io::{BufReader, BufWriter, Stdin, Stdout, Write};
 use std::sync::Arc;
 
-use kmpl_builtins::abi::{self, Slot};
-use kmpl_builtins::{BUILTINS, Io, StructLayout, Value};
+use kmpl_builtins::abi::{self, ArrayView, Slot};
+use kmpl_builtins::{BUILTINS, Io, StructLayout, Value, ops};
 
 use operations::{operation, to_slot, value};
 
@@ -151,6 +151,70 @@ pub unsafe extern "C" fn kmpl_rt_unbox_vector(value: *mut Value, out: *mut f64) 
         };
         std::ptr::copy_nonoverlapping(parts.as_ptr(), out, parts.len());
     }
+}
+
+/// Where the numbers of a flat array are, for reading.
+///
+/// # Safety
+/// `value` is a valid pointer to a `[real]` or `[int]`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmpl_rt_array_view(value: *const Value) -> ArrayView {
+    // SAFETY: promised by the caller.
+    match unsafe { &*value } {
+        Value::Reals(items) => ArrayView {
+            data: items.as_ptr() as *mut u8,
+            len: items.len() as u64,
+        },
+        Value::Ints(items) => ArrayView {
+            data: items.as_ptr() as *mut u8,
+            len: items.len() as u64,
+        },
+        other => panic!("expected a flat array, got {other:?}"),
+    }
+}
+
+/// Makes sure nothing else shares this flat array, copying it if something
+/// does, and says where its numbers are for writing.
+///
+/// # Safety
+/// `value` is a valid pointer to a `[real]` or `[int]`, owned by the caller.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmpl_rt_array_unique(value: *mut Value) -> ArrayView {
+    // SAFETY: promised by the caller.
+    match unsafe { &mut *value } {
+        Value::Reals(items) => {
+            let items = Arc::make_mut(items);
+            ArrayView {
+                data: items.as_mut_ptr() as *mut u8,
+                len: items.len() as u64,
+            }
+        }
+        Value::Ints(items) => {
+            let items = Arc::make_mut(items);
+            ArrayView {
+                data: items.as_mut_ptr() as *mut u8,
+                len: items.len() as u64,
+            }
+        }
+        other => panic!("expected a flat array, got {other:?}"),
+    }
+}
+
+/// Stops the program with the error for a bad index.
+///
+/// # Safety
+/// The location is a constant, see `text`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmpl_rt_index_error(
+    index: i64,
+    len: u64,
+    location: *const u8,
+    location_length: u64,
+) -> ! {
+    let message = ops::checked_index(index, len as usize)
+        .expect_err("generated code checked that this index is bad");
+    // SAFETY: promised by the caller.
+    fail(&message, &unsafe { text(location, location_length) })
 }
 
 /// Runs operation `code` of `abi`.

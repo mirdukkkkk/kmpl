@@ -138,3 +138,50 @@ fn a_failing_built_in_reports_its_error() {
     assert_eq!(out.status.code(), Some(1));
     assert!(stderr(&out).contains("--> program.kmpl:1:"), "{out:?}");
 }
+
+#[test]
+fn an_executable_is_stripped_and_names_the_compiler() {
+    let dir = project("metadata", "fn main() { }");
+    let out = kmpl_in(&dir, &["build", "program.kmpl", "-o", "made"]);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+
+    let bytes = std::fs::read(dir.join("made")).unwrap();
+    let contains = |text: &str| bytes.windows(text.len()).any(|w| w == text.as_bytes());
+    assert!(contains(concat!("kmpl ", env!("CARGO_PKG_VERSION"), "\0")));
+    assert!(!contains(".symtab"), "the symbol table is still there");
+}
+
+#[test]
+fn verbose_reports_stages_on_stderr_and_keeps_stdout_clean() {
+    let dir = project("verbose", "fn main() { print(1); }");
+    let out = kmpl_in(&dir, &["-v", "program.kmpl"]);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    assert_eq!(stdout(&out), "1\n");
+    let log = stderr(&out);
+    for stage in ["check:", "llvm: optimize:", "link:", "\"cc\""] {
+        assert!(log.contains(stage), "no `{stage}` in:\n{log}");
+    }
+    assert!(!log.contains("Running pass"), "{log}");
+}
+
+#[test]
+fn very_verbose_also_lists_llvm_passes_when_building() {
+    let dir = project("very_verbose", "fn main() { print(1); }");
+    let out = kmpl_in(&dir, &["build", "-vv", "program.kmpl", "-o", "made"]);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    assert!(stderr(&out).contains("Running pass"), "{}", stderr(&out));
+    assert!(dir.join("made").is_file());
+}
+
+#[test]
+fn llvm_ir_is_printed_without_running_the_program() {
+    let dir = project("llvm_ir", "fn main() { print(1); }");
+    let out = kmpl_in(&dir, &["--llvm-ir", "program.kmpl"]);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let text = stdout(&out);
+    assert!(
+        text.contains("define") && text.contains("kmpl_program"),
+        "{text}"
+    );
+    assert!(!text.starts_with("1\n"));
+}

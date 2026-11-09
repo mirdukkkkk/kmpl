@@ -11,6 +11,7 @@ use kmpl_ast::{Ty, Type, UnOp};
 use kmpl_builtins::abi;
 use kmpl_ir::{Inst, Op, Reg, Step};
 
+use crate::flat::array_form;
 use crate::memory::element;
 use crate::translate::{Current, Result, Translator};
 use crate::vector::vector_size;
@@ -73,6 +74,7 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
     fn slot_of(&self, reg: Reg, current: &Current<'ctx, 'm>) -> Result<SlotWords<'ctx>> {
         let i64_type = self.context.i64_type();
         if let Some(slot) = current.slot(reg) {
+            self.forget_unique(reg, current)?;
             let pointer = self.load_pointer(slot)?;
             let bits = self.builder.build_ptr_to_int(pointer, i64_type, "")?;
             return Ok((self.int(abi::TAG_BORROW), bits));
@@ -299,11 +301,19 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
         inst: &Inst,
         current: &Current<'ctx, 'm>,
     ) -> Result<Option<BasicValueEnum<'ctx>>> {
+        if let Some(result) = self.flat_operation(inst, current)? {
+            return Ok(result);
+        }
+
         let run = |code, extra, slots: &[SlotWords<'ctx>]| {
             self.runtime_op(code, extra, slots, inst, current)
         };
         match &inst.op {
-            Op::MakeArray(items) => run(abi::OP_MAKE_ARRAY, 0, &self.slots_of(items, current)?),
+            Op::MakeArray(items) => {
+                let dest = inst.dest.expect("making an array has a result");
+                let form = array_form(current.ty(dest));
+                run(abi::OP_MAKE_ARRAY, form, &self.slots_of(items, current)?)
+            }
             Op::ArrayFill { value, len } => run(
                 abi::OP_ARRAY_FILL,
                 0,

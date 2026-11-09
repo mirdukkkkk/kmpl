@@ -3,6 +3,7 @@
 
 mod arith;
 mod boxed;
+mod flat;
 mod link;
 mod llvm;
 mod memory;
@@ -14,8 +15,29 @@ mod tests;
 
 use std::path::Path;
 use std::process::{Command, ExitStatus};
+use std::time::Instant;
 
 use kmpl_ast::Span;
+
+/// How much the compiler tells about its work, on standard error.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Options {
+    /// 0 is nothing, 1 the time of each stage and the linker's command,
+    /// 2 also every LLVM pass.
+    pub verbosity: u8,
+}
+
+/// Runs one stage of the compiler, reporting its time when asked to.
+pub fn timed<T>(options: Options, stage: &str, work: impl FnOnce() -> T) -> T {
+    if options.verbosity == 0 {
+        return work();
+    }
+    let start = Instant::now();
+    let result = work();
+    let milliseconds = start.elapsed().as_secs_f64() * 1000.0;
+    eprintln!("kmpl: {stage}: {milliseconds:.2} ms");
+    result
+}
 
 /// Compiles `module` into an executable at `output`. `locate` gives the text
 /// shown under a runtime error at that span. The error is a message for the
@@ -24,9 +46,19 @@ pub fn build(
     module: &kmpl_ir::Module,
     output: &Path,
     locate: &dyn Fn(Span) -> String,
+    options: Options,
 ) -> Result<(), String> {
-    let object = llvm::object_code(module, locate)?;
-    link::link(&object, output)
+    let object = llvm::object_code(module, locate, options)?;
+    link::link(&object, output, options)
+}
+
+/// The LLVM IR of `module`, as text, after LLVM's optimizations.
+pub fn llvm_ir(
+    module: &kmpl_ir::Module,
+    locate: &dyn Fn(Span) -> String,
+    options: Options,
+) -> Result<String, String> {
+    llvm::text(module, locate, options)
 }
 
 /// Compiles `module` to a temporary executable and runs it with `args`,
@@ -35,10 +67,11 @@ pub fn run(
     module: &kmpl_ir::Module,
     locate: &dyn Fn(Span) -> String,
     args: &[String],
+    options: Options,
 ) -> Result<ExitStatus, String> {
     let dir = link::TempDir::new()?;
     let program = dir.path("program");
-    build(module, &program, locate)?;
+    build(module, &program, locate, options)?;
     Command::new(&program)
         .args(args)
         .status()

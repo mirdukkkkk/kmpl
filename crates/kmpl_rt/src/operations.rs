@@ -75,12 +75,19 @@ pub unsafe fn operation(code: u64, extra: u64, args: &[Slot]) -> Result<Value, S
             abi::OP_UNARY => ops::unary(abi::un_op(extra), value(args[0]))?,
             abi::OP_BINARY => ops::binary(abi::bin_op(extra), value(args[0]), value(args[1]))?,
             abi::OP_STRING => Value::Str(slot_text(args[0]).into()),
-            abi::OP_MAKE_ARRAY => Value::Array(Arc::new(values(args))),
+            abi::OP_MAKE_ARRAY => match extra {
+                abi::ARRAY_OF_REALS => Value::Reals(Arc::new(
+                    args.iter().map(|s| f64::from_bits(s.bits)).collect(),
+                )),
+                abi::ARRAY_OF_INTS => Value::Ints(Arc::new(args.iter().map(|s| int(*s)).collect())),
+                _ => Value::Array(Arc::new(values(args))),
+            },
             abi::OP_ARRAY_FILL => ops::array_fill(value(args[0]), int(args[1]))?,
-            abi::OP_ARRAY_LEN => Value::Int(borrowed(args[0]).as_array().len() as i64),
+            abi::OP_ARRAY_LEN => Value::Int(borrowed(args[0]).array_len() as i64),
             abi::OP_INDEX => {
-                let items = borrowed(args[0]).as_array();
-                items[ops::checked_index(int(args[1]), items.len())?].clone()
+                let array = borrowed(args[0]);
+                let position = ops::checked_index(int(args[1]), array.array_len())?;
+                element(array, position)
             }
             abi::OP_SLICE => slice(extra, args)?,
             abi::OP_MAKE_TUPLE => Value::Tuple(values(args).into()),
@@ -111,17 +118,31 @@ pub unsafe fn operation(code: u64, extra: u64, args: &[Slot]) -> Result<Value, S
 /// See `operation`.
 unsafe fn slice(flags: u64, args: &[Slot]) -> Result<Value, String> {
     // SAFETY: promised by the caller.
-    let items = unsafe { borrowed(args[0]) }.as_array();
+    let array = unsafe { borrowed(args[0]) };
+    let len = array.array_len();
     let mut bounds = args[1..].iter();
     let mut next_if = |flag| (flags & flag != 0).then(|| int(*bounds.next().expect("passed")));
 
     let from = next_if(abi::SLICE_HAS_START).unwrap_or(0);
     let (to, inclusive) = match next_if(abi::SLICE_HAS_END) {
         Some(end) => (end, flags & abi::SLICE_INCLUSIVE != 0),
-        None => (items.len() as i64, false),
+        None => (len as i64, false),
     };
-    let range = ops::slice_bounds(from, to, inclusive, items.len())?;
-    Ok(Value::Array(Arc::new(items[range].to_vec())))
+    let range = ops::slice_bounds(from, to, inclusive, len)?;
+    Ok(match array {
+        Value::Reals(items) => Value::Reals(Arc::new(items[range].to_vec())),
+        Value::Ints(items) => Value::Ints(Arc::new(items[range].to_vec())),
+        other => Value::Array(Arc::new(other.as_array()[range].to_vec())),
+    })
+}
+
+/// The element at a position already checked to be inside `array`.
+fn element(array: &Value, position: usize) -> Value {
+    match array {
+        Value::Reals(items) => Value::Real(items[position]),
+        Value::Ints(items) => Value::Int(items[position]),
+        other => other.as_array()[position].clone(),
+    }
 }
 
 /// `i` as a position, or stops the program at the location in `location`.
@@ -138,24 +159,29 @@ unsafe fn index(slot: Slot, location: Slot, len: usize) -> usize {
 /// # Safety
 /// See `operation`.
 unsafe fn read_path(root: &Value, mut steps: &[Slot]) -> Value {
-    let mut value = root.clone();
+    let mut target = root;
     while let [step, rest @ ..] = steps {
-        let element = match (step.tag, &value) {
+        match (step.tag, target) {
             (abi::TAG_FIELD, Value::Struct(s)) => {
                 steps = rest;
-                s.values[step.bits as usize].clone()
+                target = &s.values[step.bits as usize];
             }
             (_, Value::Array(items)) => {
                 // SAFETY: promised by the caller.
                 let i = unsafe { index(*step, rest[0], items.len()) };
                 steps = &rest[1..];
-                items[i].clone()
+                target = &items[i];
+            }
+            // Numbers have no parts, so this is the last step.
+            (_, array @ (Value::Reals(_) | Value::Ints(_))) => {
+                // SAFETY: promised by the caller.
+                let i = unsafe { index(*step, rest[0], array.array_len()) };
+                return element(array, i);
             }
             (_, other) => panic!("bad target {other:?}"),
-        };
-        value = element;
+        }
     }
-    value
+    target.clone()
 }
 
 /// # Safety
@@ -174,6 +200,21 @@ unsafe fn write_path(root: &mut Value, mut steps: &[Slot], value: Value) {
                 let i = unsafe { index(*step, rest[0], items.len()) };
                 steps = &rest[1..];
                 &mut items[i]
+            }
+            // Numbers have no parts, so this is the last step.
+            (_, Value::Reals(items)) => {
+                let items = Arc::make_mut(items);
+                // SAFETY: promised by the caller.
+                let i = unsafe { index(*step, rest[0], items.len()) };
+                items[i] = value.as_real();
+                return;
+            }
+            (_, Value::Ints(items)) => {
+                let items = Arc::make_mut(items);
+                // SAFETY: promised by the caller.
+                let i = unsafe { index(*step, rest[0], items.len()) };
+                items[i] = value.as_int();
+                return;
             }
             (_, other) => panic!("bad target {other:?}"),
         };

@@ -55,8 +55,13 @@ fn run_mode(src: &str, args: &[&str], input: &[u8], optimize: bool) -> Outcome {
 
     // The span instead of source lines, so tests can look at it.
     let locate = |span: Span| format!("{}..{}\n", span.start, span.end);
-    crate::build(&module(src, optimize), &path, &locate)
-        .unwrap_or_else(|message| panic!("{message} for: {src}"));
+    crate::build(
+        &module(src, optimize),
+        &path,
+        &locate,
+        crate::Options::default(),
+    )
+    .unwrap_or_else(|message| panic!("{message} for: {src}"));
 
     let mut child = Command::new(&path)
         .args(args)

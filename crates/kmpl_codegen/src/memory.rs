@@ -2,8 +2,8 @@
 #![allow(unsafe_code)]
 
 use inkwell::builder::{Builder, BuilderError};
-use inkwell::types::IntType;
-use inkwell::values::PointerValue;
+use inkwell::types::{BasicType, IntType};
+use inkwell::values::{IntValue, PointerValue};
 
 /// The address of element `index` of a buffer of integers of type `int`.
 pub fn element<'ctx>(
@@ -12,8 +12,18 @@ pub fn element<'ctx>(
     buffer: PointerValue<'ctx>,
     index: u64,
 ) -> Result<PointerValue<'ctx>, BuilderError> {
-    let index = int.const_int(index, false);
-    // SAFETY: callers keep `index` inside the buffer they allocated, which
-    // `buffer_slots` sizes for the largest operation of the function.
-    unsafe { builder.build_in_bounds_gep(int, buffer, &[index], "") }
+    element_at(builder, int, buffer, int.const_int(index, false))
+}
+
+/// The address of element `index` of a buffer of values of type `ty`.
+pub fn element_at<'ctx, T: BasicType<'ctx>>(
+    builder: &Builder<'ctx>,
+    ty: T,
+    buffer: PointerValue<'ctx>,
+    index: IntValue<'ctx>,
+) -> Result<PointerValue<'ctx>, BuilderError> {
+    // SAFETY: the address is only computed here. Callers keep `index` inside
+    // the buffer: `buffer_slots` sizes argument buffers for the largest
+    // operation, and arrays are bounds-checked first.
+    unsafe { builder.build_in_bounds_gep(ty, buffer, &[index], "") }
 }

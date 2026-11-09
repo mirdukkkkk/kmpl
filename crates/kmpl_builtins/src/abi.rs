@@ -2,6 +2,14 @@
 
 use kmpl_ast::{BinOp, UnOp};
 
+/// The numbers of a flat array, as generated code reads and writes them.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct ArrayView {
+    pub data: *mut u8,
+    pub len: u64,
+}
+
 /// One value crossing between generated code and the runtime.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -35,6 +43,11 @@ pub const OP_MAKE_STRUCT: u64 = 11;
 pub const OP_FIELD_GET: u64 = 12;
 pub const OP_PATH_GET: u64 = 13;
 pub const OP_PATH_SET: u64 = 14;
+
+// The forms of an array, for `OP_MAKE_ARRAY`.
+pub const ARRAY_OF_VALUES: u64 = 0;
+pub const ARRAY_OF_REALS: u64 = 1;
+pub const ARRAY_OF_INTS: u64 = 2;
 
 // The kinds of `kmpl_rt_box_vector`.
 pub const KIND_COMPLEX: u64 = 0;
