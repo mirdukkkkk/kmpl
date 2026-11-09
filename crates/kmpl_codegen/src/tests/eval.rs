@@ -1694,6 +1694,27 @@ fn the_smallest_int_can_be_written() {
 }
 
 #[test]
+fn growing_an_array_in_branches_does_not_copy() {
+    // One way out of the last test needs `p`, the other passes it on.
+    // Quadratic copying would make this take far too long to finish.
+    let src = "fn main() {
+                   let p: [string] = [];
+                   for i in 0..400000 {
+                       if i % 2 == 0 {
+                           p = push(p, \"a\");
+                       } else if i % 3 == 0 {
+                           p = push(p, \"b\");
+                       } else if i % 5 == 0 {
+                           p = push(p, \"c\");
+                       }
+                       p = push(p, \"x\");
+                   }
+                   print(length(p));
+               }";
+    assert_eq!(run(src).unwrap(), "693334\n");
+}
+
+#[test]
 fn array_writes_in_a_loop_do_not_copy() {
     // Quadratic copying would make this take far too long to finish.
     let src = "fn main() {

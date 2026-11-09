@@ -8,7 +8,9 @@
 
 use std::collections::HashSet;
 
-use crate::{Function, Module, Op, Reg};
+use kmpl_ast::{Ty, Type};
+
+use crate::{Block, BlockId, Function, Module, Op, Reg, Target, Terminator};
 
 /// Fills in `Inst::frees`, `Block::term_frees` and `PathSet::take`.
 pub fn annotate(module: &mut Module) {
@@ -17,7 +19,45 @@ pub fn annotate(module: &mut Module) {
     }
 }
 
+/// Gives every branch that passes an array or the like its own block for
+/// that edge. A value can be needed on one way out of a branch and passed
+/// on along the other. Frees are per terminator, so such a value would stay
+/// in its register on the second way, and the next write would copy it.
+fn split_edges_passing_values(f: &mut Function) {
+    let types = &f.types;
+    let shared = |reg: &Reg| {
+        !matches!(
+            &types[reg.0 as usize],
+            Ty::Prim(ty) if !matches!(ty, Type::Str | Type::Bytes)
+        )
+    };
+
+    let first_new = f.blocks.len();
+    let mut added = Vec::new();
+    for block in &mut f.blocks {
+        if !matches!(block.term, Terminator::Branch { .. }) {
+            continue;
+        }
+        for target in block.term.targets_mut() {
+            if target.args.iter().any(shared) {
+                let edge = Target {
+                    block: BlockId((first_new + added.len()) as u32),
+                    args: Vec::new(),
+                };
+                added.push(Block {
+                    params: Vec::new(),
+                    insts: Vec::new(),
+                    term: Terminator::Jump(std::mem::replace(target, edge)),
+                    term_frees: Vec::new(),
+                });
+            }
+        }
+    }
+    f.blocks.extend(added);
+}
+
 fn annotate_function(f: &mut Function) {
+    split_edges_passing_values(f);
     let live_in = live_in_sets(f);
 
     for b in 0..f.blocks.len() {
