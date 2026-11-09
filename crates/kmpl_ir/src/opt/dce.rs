@@ -29,12 +29,17 @@ pub(super) fn is_pure(op: &Op, f: &Function) -> bool {
         | Op::Swizzle { .. }
         | Op::RangeContinues { .. }
         | Op::AddOverflows { .. } => true,
-        Op::Unary { op: UnOp::Not, .. } => true,
+        Op::Unary {
+            op: UnOp::Not | UnOp::BitNot,
+            ..
+        } => true,
         Op::Unary { op: UnOp::Neg, a } => cannot_fail(a),
         Op::Binary { op, a, b } => match op {
             BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
                 cannot_fail(a) && cannot_fail(b)
             }
+            // The shift amount may be out of range.
+            BinOp::Shl | BinOp::Shr => false,
             _ => true,
         },
         // May fail or have an effect.

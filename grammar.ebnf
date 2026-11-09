@@ -37,7 +37,7 @@ continue    ::= 'continue' ';'
 return      ::= 'return' expr? ';'
 assign      ::= IDENT assignop expr ';'
 pathassign  ::= IDENT ('[' expr ']' | '.' IDENT)+ assignop expr ';'
-assignop    ::= '=' | '+=' | '-=' | '*=' | '/=' | '%='
+assignop    ::= '=' | '+=' | '-=' | '*=' | '/=' | '%=' | '&=' | '|=' | '^=' | '<<=' | '>>='
 exprstmt    ::= expr ';'
 
 (* expressions: from lowest to highest precedence *)
@@ -45,10 +45,14 @@ expr        ::= or
 or          ::= and ('||' and)*
 and         ::= eq ('&&' eq)*
 eq          ::= comp (('==' | '!=') comp)*
-comp        ::= add (('<' | '<=' | '>' | '>=') add)*
+comp        ::= bitor (('<' | '<=' | '>' | '>=') bitor)*
+bitor       ::= bitxor ('|' bitxor)*
+bitxor      ::= bitand ('^' bitand)*
+bitand      ::= shift ('&' shift)*
+shift       ::= add (('<<' | '>>') add)*
 add         ::= mul (('+' | '-') mul)*
 mul         ::= unary (('*' | '/' | '%') unary)*
-unary       ::= ('!' | '-') unary | postfix
+unary       ::= ('!' | '-' | '~') unary | postfix
 postfix     ::= primary ('[' (expr | slice) ']' | '.' IDENT)* (':' swizzle)?
 slice       ::= expr? '..' expr? | expr? '..=' expr
 primary     ::= INT | REAL | IMAG | STRING | 'true' | 'false' | IDENT | call | structlit | array | tuple | '(' expr ')'

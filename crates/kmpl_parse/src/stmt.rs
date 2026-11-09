@@ -213,6 +213,11 @@ fn assign_op(token: Option<&Token>) -> Option<Option<BinOp>> {
         Token::StarEq => Some(Some(BinOp::Mul)),
         Token::SlashEq => Some(Some(BinOp::Div)),
         Token::PercentEq => Some(Some(BinOp::Rem)),
+        Token::AmpEq => Some(Some(BinOp::BitAnd)),
+        Token::PipeEq => Some(Some(BinOp::BitOr)),
+        Token::CaretEq => Some(Some(BinOp::BitXor)),
+        Token::ShlEq => Some(Some(BinOp::Shl)),
+        Token::ShrEq => Some(Some(BinOp::Shr)),
         _ => None,
     }
 }

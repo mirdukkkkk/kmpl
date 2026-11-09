@@ -53,11 +53,40 @@ fn eq(ts: &mut TokenStream) -> PResult<Expr> {
 }
 
 fn comp(ts: &mut TokenStream) -> PResult<Expr> {
-    left_assoc(ts, add, |tok| match tok {
+    left_assoc(ts, bit_or, |tok| match tok {
         Token::Lt => Some(BinOp::Lt),
         Token::Le => Some(BinOp::Le),
         Token::Gt => Some(BinOp::Gt),
         Token::Ge => Some(BinOp::Ge),
+        _ => None,
+    })
+}
+
+fn bit_or(ts: &mut TokenStream) -> PResult<Expr> {
+    left_assoc(ts, bit_xor, |tok| match tok {
+        Token::Pipe => Some(BinOp::BitOr),
+        _ => None,
+    })
+}
+
+fn bit_xor(ts: &mut TokenStream) -> PResult<Expr> {
+    left_assoc(ts, bit_and, |tok| match tok {
+        Token::Caret => Some(BinOp::BitXor),
+        _ => None,
+    })
+}
+
+fn bit_and(ts: &mut TokenStream) -> PResult<Expr> {
+    left_assoc(ts, shift, |tok| match tok {
+        Token::Amp => Some(BinOp::BitAnd),
+        _ => None,
+    })
+}
+
+fn shift(ts: &mut TokenStream) -> PResult<Expr> {
+    left_assoc(ts, add, |tok| match tok {
+        Token::Shl => Some(BinOp::Shl),
+        Token::Shr => Some(BinOp::Shr),
         _ => None,
     })
 }
@@ -108,6 +137,7 @@ fn unary(ts: &mut TokenStream) -> PResult<Expr> {
     let op = match ts.peek() {
         Some(Token::Bang) => UnOp::Not,
         Some(Token::Minus) => UnOp::Neg,
+        Some(Token::Tilde) => UnOp::BitNot,
         _ => return postfix(ts),
     };
 

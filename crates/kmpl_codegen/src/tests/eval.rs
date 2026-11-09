@@ -1511,3 +1511,49 @@ fn remainder_errors_match_division() {
         "integer overflow"
     );
 }
+
+#[test]
+fn bitwise_operators_on_ints() {
+    assert_eq!(
+        output("print(12 & 10); print(12 | 10); print(12 ^ 10); print(~5);"),
+        "8\n14\n6\n-6\n"
+    );
+    assert_eq!(
+        output("let x = 6; x &= 3; x |= 8; x ^= 1; print(x);"),
+        "11\n"
+    );
+}
+
+#[test]
+fn shifts() {
+    assert_eq!(
+        output("print(3 << 4); print(-16 >> 2); print(1 << 63);"),
+        "48\n-4\n-9223372036854775808\n"
+    );
+    assert_eq!(output("print(shr_logical(-1, 60));"), "15\n");
+    assert_eq!(output("let x = 1; x <<= 3; x >>= 1; print(x);"), "4\n");
+}
+
+#[test]
+fn a_shift_out_of_range_is_an_error() {
+    for amount in ["64", "-1"] {
+        assert_eq!(
+            runtime_error(&format!("fn main() {{ let n = {amount}; print(1 << n); }}")),
+            "shift amount must be from 0 to 63"
+        );
+        assert_eq!(
+            runtime_error(&format!(
+                "fn main() {{ let n = {amount}; print(shr_logical(1, n)); }}"
+            )),
+            "shift amount must be from 0 to 63"
+        );
+    }
+}
+
+#[test]
+fn bitwise_precedence_follows_rust() {
+    assert_eq!(
+        output("print(1 + 2 << 1); print(1 | 2 & 3); print(6 & 3 == 2);"),
+        "6\n3\ntrue\n"
+    );
+}

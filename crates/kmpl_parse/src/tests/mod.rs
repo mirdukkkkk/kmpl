@@ -178,6 +178,11 @@ fn bin_op(op: BinOp) -> &'static str {
         BinOp::Mul => "*",
         BinOp::Div => "/",
         BinOp::Rem => "%",
+        BinOp::BitAnd => "&",
+        BinOp::BitOr => "|",
+        BinOp::BitXor => "^",
+        BinOp::Shl => "<<",
+        BinOp::Shr => ">>",
         BinOp::Eq => "==",
         BinOp::Ne => "!=",
         BinOp::Lt => "<",
@@ -234,6 +239,7 @@ fn sexp(e: &Expr) -> String {
             let op = match op {
                 UnOp::Neg => "-",
                 UnOp::Not => "!",
+                UnOp::BitNot => "~",
             };
             format!("({op} {})", sexp(operand))
         }

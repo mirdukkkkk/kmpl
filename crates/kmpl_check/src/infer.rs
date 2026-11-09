@@ -462,6 +462,7 @@ impl<'a> Infer<'a> {
                 match op {
                     UnOp::Neg => self.restrict_inner(ty, TypeSet::LINEAR, "-", e.span),
                     UnOp::Not => self.expect(ty, Type::Bool, operand.span),
+                    UnOp::BitNot => self.expect(ty, Type::Int, operand.span),
                 }
                 ty
             }
@@ -619,6 +620,11 @@ impl<'a> Infer<'a> {
             BinOp::Eq | BinOp::Ne => {
                 self.unify(r, l, rhs_span);
                 self.known(Type::Bool)
+            }
+            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => {
+                self.expect(l, Type::Int, lhs_span);
+                self.expect(r, Type::Int, rhs_span);
+                self.known(Type::Int)
             }
             BinOp::And | BinOp::Or => {
                 self.expect(l, Type::Bool, lhs_span);
@@ -954,6 +960,11 @@ fn op_symbol(op: BinOp) -> &'static str {
         BinOp::Mul => "*",
         BinOp::Div => "/",
         BinOp::Rem => "%",
+        BinOp::BitAnd => "&",
+        BinOp::BitOr => "|",
+        BinOp::BitXor => "^",
+        BinOp::Shl => "<<",
+        BinOp::Shr => ">>",
         BinOp::Eq => "==",
         BinOp::Ne => "!=",
         BinOp::Lt => "<",

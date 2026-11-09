@@ -392,6 +392,17 @@ pub static BUILTINS: &[Builtin] = &[
             array => ok(Value::Int(array.array_len() as i64)),
         },
     },
+    // `>>` keeps the sign. This one fills with zeros, as for an unsigned number.
+    Builtin {
+        name: "shr_logical",
+        generic: &[],
+        params: &[ParamType::Exact(Type::Int), ParamType::Exact(Type::Int)],
+        ret: RetType::Exact(Type::Int),
+        func: |a, _| {
+            let amount = ops::shift_amount(a[1].as_int())?;
+            ok(Value::Int(((a[0].as_int() as u64) >> amount) as i64))
+        },
+    },
     // Arrays are values, so these return a new array and leave the
     // argument alone: `a = push(a, x);`. If nothing else holds the array it
     // grows in place, so a loop of pushes does not copy it each time.

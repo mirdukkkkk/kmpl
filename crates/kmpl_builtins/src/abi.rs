@@ -60,7 +60,7 @@ pub const SLICE_INCLUSIVE: u64 = 1;
 pub const SLICE_HAS_START: u64 = 2;
 pub const SLICE_HAS_END: u64 = 4;
 
-const BIN_OPS: [BinOp; 13] = [
+const BIN_OPS: [BinOp; 18] = [
     BinOp::Add,
     BinOp::Sub,
     BinOp::Mul,
@@ -74,6 +74,11 @@ const BIN_OPS: [BinOp; 13] = [
     BinOp::And,
     BinOp::Or,
     BinOp::Rem,
+    BinOp::BitAnd,
+    BinOp::BitOr,
+    BinOp::BitXor,
+    BinOp::Shl,
+    BinOp::Shr,
 ];
 
 pub fn bin_op_code(op: BinOp) -> u64 {
@@ -91,12 +96,14 @@ pub fn un_op_code(op: UnOp) -> u64 {
     match op {
         UnOp::Neg => 0,
         UnOp::Not => 1,
+        UnOp::BitNot => 2,
     }
 }
 
 pub fn un_op(code: u64) -> UnOp {
     match code {
         0 => UnOp::Neg,
-        _ => UnOp::Not,
+        1 => UnOp::Not,
+        _ => UnOp::BitNot,
     }
 }

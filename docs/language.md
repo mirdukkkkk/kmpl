@@ -64,7 +64,7 @@ fn main() {
 
 ## Operators
 
-From weakest to strongest: `||`, `&&`, `== !=`, `< <= > >=`, `+ -`, `* / %`, unary
+From weakest to strongest: `||`, `&&`, `== !=`, `< <= > >=`, `|`, `^`, `&`, `<< >>`, `+ -`, `* / %`, unary
 `! -`, then `[index]` and `.field`, then `:swizzle`.
 
 `int` overflow and `int` division by zero stop the program with an error. `real`
@@ -78,7 +78,11 @@ print(v:zy);  // (3.0, 2.0)
 print(v * 2.0 + v);  // (3.0, 6.0, 9.0)
 ```
 
-Assignments can be combined with `+ - * /`:
+`%` is the remainder, with the sign of the left side. `& | ^ ~ << >>` work on
+`int`; `>>` keeps the sign and `shr_logical(x, n)` fills with zeros. Shifting by
+less than 0 or more than 63 stops the program with an error.
+
+Assignments can be combined with `+ - * / % & | ^ << >>`:
 
 ```kmpl
 let x = 2;

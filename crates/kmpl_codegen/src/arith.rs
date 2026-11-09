@@ -78,6 +78,9 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
             BinOp::Le => compare(FloatPredicate::OLE),
             BinOp::Gt => compare(FloatPredicate::OGT),
             BinOp::Ge => compare(FloatPredicate::OGE),
+            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => {
+                unreachable!("the checker allows these only on `int`")
+            }
             BinOp::And | BinOp::Or => unreachable!("lowered to branches"),
         }
     }
@@ -112,6 +115,17 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
             BinOp::Rem => {
                 self.check_divisor(x, y, span, current)?;
                 Ok(builder.build_int_signed_rem(x, y, "")?.into())
+            }
+            BinOp::BitAnd => Ok(builder.build_and(x, y, "")?.into()),
+            BinOp::BitOr => Ok(builder.build_or(x, y, "")?.into()),
+            BinOp::BitXor => Ok(builder.build_xor(x, y, "")?.into()),
+            BinOp::Shl => {
+                self.check_shift(y, span, current)?;
+                Ok(builder.build_left_shift(x, y, "")?.into())
+            }
+            BinOp::Shr => {
+                self.check_shift(y, span, current)?;
+                Ok(builder.build_right_shift(x, y, true, "")?.into())
             }
             BinOp::Eq => compare(IntPredicate::EQ),
             BinOp::Ne => compare(IntPredicate::NE),
@@ -156,6 +170,21 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
         let (value, overflow) = self.with_overflow(name, x, y)?;
         self.fail_if(overflow, ops::OVERFLOW, span, current)?;
         Ok(value)
+    }
+
+    /// Stops the program if a shift by `amount` is not defined.
+    fn check_shift(
+        &self,
+        amount: IntValue<'ctx>,
+        span: Span,
+        current: &Current<'ctx, 'm>,
+    ) -> Result<()> {
+        // Unsigned: a negative amount looks huge.
+        let limit = self.context.i64_type().const_int(64, false);
+        let bad = self
+            .builder
+            .build_int_compare(IntPredicate::UGE, amount, limit, "")?;
+        self.fail_if(bad, ops::BAD_SHIFT, span, current)
     }
 
     /// Stops the program if `x / y` or `x % y` is not defined.

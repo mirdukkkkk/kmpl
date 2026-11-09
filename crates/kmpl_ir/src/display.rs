@@ -49,6 +49,11 @@ fn binary_name(op: BinOp) -> &'static str {
         BinOp::Mul => "mul",
         BinOp::Div => "div",
         BinOp::Rem => "rem",
+        BinOp::BitAnd => "bitand",
+        BinOp::BitOr => "bitor",
+        BinOp::BitXor => "bitxor",
+        BinOp::Shl => "shl",
+        BinOp::Shr => "shr",
         BinOp::Eq => "eq",
         BinOp::Ne => "ne",
         BinOp::Lt => "lt",
@@ -89,6 +94,10 @@ impl Module {
             Op::Const(Constant::Str(text)) => format!("const {text:?}"),
             Op::Unary { op: UnOp::Neg, a } => format!("neg {a}"),
             Op::Unary { op: UnOp::Not, a } => format!("not {a}"),
+            Op::Unary {
+                op: UnOp::BitNot,
+                a,
+            } => format!("bitnot {a}"),
             Op::Binary { op, a, b } => format!("{} {a}, {b}", binary_name(*op)),
             Op::Call { func, args } => {
                 let name = &self.functions[func.0 as usize].name;

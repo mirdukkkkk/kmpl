@@ -499,9 +499,10 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
             Op::Const(Constant::Complex { re, im }) => self.vector_constant(&[*re, *im])?,
             Op::Const(constant) => self.constant(constant),
             Op::Swizzle { base, mask } => self.swizzle(*base, mask, current)?,
-            Op::Unary { op: UnOp::Not, a } if current.is_number(*a) => {
-                self.builder.build_not(current.int(*a), "")?.into()
-            }
+            Op::Unary {
+                op: UnOp::Not | UnOp::BitNot,
+                a,
+            } if current.is_number(*a) => self.builder.build_not(current.int(*a), "")?.into(),
             Op::Unary { op, a } => match current.ty(*a) {
                 ty if vector_size(ty).is_some() => self.vector_unary(*op, *a, current)?,
                 _ if current.is_number(*a) => self.number_neg(*a, span, current)?,

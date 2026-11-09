@@ -92,8 +92,22 @@ fn logical_operators() {
 }
 
 #[test]
-fn single_ampersand_is_an_error() {
-    assert_eq!(lex("a & b"), Err(Span::new(2, 3)));
+fn bitwise_operators() {
+    assert_eq!(
+        tokens("& ^ ~ << >> &= |= ^= <<= >>="),
+        vec![
+            Token::Amp,
+            Token::Caret,
+            Token::Tilde,
+            Token::Shl,
+            Token::Shr,
+            Token::AmpEq,
+            Token::PipeEq,
+            Token::CaretEq,
+            Token::ShlEq,
+            Token::ShrEq,
+        ]
+    );
 }
 
 #[test]

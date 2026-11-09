@@ -48,6 +48,7 @@ fn compute(op: &Op, known: &HashMap<Reg, Constant>) -> Option<Constant> {
     match op {
         Op::Unary { op, a } => match (op, known.get(a)?) {
             (UnOp::Not, Constant::Bool(v)) => Some(Constant::Bool(!v)),
+            (UnOp::BitNot, Constant::Int(v)) => Some(Constant::Int(!v)),
             (UnOp::Neg, Constant::Int(v)) => v.checked_neg().map(Constant::Int),
             (UnOp::Neg, Constant::Real(v)) => Some(Constant::Real(-v)),
             _ => None,
@@ -87,6 +88,12 @@ fn int_binary(op: BinOp, x: i64, y: i64) -> Option<Constant> {
         BinOp::Le => Some(Constant::Bool(x <= y)),
         BinOp::Gt => Some(Constant::Bool(x > y)),
         BinOp::Ge => Some(Constant::Bool(x >= y)),
+        BinOp::BitAnd => Some(Constant::Int(x & y)),
+        BinOp::BitOr => Some(Constant::Int(x | y)),
+        BinOp::BitXor => Some(Constant::Int(x ^ y)),
+        // A shift out of range stops the program, so it stays.
+        BinOp::Shl => (0..64).contains(&y).then(|| Constant::Int(x << y)),
+        BinOp::Shr => (0..64).contains(&y).then(|| Constant::Int(x >> y)),
         BinOp::And | BinOp::Or => None,
     }
 }
@@ -106,7 +113,13 @@ fn real_binary(op: BinOp, x: f64, y: f64) -> Option<Constant> {
         BinOp::Le => boolean(x <= y),
         BinOp::Gt => boolean(x > y),
         BinOp::Ge => boolean(x >= y),
-        BinOp::And | BinOp::Or => None,
+        BinOp::And
+        | BinOp::Or
+        | BinOp::BitAnd
+        | BinOp::BitOr
+        | BinOp::BitXor
+        | BinOp::Shl
+        | BinOp::Shr => None,
     }
 }
 

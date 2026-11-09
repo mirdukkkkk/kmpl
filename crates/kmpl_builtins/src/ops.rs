@@ -21,6 +21,7 @@ use kmpl_ast::{BinOp, UnOp};
 pub fn unary(op: UnOp, v: Value) -> Result<Value, String> {
     let result = match (op, &v) {
         (UnOp::Not, Value::Bool(b)) => Value::Bool(!b),
+        (UnOp::BitNot, Value::Int(n)) => Value::Int(!n),
         (UnOp::Neg, Value::Int(n)) => Value::Int(n.checked_neg().ok_or(OVERFLOW)?),
         (UnOp::Neg, Value::Real(x)) => Value::Real(-x),
         // `0 - z`, not `-z`: plain negation turns `+0` into `-0`, so `-(1 + 0i)`
@@ -41,7 +42,7 @@ pub fn unary(op: UnOp, v: Value) -> Result<Value, String> {
         (UnOp::Neg, _) => v
             .map_components(|c| -c)
             .unwrap_or_else(|| bug_unary(op, &v)),
-        (UnOp::Not, _) => bug_unary(op, &v),
+        (UnOp::Not | UnOp::BitNot, _) => bug_unary(op, &v),
     };
     Ok(result)
 }
@@ -377,6 +378,15 @@ fn sum_of_products<'v>(x: &[Value], y: impl Iterator<Item = &'v Value>) -> Resul
 pub const OVERFLOW: &str = "integer overflow";
 pub const DIVISION_BY_ZERO: &str = "division by zero";
 pub const ZERO_STEP: &str = "loop step cannot be zero";
+pub const BAD_SHIFT: &str = "shift amount must be from 0 to 63";
+
+/// `n` as the amount of a shift.
+pub fn shift_amount(n: i64) -> Result<u32, String> {
+    match u32::try_from(n) {
+        Ok(amount) if amount < 64 => Ok(amount),
+        _ => Err(BAD_SHIFT.to_owned()),
+    }
+}
 
 /// Deepest allowed chain of function calls. Deeper recursion stops with an
 /// error instead of using up all memory.
@@ -449,6 +459,11 @@ pub fn int_op(op: BinOp, a: i64, b: i64) -> Result<Value, String> {
         BinOp::Div => checked(a.checked_div(b)),
         BinOp::Rem if b == 0 => Err(DIVISION_BY_ZERO.to_owned()),
         BinOp::Rem => checked(a.checked_rem(b)),
+        BinOp::BitAnd => Ok(Value::Int(a & b)),
+        BinOp::BitOr => Ok(Value::Int(a | b)),
+        BinOp::BitXor => Ok(Value::Int(a ^ b)),
+        BinOp::Shl => Ok(Value::Int(a << shift_amount(b)?)),
+        BinOp::Shr => Ok(Value::Int(a >> shift_amount(b)?)),
         BinOp::Lt => Ok(Value::Bool(a < b)),
         BinOp::Le => Ok(Value::Bool(a <= b)),
         BinOp::Gt => Ok(Value::Bool(a > b)),
