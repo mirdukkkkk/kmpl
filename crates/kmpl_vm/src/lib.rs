@@ -7,7 +7,6 @@
 //! the checker or the lowering, and panics. Errors that depend on values
 //! (division by zero, a bad index) are returned with their location.
 
-mod ops;
 mod vm;
 
 #[cfg(test)]

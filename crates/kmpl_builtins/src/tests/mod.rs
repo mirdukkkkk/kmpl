@@ -1,5 +1,6 @@
 mod complex;
 mod math;
+mod ops;
 mod vector;
 
 use std::collections::HashSet;

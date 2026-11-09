@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use kmpl_ast::{BinOp, Span, Ty, Type, UnOp};
-use kmpl_builtins::{Builtin, Io, StructLayout, StructValue, Value};
+use kmpl_builtins::{Builtin, Io, StructLayout, StructValue, Value, ops};
 use kmpl_ir::{Block, Constant, FuncId, Function, Module, Op, Reg, Step, Target, Terminator};
 
-use crate::{RuntimeError, ops};
+use crate::RuntimeError;
 
 /// Deepest allowed chain of function calls. Deeper recursion stops with an
 /// error instead of using up all memory.

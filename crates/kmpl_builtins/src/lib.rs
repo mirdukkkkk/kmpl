@@ -6,6 +6,7 @@
 
 mod complex;
 mod math;
+pub mod ops;
 mod value;
 
 #[cfg(test)]

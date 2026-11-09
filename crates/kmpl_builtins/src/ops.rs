@@ -3,7 +3,7 @@
 //! The checker has already verified operand types, so a type combination
 //! not handled here is a checker bug and panics. Errors that depend on
 //! the values (integer division by zero, overflow) are returned as
-//! messages; the VM attaches the span.
+//! messages; the caller attaches the span.
 //!
 //! `&&` and `||` are not here: they skip the right side, so they are
 //! lowered to branches.
@@ -16,7 +16,7 @@
 use std::sync::Arc;
 
 use kmpl_ast::{BinOp, UnOp};
-use kmpl_builtins::Value;
+use crate::Value;
 
 pub fn unary(op: UnOp, v: Value) -> Result<Value, String> {
     let result = match (op, &v) {
@@ -197,7 +197,7 @@ fn sum_of_products<'v>(x: &[Value], y: impl Iterator<Item = &'v Value>) -> Resul
 const OVERFLOW: &str = "integer overflow";
 
 #[inline]
-pub(crate) fn int_op(op: BinOp, a: i64, b: i64) -> Result<Value, String> {
+pub fn int_op(op: BinOp, a: i64, b: i64) -> Result<Value, String> {
     let checked = |v: Option<i64>| v.map(Value::Int).ok_or_else(|| OVERFLOW.to_owned());
 
     match op {
@@ -219,7 +219,7 @@ pub(crate) fn int_op(op: BinOp, a: i64, b: i64) -> Result<Value, String> {
 
 /// IEEE 754: dividing by zero gives `inf` or `NaN`, not an error.
 #[inline]
-pub(crate) fn real_op(op: BinOp, a: f64, b: f64) -> Option<Value> {
+pub fn real_op(op: BinOp, a: f64, b: f64) -> Option<Value> {
     let v = match op {
         BinOp::Add => Value::Real(a + b),
         BinOp::Sub => Value::Real(a - b),

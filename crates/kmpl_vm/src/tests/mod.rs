@@ -1,5 +1,4 @@
 mod eval;
-mod ops;
 
 /// Checks and runs `src`. Returns what it printed, or the runtime error
 /// message with what was printed before it.
