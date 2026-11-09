@@ -185,3 +185,12 @@ fn llvm_ir_is_printed_without_running_the_program() {
     );
     assert!(!text.starts_with("1\n"));
 }
+
+#[test]
+fn a_built_program_can_use_the_standard_library() {
+    let out = build_and_run(
+        "std_build",
+        "import (shr_logical) from \"std:bits\"; fn main() { print(shr_logical(-1, 62)); }",
+    );
+    assert_eq!(stdout(&out), "3\n", "{out:?}");
+}

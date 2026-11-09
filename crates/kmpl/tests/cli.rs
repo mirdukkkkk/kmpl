@@ -360,7 +360,10 @@ fn help_is_printed_to_stdout() {
 
 #[test]
 fn arguments_after_the_file_go_to_the_program() {
-    let path = source_file("program_args", "fn main() { print(args()); }");
+    let path = source_file(
+        "program_args",
+        "import (args) from \"std:io\"; fn main() { print(args()); }",
+    );
     let out = kmpl(&[
         path.as_os_str(),
         "one".as_ref(),
@@ -375,7 +378,8 @@ fn arguments_after_the_file_go_to_the_program() {
 fn stdin_reaches_the_program() {
     let path = source_file(
         "program_stdin",
-        r#"fn main() {
+        r#"import (read_line) from "std:io"; import (parse_int) from "std:text";
+        fn main() {
             print("number?");
             let (line, _) = read_line();
             let (n, ok) = parse_int(line);
@@ -392,7 +396,7 @@ fn stdin_reaches_the_program() {
 fn end_of_input_without_any_data() {
     let path = source_file(
         "program_empty_stdin",
-        "fn main() { let (_, ok) = read_line(); print(ok); }",
+        "import (read_line) from \"std:io\"; fn main() { let (_, ok) = read_line(); print(ok); }",
     );
     let out = kmpl_with_input(&[path.as_os_str()], b"");
     assert_eq!(stdout(&out), "false\n");
@@ -416,7 +420,7 @@ fn ir_flag_prints_the_ir() {
 fn no_opt_runs_the_program_the_same() {
     let path = source_file(
         "no_opt",
-        "fn main() { let x = 0; for i in 1..=3 { x += i; } print(x); print(args()); }",
+        "import (args) from \"std:io\"; fn main() { let x = 0; for i in 1..=3 { x += i; } print(x); print(args()); }",
     );
     let out = kmpl(&["--no-opt".as_ref(), path.as_os_str(), "a".as_ref()]);
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
@@ -606,4 +610,79 @@ fn a_module_path_must_be_relative() {
         "{}",
         stderr(&out)
     );
+}
+
+#[test]
+fn files_through_std_fs() {
+    let dir = std::env::temp_dir().join(format!("kmpl-cli-{}-std-fs", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("note.bin");
+    let src = format!(
+        "import fs from \"std:fs\";
+         fn main() {{
+             let path = \"{}\";
+             print(fs.write_text(path, \"héllo\") == \"\");
+             let (text, error) = fs.read_text(path);
+             print(text); print(error == \"\");
+             let (data, _) = fs.read(path);
+             print(len(data));
+             data[0] = 255;
+             print(fs.write(path, data) == \"\");
+             let (broken, why) = fs.read_text(path);
+             print(broken == \"\"); print(why != \"\");
+             let (_, missing) = fs.read(path + \".nope\");
+             print(missing != \"\");
+         }}",
+        file.display()
+    );
+    let out = run("std_fs", &src);
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(
+        stdout(&out),
+        "true\nhéllo\ntrue\n6\ntrue\ntrue\ntrue\ntrue\n",
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn every_std_library_can_be_imported() {
+    let out = run(
+        "std_all",
+        "import (parse_int) from \"std:text\";
+         import bits from \"std:bits\";
+         import io from \"std:io\";
+         import fs from \"std:fs\";
+         fn main() { print(parse_int(\"4\")); print(bits.shr_logical(-1, 60)); print(len(io.args())); }",
+    );
+    assert_eq!(stdout(&out), "(4, true)\n15\n0\n", "{}", stderr(&out));
+}
+
+#[test]
+fn an_unknown_library_lists_the_known_ones() {
+    let out = run("std_unknown", "import x from \"std:nope\"; fn main() { }");
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).contains("there is no library `std:nope`, there are: bits, fs, io, text"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn internal_functions_are_for_the_standard_library_only() {
+    let out = run("std_internal", "fn main() { print(_io_args()); }");
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).contains("`_io_args` belongs to the standard library"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn moved_functions_need_an_import() {
+    let out = run("moved", "fn main() { print(args()); }");
+    assert_eq!(out.status.code(), Some(1));
+    assert!(stderr(&out).contains("args"), "{}", stderr(&out));
 }

@@ -8,7 +8,7 @@ use std::io::Write;
 
 use kmpl_ast::Type;
 
-use crate::{BUILTINS, Builtin, Io, ParamType, RetType, Value, lookup};
+use crate::{Builtin, Io, ParamType, RetType, Value, all, lookup};
 
 /// Some value of the given type, to call built-ins with.
 fn sample(ty: Type) -> Value {
@@ -52,7 +52,7 @@ fn call(name: &str, args: &[Value]) -> Option<Value> {
 #[test]
 fn names_are_unique() {
     let mut seen = HashSet::new();
-    for b in BUILTINS {
+    for b in all() {
         assert!(seen.insert(b.name), "duplicate built-in `{}`", b.name);
     }
     // Functions and constants share one namespace.
@@ -82,7 +82,11 @@ fn constants() {
 /// a value of its declared `ret`, for every type its `T` may stand for.
 #[test]
 fn signatures_match_implementations() {
-    for b in BUILTINS {
+    for b in all() {
+        // These would touch real files.
+        if b.name.starts_with("_fs_") {
+            continue;
+        }
         // Non-generic built-ins are called once; `T` is unused then.
         let choices: &[Type] = if b.generic.is_empty() {
             &[Type::Int]
@@ -330,14 +334,15 @@ fn read_line_shows_a_prompt_first() {
     }
 
     let mut out = Counting::default();
-    call_with_out(lookup("read_line").unwrap(), &[], &mut out).unwrap();
+    call_with_out(lookup("_io_read_line").unwrap(), &[], &mut out).unwrap();
     assert_eq!(out.0, 1);
 }
 
 #[test]
 fn only_input_built_ins_depend_on_the_run() {
-    assert!(crate::depends_on_run("args"));
-    assert!(crate::depends_on_run("read_line"));
-    assert!(!crate::depends_on_run("parse_int"));
+    assert!(crate::depends_on_run("_io_args"));
+    assert!(crate::depends_on_run("_io_read_line"));
+    assert!(crate::depends_on_run("_fs_read"));
+    assert!(!crate::depends_on_run("_text_parse_int"));
     assert!(!crate::depends_on_run("sqrt"));
 }

@@ -13,7 +13,7 @@ use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, PointerTyp
 use inkwell::values::{BasicValueEnum, FunctionValue, IntValue, PhiValue, PointerValue};
 use inkwell::{AddressSpace, IntPredicate};
 use kmpl_ast::{Span, Ty, Type, UnOp};
-use kmpl_builtins::{BUILTINS, abi, ops};
+use kmpl_builtins::{abi, ops};
 use kmpl_ir::{Constant, Function, Inst, Op, Reg, Step, Target, Terminator};
 
 use crate::flat::{FlatSlots, is_flat};
@@ -50,7 +50,7 @@ pub struct Translator<'ctx, 'm> {
     /// How many calls are active, to stop runaway recursion.
     depth: PointerValue<'ctx>,
     pub(crate) runtime: Runtime<'ctx>,
-    /// For each entry of `Module::builtins`, its position in `BUILTINS`.
+    /// For each entry of `Module::builtins`, its position in `kmpl_builtins::all`.
     pub(crate) builtins: Vec<u64>,
     strings: RefCell<HashMap<String, PointerValue<'ctx>>>,
 }
@@ -142,8 +142,7 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
                 .builtins
                 .iter()
                 .map(|name| {
-                    BUILTINS
-                        .iter()
+                    kmpl_builtins::all()
                         .position(|b| b.name == name)
                         .expect("lowering found this built-in") as u64
                 })

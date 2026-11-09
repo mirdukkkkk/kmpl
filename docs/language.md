@@ -91,7 +91,7 @@ print(v * 2.0 + v);  // (3.0, 6.0, 9.0)
 ```
 
 `%` is the remainder, with the sign of the left side. `& | ^ ~ << >>` work on
-`int`; `>>` keeps the sign and `shr_logical(x, n)` fills with zeros. Shifting by
+`int`; `>>` keeps the sign and `shr_logical(x, n)` from `std:bits` fills with zeros. Shifting by
 less than 0 or more than 63 stops the program with an error.
 
 Assignments can be combined with `+ - * / % & | ^ << >>`:
@@ -313,7 +313,28 @@ Everything in a module is public. A file must import a module itself to use it,
 even if a module it imports already does. Only the `main` of the file you run is
 used.
 
-## Input
+## Libraries
+
+Libraries that come with `kmpl` are imported from `std:`:
+
+| Library | Functions |
+|---|---|
+| `std:fs` | `read read_text write write_text` |
+| `std:io` | `args read_line` |
+| `std:text` | `parse_int parse_real` |
+| `std:bits` | `shr_logical` |
+
+Functions in `std:fs` also return the text of an error, empty if all went well:
+
+```text
+import fs from "std:fs";
+
+fn main() {
+    let error = fs.write_text("note.txt", "hello");
+    let (text, read_error) = fs.read_text("note.txt");
+    print(text);  // hello
+}
+```
 
 `kmpl program.kmpl a b` gives the program its arguments through `args()`.
 A program compiled with `kmpl build program.kmpl` gets its own: `./program a b`.
@@ -321,16 +342,23 @@ A program compiled with `kmpl build program.kmpl` gets its own: `./program a b`.
 `parse_real` return a value and whether the text was a number.
 
 ```kmpl
-let (n, ok) = parse_int("42");
-print(n + 1);  // 43
-print(ok);  // true
-print(parse_real("abc"));  // (0.0, false)
+import (parse_int, parse_real) from "std:text";
+
+fn main() {
+    let (n, ok) = parse_int("42");
+    print(n + 1);  // 43
+    print(ok);  // true
+    print(parse_real("abc"));  // (0.0, false)
+}
 ```
 
 ```text
-for arg in args() { print(arg); }
+import (args, read_line) from "std:io";
 
-let (line, more) = read_line();
+fn main() {
+    for arg in args() { print(arg); }
+    let (line, more) = read_line();
+}
 ```
 
 ## Built-in functions
@@ -343,8 +371,7 @@ let (line, more) = read_line();
 | Conversion | `real int complex string` |
 | Vectors | `vec2 vec3 vec4 dot length distance normalize cross` |
 | Arrays and strings | `len push concat` |
-| Text | `parse_int parse_real` |
-| Input and output | `print args read_line` |
+| Output | `print` |
 
 These functions work on single values. `sqrt` of an array is an error, so use a
 loop.

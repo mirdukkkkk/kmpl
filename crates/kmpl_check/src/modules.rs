@@ -277,6 +277,15 @@ impl Linker<'_> {
     /// The name of a function or struct at a call or a literal: not a
     /// variable, so locals do not hide items.
     fn item_name(&mut self, name: &mut Ident) {
+        let internal = name.name.starts_with('_') && kmpl_builtins::lookup(&name.name).is_some();
+        if internal && !self.prefix.starts_with("std:") {
+            self.error(
+                format!("`{}` belongs to the standard library", name.name),
+                name,
+            );
+            return;
+        }
+
         if let Some((module, _)) = name.name.split_once('.') {
             if self.is_local(module) {
                 let message = format!("`{module}` is a variable, not a module");

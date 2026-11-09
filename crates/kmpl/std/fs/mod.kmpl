@@ -1,0 +1,17 @@
+// Files. Every function also returns the text of an error, empty if all went well.
+
+fn read(path: string) -> (bytes, string) {
+    return _fs_read(path);
+}
+
+fn read_text(path: string) -> (string, string) {
+    return _fs_read_text(path);
+}
+
+fn write(path: string, data: bytes) -> string {
+    return _fs_write(path, data);
+}
+
+fn write_text(path: string, text: string) -> string {
+    return _fs_write(path, bytes(text));
+}

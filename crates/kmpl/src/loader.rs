@@ -4,6 +4,8 @@
 //! importing file. A module is known by its path from the directory of the
 //! first file (`a.b`), so a file imported from several places is read once.
 //! Modules are listed after the ones they import.
+//!
+//! `"std:fs"` is a library that is part of `kmpl` itself.
 
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -13,6 +15,14 @@ use kmpl_ast::Import;
 use kmpl_check::{Module, ModuleImport};
 
 use crate::diagnostics::{self, Sources};
+
+/// The `std:` libraries, by name.
+const LIBRARIES: [(&str, &str); 4] = [
+    ("bits", include_str!("../std/bits/mod.kmpl")),
+    ("fs", include_str!("../std/fs/mod.kmpl")),
+    ("io", include_str!("../std/io/mod.kmpl")),
+    ("text", include_str!("../std/text/mod.kmpl")),
+];
 
 /// Errors are already rendered for printing.
 pub fn load(path: &str, sources: &mut Sources) -> Result<Vec<Module>, String> {
@@ -98,6 +108,9 @@ impl Loader<'_> {
     /// Works out which module an import refers to and reads it.
     fn find(&self, import: &Import, dir: Option<&Path>) -> Result<Found, String> {
         let source = import.source.as_str();
+        if let Some(name) = source.strip_prefix("std:") {
+            return self.find_library(name, import);
+        }
         if source.starts_with("./") || source.starts_with("../") {
             let Some(dir) = dir else {
                 return Err(self.error("this module cannot import relative paths", import));
@@ -108,6 +121,25 @@ impl Loader<'_> {
             &format!("`{source}` is not a module path, start a relative path with `./`"),
             import,
         ))
+    }
+
+    fn find_library(&self, name: &str, import: &Import) -> Result<Found, String> {
+        let Some((_, text)) = LIBRARIES.iter().find(|(library, _)| *library == name) else {
+            let known: Vec<&str> = LIBRARIES.iter().map(|(library, _)| *library).collect();
+            return Err(self.error(
+                &format!(
+                    "there is no library `std:{name}`, there are: {}",
+                    known.join(", ")
+                ),
+                import,
+            ));
+        };
+        Ok(Found {
+            id: format!("std:{name}"),
+            path: import.source.clone(),
+            text: (*text).to_owned(),
+            dir: None,
+        })
     }
 
     fn error(&self, message: &str, import: &Import) -> String {

@@ -2,12 +2,13 @@
 //!
 //! The checker reads `generic`, `params` and `ret` from here, the
 //! runtime calls `func`. Adding a built-in means adding one entry
-//! to `BUILTINS`.
+//! to `BUILTINS`, or to a file in `stdlib/` for a `std:` library.
 
 pub mod abi;
 mod complex;
 mod math;
 pub mod ops;
+mod stdlib;
 mod value;
 
 #[cfg(test)]
@@ -49,7 +50,13 @@ pub struct Io<'a> {
 
 /// Built-ins whose value depends on how the program is run, so constants
 /// cannot use them. Those that return nothing are excluded anyway.
-const DEPENDS_ON_RUN: &[&str] = &["args", "read_line"];
+const DEPENDS_ON_RUN: &[&str] = &[
+    "_io_args",
+    "_io_read_line",
+    "_fs_read",
+    "_fs_read_text",
+    "_fs_write",
+];
 
 pub fn depends_on_run(name: &str) -> bool {
     DEPENDS_ON_RUN.contains(&name)
@@ -106,7 +113,7 @@ const FLOAT_OR_VECTOR: &[Type] = &[
 ];
 const VEC3: ParamType = ParamType::Exact(Type::Vec3);
 
-pub static BUILTINS: &[Builtin] = &[
+static BUILTINS: &[Builtin] = &[
     // ----- `T -> T` with `T` in `real, complex` -----
     float_fn("sqrt", |a, _| float_math(a, f64::sqrt, complex::sqrt)),
     float_fn("exp", |a, _| float_math(a, f64::exp, complex::exp)),
@@ -392,17 +399,6 @@ pub static BUILTINS: &[Builtin] = &[
             array => ok(Value::Int(array.array_len() as i64)),
         },
     },
-    // `>>` keeps the sign. This one fills with zeros, as for an unsigned number.
-    Builtin {
-        name: "shr_logical",
-        generic: &[],
-        params: &[ParamType::Exact(Type::Int), ParamType::Exact(Type::Int)],
-        ret: RetType::Exact(Type::Int),
-        func: |a, _| {
-            let amount = ops::shift_amount(a[1].as_int())?;
-            ok(Value::Int(((a[0].as_int() as u64) >> amount) as i64))
-        },
-    },
     // Arrays are values, so these return a new array and leave the
     // argument alone: `a = push(a, x);`. If nothing else holds the array it
     // grows in place, so a loop of pushes does not copy it each time.
@@ -462,75 +458,7 @@ pub static BUILTINS: &[Builtin] = &[
         ret: RetType::Exact(Type::Bytes),
         func: |a, _| ok(Value::Bytes(Arc::new(a[0].as_str().as_bytes().to_vec()))),
     },
-    Builtin {
-        name: "parse_int",
-        generic: &[],
-        params: &[ParamType::Exact(Type::Str)],
-        ret: RetType::Pair(Type::Int, Type::Bool),
-        func: |a, _| {
-            let parsed = a[0].as_str().trim().parse::<i64>().ok();
-            ok(pair(
-                Value::Int(parsed.unwrap_or(0)),
-                Value::Bool(parsed.is_some()),
-            ))
-        },
-    },
-    Builtin {
-        name: "parse_real",
-        generic: &[],
-        params: &[ParamType::Exact(Type::Str)],
-        ret: RetType::Pair(Type::Real, Type::Bool),
-        func: |a, _| {
-            // Not `inf` or `NaN`, and not `1e400`, like literals in a program.
-            let parsed = a[0]
-                .as_str()
-                .trim()
-                .parse::<f64>()
-                .ok()
-                .filter(|v| v.is_finite());
-            ok(pair(
-                Value::Real(parsed.unwrap_or(0.0)),
-                Value::Bool(parsed.is_some()),
-            ))
-        },
-    },
     // ----- input -----
-    Builtin {
-        name: "args",
-        generic: &[],
-        params: &[],
-        ret: RetType::ArrayOf(Type::Str),
-        func: |_, io| {
-            let items = io
-                .args
-                .iter()
-                .map(|a| Value::Str(a.as_str().into()))
-                .collect();
-            ok(Value::Array(Arc::new(items)))
-        },
-    },
-    Builtin {
-        name: "read_line",
-        generic: &[],
-        params: &[],
-        ret: RetType::Pair(Type::Str, Type::Bool),
-        func: |_, io| {
-            // A prompt printed just before has to show while this waits.
-            io.out
-                .flush()
-                .map_err(|e| format!("cannot write output: {e}"))?;
-
-            let mut line = String::new();
-            let read = io
-                .input
-                .read_line(&mut line)
-                .map_err(|e| format!("cannot read input: {e}"))?;
-
-            let text = line.strip_suffix('\n').unwrap_or(&line);
-            let text = text.strip_suffix('\r').unwrap_or(text);
-            ok(pair(Value::Str(text.into()), Value::Bool(read > 0)))
-        },
-    },
     // ----- output -----
     Builtin {
         name: "print",
@@ -544,8 +472,15 @@ pub static BUILTINS: &[Builtin] = &[
     },
 ];
 
+/// Every built-in in a fixed order, which generated code and the runtime
+/// use to refer to one by its position.
+pub fn all() -> impl Iterator<Item = &'static Builtin> {
+    let libraries = stdlib::GROUPS.iter().flat_map(|group| group.iter());
+    BUILTINS.iter().chain(libraries)
+}
+
 pub fn lookup(name: &str) -> Option<&'static Builtin> {
-    BUILTINS.iter().find(|b| b.name == name)
+    all().find(|b| b.name == name)
 }
 
 /// A named value every program can use, like a `const` it did not write.
@@ -574,11 +509,11 @@ pub fn lookup_const(name: &str) -> Option<&'static BuiltinConst> {
 }
 
 /// `Ok(Some(value))`, the result of a built-in that cannot fail.
-fn ok(value: Value) -> Result<Option<Value>, String> {
+pub(crate) fn ok(value: Value) -> Result<Option<Value>, String> {
     Ok(Some(value))
 }
 
-fn pair(a: Value, b: Value) -> Value {
+pub(crate) fn pair(a: Value, b: Value) -> Value {
     Value::Tuple(vec![a, b].into())
 }
 
