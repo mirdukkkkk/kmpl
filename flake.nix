@@ -44,9 +44,19 @@
           version = "0.2.0";
           src = ./.;
           cargoLock.lockFile = ./Cargo.lock;
-          buildFeatures = [ "dynamic-llvm" ];
-          nativeBuildInputs = [ (llvm pkgs).dev ];
-          buildInputs = llvmLibs pkgs ++ [ (llvm pkgs).lib ];
+          buildNoDefaultFeatures = true;
+          buildFeatures = [
+            "dynamic-llvm"
+            "dynamic-tls"
+          ];
+          nativeBuildInputs = [
+            (llvm pkgs).dev
+            pkgs.pkg-config
+          ];
+          buildInputs = llvmLibs pkgs ++ [
+            (llvm pkgs).lib
+            pkgs.openssl
+          ];
           LLVM_SYS_231_PREFIX = "${(llvm pkgs).dev}";
           cargoBuildFlags = [
             "-p"

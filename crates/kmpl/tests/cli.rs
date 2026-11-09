@@ -36,10 +36,9 @@ fn stdout(out: &Output) -> String {
 fn no_arguments_prints_usage() {
     let out = kmpl(&[]);
     assert_eq!(out.status.code(), Some(2));
-    assert!(
-        stderr(&out)
-            .contains("usage: kmpl [--ast | --ir | --llvm-ir] [-v | -vv] [--no-opt] <file>")
-    );
+    assert!(stderr(&out).contains(
+        "usage: kmpl [--ast | --ir | --llvm-ir] [-v | -vv] [--no-opt] [--locked] <file>"
+    ));
 }
 
 #[test]
@@ -349,7 +348,9 @@ fn help_is_printed_to_stdout() {
         assert_eq!(out.status.code(), Some(0), "{flags:?}");
         let text = stdout(&out);
         assert!(
-            text.contains("kmpl [--ast | --ir | --llvm-ir] [-v | -vv] [--no-opt] <file> [args...]"),
+            text.contains(
+                "kmpl [--ast | --ir | --llvm-ir] [-v | -vv] [--no-opt] [--locked] <file> [args...]"
+            ),
             "{text}"
         );
         assert!(text.contains("--ast"), "{text}");

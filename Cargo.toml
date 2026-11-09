@@ -18,6 +18,8 @@ kmpl_lower    = { path = "crates/kmpl_lower" }
 kmpl_codegen  = { path = "crates/kmpl_codegen" }
 
 logos = "0.16.1"
+minreq = { version = "3", default-features = false }
+sha2 = "0.11"
 inkwell = { version = "0.11.0", default-features = false, features = ["llvm23-1", "target-x86", "target-aarch64"] }
 
 [workspace.lints.rust]

@@ -329,6 +329,20 @@ helpers = "../helpers"
 import helpers from "helpers";
 ```
 
+A dependency, or an import itself, can also be a link. On GitHub it names a tag,
+a branch or a commit, and a path inside the repository can follow it:
+
+```toml
+[dependencies]
+pb = "https://github.com/user/pb/v1.2.0"
+```
+
+Any other `https://` link ending in `.kmpl` is that file; otherwise `/mod.kmpl` is
+added. `kmpl.lock`, next to `kmpl.toml`, records the commit behind every GitHub link
+and the sha256 of every downloaded file. Commit it to your repository: a moved tag
+or a new push to a branch changes nothing until you delete its line, and a file
+that differs from its hash stops the build. `--locked` refuses to add anything new.
+
 ## Libraries
 
 Libraries that come with `kmpl` are imported from `std:`:

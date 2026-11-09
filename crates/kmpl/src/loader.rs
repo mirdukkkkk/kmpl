@@ -6,7 +6,7 @@
 //! Modules are listed after the ones they import.
 //!
 //! `"std:fs"` is a library that is part of `kmpl` itself. A plain name like
-//! `"pb"` is looked up in `kmpl.toml`.
+//! `"pb"` is looked up in `kmpl.toml`. A link is downloaded, see `remote`.
 
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -17,6 +17,7 @@ use kmpl_check::{Module, ModuleImport};
 
 use crate::diagnostics::{self, Sources};
 use crate::manifest::{self, Manifest};
+use crate::remote::{self, Fetch, Remote};
 
 /// The `std:` libraries, by name.
 const LIBRARIES: [(&str, &str); 4] = [
@@ -26,8 +27,34 @@ const LIBRARIES: [(&str, &str); 4] = [
     ("text", include_str!("../std/text/mod.kmpl")),
 ];
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LoadOptions {
+    /// Nothing may be added to `kmpl.lock`.
+    pub locked: bool,
+}
+
 /// Errors are already rendered for printing.
-pub fn load(path: &str, sources: &mut Sources) -> Result<Vec<Module>, String> {
+pub fn load(
+    path: &str,
+    sources: &mut Sources,
+    options: LoadOptions,
+) -> Result<Vec<Module>, String> {
+    load_with(
+        path,
+        sources,
+        options,
+        remote::default_cache(),
+        &remote::http_get,
+    )
+}
+
+fn load_with(
+    path: &str,
+    sources: &mut Sources,
+    options: LoadOptions,
+    cache: Option<PathBuf>,
+    fetch: Fetch<'_>,
+) -> Result<Vec<Module>, String> {
     let file = Path::new(path);
     let text = std::fs::read_to_string(file).map_err(|e| format!("{path}: {e}"))?;
     let root = file.parent().unwrap_or(Path::new("")).to_path_buf();
@@ -39,14 +66,22 @@ pub fn load(path: &str, sources: &mut Sources) -> Result<Vec<Module>, String> {
         loaded: HashSet::new(),
         modules: Vec::new(),
         manifest: None,
+        options,
+        cache,
+        fetch,
+        remote: None,
     };
     let first = Found {
         id: loader.module_id(file),
         path: path.to_owned(),
         text,
         dir: Some(root),
+        link: None,
     };
     loader.module(first, true)?;
+    if let Some(remote) = &loader.remote {
+        remote.save()?;
+    }
     Ok(loader.modules)
 }
 
@@ -57,11 +92,13 @@ struct Found {
     /// Shown in error messages.
     path: String,
     text: String,
-    /// Where its relative imports start from.
+    /// Where its relative imports start from, for a local file.
     dir: Option<PathBuf>,
+    /// The link it was downloaded from.
+    link: Option<String>,
 }
 
-struct Loader<'s> {
+struct Loader<'s, 'f> {
     /// Directory of the first file.
     root: PathBuf,
     sources: &'s mut Sources,
@@ -71,16 +108,21 @@ struct Loader<'s> {
     modules: Vec<Module>,
     /// Read the first time a plain name is imported.
     manifest: Option<Option<Manifest>>,
+    options: LoadOptions,
+    cache: Option<PathBuf>,
+    fetch: Fetch<'f>,
+    /// Opened the first time a link is imported.
+    remote: Option<Remote<'f>>,
 }
 
-impl Loader<'_> {
+impl<'f> Loader<'_, 'f> {
     fn module(&mut self, module: Found, is_first: bool) -> Result<(), String> {
         let program = self.parse(&module.path, &module.text)?;
 
         self.stack.push(module.id.clone());
         let mut imports = Vec::new();
         for import in &program.imports {
-            let target = self.find(import, module.dir.as_deref())?;
+            let target = self.find(import, &module)?;
             let target_id = target.id.clone();
 
             if let Some(start) = self.stack.iter().position(|m| *m == target_id) {
@@ -111,19 +153,32 @@ impl Loader<'_> {
     }
 
     /// Works out which module an import refers to and reads it.
-    fn find(&mut self, import: &Import, dir: Option<&Path>) -> Result<Found, String> {
+    fn find(&mut self, import: &Import, from: &Found) -> Result<Found, String> {
         let source = import.source.as_str();
         if let Some(name) = source.strip_prefix("std:") {
             return self.find_library(name, import);
         }
+        if remote::is_link(source) {
+            return self.find_link(source, import);
+        }
         if source.starts_with("./") || source.starts_with("../") {
-            let Some(dir) = dir else {
+            if let Some(link) = &from.link {
+                let url = remote::join(link, source);
+                return self.download(url, import);
+            }
+            let Some(dir) = &from.dir else {
                 return Err(self.error("this module cannot import relative paths", import));
             };
             return self.find_local(&dir.join(source), import);
         }
         if source.contains("://") {
-            return Err(self.error("importing from a link is not supported yet", import));
+            return Err(self.error("only `https://` links can be imported", import));
+        }
+        if from.link.is_some() {
+            return Err(self.error(
+                &format!("a downloaded module cannot use the name `{source}` from `kmpl.toml`"),
+                import,
+            ));
         }
         if source.starts_with('/') || source.contains('/') {
             return Err(self.error(
@@ -156,11 +211,52 @@ impl Loader<'_> {
                 import,
             ));
         };
-        if value.contains("://") {
-            return Err(self.error("importing from a link is not supported yet", import));
+        if remote::is_link(value) {
+            let link = value.clone();
+            return self.find_link(&link, import);
         }
         let path = project.dir.join(value);
         self.find_local(&path, import)
+    }
+
+    /// The object that knows `kmpl.lock`. It lives next to `kmpl.toml`, or
+    /// next to the program if there is none.
+    fn remote(&mut self, import: &Import) -> Result<&mut Remote<'f>, String> {
+        if self.remote.is_none() {
+            if self.manifest.is_none() {
+                let found = manifest::find(&self.root).map_err(|e| self.error(&e, import))?;
+                self.manifest = Some(found);
+            }
+            let project = self
+                .manifest
+                .iter()
+                .flatten()
+                .next()
+                .map(|m| m.dir.as_path());
+            let path = remote::lock_path(project, &self.root);
+            let opened = Remote::open(path, self.options.locked, self.cache.clone(), self.fetch)
+                .map_err(|e| self.error(&e, import))?;
+            self.remote = Some(opened);
+        }
+        Ok(self.remote.as_mut().expect("just opened"))
+    }
+
+    fn find_link(&mut self, link: &str, import: &Import) -> Result<Found, String> {
+        let url = self.remote(import)?.file_url(link);
+        let url = url.map_err(|e| self.error(&e, import))?;
+        self.download(url, import)
+    }
+
+    fn download(&mut self, url: String, import: &Import) -> Result<Found, String> {
+        let text = self.remote(import)?.read(&url);
+        let text = text.map_err(|e| self.error(&e, import))?;
+        Ok(Found {
+            id: format!("remote:{url}"),
+            path: url.clone(),
+            text,
+            dir: None,
+            link: Some(url),
+        })
     }
 
     fn find_library(&self, name: &str, import: &Import) -> Result<Found, String> {
@@ -179,6 +275,7 @@ impl Loader<'_> {
             path: import.source.clone(),
             text: (*text).to_owned(),
             dir: None,
+            link: None,
         })
     }
 
@@ -233,6 +330,7 @@ impl Loader<'_> {
             path: file.to_string_lossy().into_owned(),
             text,
             dir: Some(file.parent().unwrap_or(Path::new("")).to_path_buf()),
+            link: None,
         })
     }
 
@@ -290,4 +388,70 @@ fn normalize(path: &Path) -> PathBuf {
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    const COMMIT: &str = "4f2a4f2a4f2a4f2a4f2a4f2a4f2a4f2a4f2a4f2a";
+
+    fn packet(text: &str) -> String {
+        format!("{:04x}{text}", text.len() + 4)
+    }
+
+    #[test]
+    fn a_link_in_kmpl_toml_and_the_relative_imports_behind_it() {
+        let dir = std::env::temp_dir().join(format!("kmpl-loader-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(
+            dir.join("kmpl.toml"),
+            "version = 1\n[dependencies]\npb = \"https://github.com/u/pb/v1\"\n",
+        )
+        .unwrap();
+        let main = dir.join("src/main.kmpl");
+        std::fs::write(
+            &main,
+            "import pb from \"pb\";\nfn main() { print(pb.N); }\n",
+        )
+        .unwrap();
+
+        let raw = format!("https://raw.githubusercontent.com/u/pb/{COMMIT}");
+        let refs = packet(&format!("{COMMIT} refs/tags/v1\0caps\n")) + "0000";
+        let files: HashMap<String, String> = [
+            (
+                "https://github.com/u/pb.git/info/refs?service=git-upload-pack".to_owned(),
+                refs,
+            ),
+            (
+                format!("{raw}/mod.kmpl"),
+                "import wire from \"./wire.kmpl\";\nconst N: int = wire.M;\n".to_owned(),
+            ),
+            (format!("{raw}/wire.kmpl"), "const M: int = 3;\n".to_owned()),
+        ]
+        .into();
+        let fetch = |url: &str| Ok(files.get(url).map(|text| text.clone().into_bytes()));
+
+        let mut sources = Sources::default();
+        let path = main.to_string_lossy().into_owned();
+        let modules = load_with(&path, &mut sources, LoadOptions::default(), None, &fetch).unwrap();
+        assert_eq!(modules.len(), 3);
+
+        let lock = std::fs::read_to_string(dir.join("kmpl.lock")).unwrap();
+        assert!(
+            lock.contains(&format!("https://github.com/u/pb/v1 commit:{COMMIT}")),
+            "{lock}"
+        );
+        assert!(lock.contains(&format!("{raw}/mod.kmpl sha256:")), "{lock}");
+        assert!(lock.contains(&format!("{raw}/wire.kmpl sha256:")), "{lock}");
+
+        // Everything is recorded now, so `--locked` is satisfied.
+        let mut sources = Sources::default();
+        let locked = LoadOptions { locked: true };
+        load_with(&path, &mut sources, locked, None, &fetch).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

@@ -47,7 +47,9 @@ standard input and output.
 You need a recent stable Rust and LLVM 23 (`LLVM_SYS_231_PREFIX` names its
 location; the Nix dev shell sets it up). Running or building a program also
 needs a C compiler named `cc` to link it. LLVM is embedded in the binary; packagers can build with
-`--features dynamic-llvm` to link against the shared library instead.
+`--features dynamic-llvm` to link against the shared library instead. HTTPS for
+downloading modules uses a built-in TLS by default, and the system's OpenSSL with
+`--no-default-features --features dynamic-tls`.
 
 ```sh
 git clone https://github.com/mirdukkkkk/kmpl
@@ -61,8 +63,8 @@ With Nix: `nix run . -- examples/demo.kmpl`.
 ## Usage
 
 ```text
-kmpl [--ast | --ir | --llvm-ir] [-v | -vv] [--no-opt] <file> [args...]
-kmpl build [-v | -vv] [--no-opt] <file> [-o <output>]
+kmpl [--ast | --ir | --llvm-ir] [-v | -vv] [--no-opt] [--locked] <file> [args...]
+kmpl build [-v | -vv] [--no-opt] [--locked] <file> [-o <output>]
 ```
 
 Everything after the file is passed to the program. `kmpl --help` lists the
