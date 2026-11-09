@@ -51,8 +51,10 @@ pub enum Ty {
     Prim(Type),
     Array(Box<Ty>),
     Tuple(Vec<Ty>),
-    /// The struct's name, with its module prefix.
+    /// The name of a struct or enum, with its module prefix.
     Struct(String),
+    /// `T?`
+    Optional(Box<Ty>),
 }
 
 /// A type as written in the source.
@@ -66,4 +68,6 @@ pub enum TypeExpr {
     Array(Box<TypeExpr>),
     /// `(A, B)`: at least two types.
     Tuple(Vec<TypeExpr>),
+    /// `T?`: a value of type `T`, or nothing.
+    Optional(Box<TypeExpr>),
 }

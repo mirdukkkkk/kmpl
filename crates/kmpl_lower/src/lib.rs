@@ -15,8 +15,8 @@ mod tests;
 use std::collections::{HashMap, HashSet};
 
 use kmpl_ast::{
-    self as ast, BinOp, Expr, ExprKind, Ident, Item, PathStep, Program, Span, Stmt, StmtKind, Ty,
-    Type, TypeExpr, UnOp,
+    self as ast, BinOp, Expr, ExprKind, Ident, Item, MatchArm, PathStep, Pattern, Program, Span,
+    Stmt, StmtKind, Ty, Type, TypeExpr, UnOp,
 };
 use kmpl_builtins::Value;
 use kmpl_check::TypeInfo;
@@ -33,10 +33,13 @@ struct Context<'p> {
     types: &'p TypeInfo,
     functions: HashMap<&'p str, FuncId>,
     globals: HashMap<&'p str, usize>,
-    /// Struct name -> index in `layouts` and `field_types`.
+    /// Name of a struct or enum -> index in `layouts` and `field_types`.
     structs: HashMap<&'p str, usize>,
     layouts: Vec<StructLayout>,
+    /// Empty for an enum.
     field_types: Vec<Vec<Ty>>,
+    /// Enum name -> what each of its variants carries.
+    variant_types: HashMap<&'p str, Vec<Vec<Ty>>>,
     builtins: Vec<String>,
 }
 
@@ -55,9 +58,10 @@ impl Context<'_> {
 fn to_ty(ty: &TypeExpr) -> Ty {
     match ty {
         TypeExpr::Known(ty) => Ty::Prim(*ty),
-        // Generic parameters are gone by now, so this is a struct.
+        // Generic parameters are gone by now, so this is a struct or enum.
         TypeExpr::Param(name) => Ty::Struct(name.name.clone()),
         TypeExpr::Array(elem) => Ty::Array(Box::new(to_ty(elem))),
+        TypeExpr::Optional(inner) => Ty::Optional(Box::new(to_ty(inner))),
         TypeExpr::Tuple(items) => Ty::Tuple(items.iter().map(to_ty).collect()),
     }
 }
@@ -71,6 +75,7 @@ pub fn lower(program: &Program, types: &TypeInfo) -> Module {
         structs: HashMap::new(),
         layouts: Vec::new(),
         field_types: Vec::new(),
+        variant_types: HashMap::new(),
         builtins: Vec::new(),
     };
 
@@ -92,6 +97,20 @@ pub fn lower(program: &Program, types: &TypeInfo) -> Module {
                 });
                 ctx.field_types
                     .push(s.fields.iter().map(|f| to_ty(&f.ty)).collect());
+            }
+            Item::Enum(e) => {
+                ctx.structs.insert(&e.name.name, ctx.layouts.len());
+                ctx.layouts.push(StructLayout {
+                    name: e.name.name.clone(),
+                    fields: e.variants.iter().map(|v| v.name.name.clone()).collect(),
+                });
+                ctx.field_types.push(Vec::new());
+                let carried = e
+                    .variants
+                    .iter()
+                    .map(|v| v.fields.iter().map(to_ty).collect())
+                    .collect();
+                ctx.variant_types.insert(&e.name.name, carried);
             }
         }
     }
@@ -413,6 +432,11 @@ impl<'c, 'p> Builder<'c, 'p> {
                 };
                 self.for_loop(var, body, range, Some(elements), stmt.span);
             }
+            StmtKind::Match { value, arms } => {
+                let subject = self.expr(value);
+                let tag = self.value(Op::VariantOf(subject), INT, value.span);
+                self.match_arms(subject, tag, arms, value.span);
+            }
             StmtKind::Break | StmtKind::Continue => {
                 let target = self.loops.last().expect("checked by resolve");
                 let block = match stmt.kind {
@@ -431,6 +455,9 @@ impl<'c, 'p> Builder<'c, 'p> {
                 // May be a call to a function that returns nothing.
                 ExprKind::Call { name, args } => {
                     self.call(name, args, None, e.span);
+                    if stmt.is_panic() {
+                        self.terminate(Terminator::Unreachable);
+                    }
                 }
                 _ => {
                     self.expr(e);
@@ -530,8 +557,106 @@ impl<'c, 'p> Builder<'c, 'p> {
         (index, self.ctx.field_types[id][index].clone())
     }
 
+    /// Tests the arms one by one. The checker guarantees that every variant
+    /// is handled, so the last arm needs no test.
+    fn match_arms(&mut self, subject: Reg, tag: Reg, arms: &'p [MatchArm], span: Span) {
+        let [first, rest @ ..] = arms else {
+            return;
+        };
+        if rest.is_empty() || first.pattern == Pattern::Wildcard {
+            self.arm_body(subject, first);
+            return;
+        }
+
+        let code = self.variant_code(subject, &first.pattern);
+        let wanted = self.value(Op::Const(Constant::Int(code)), INT, span);
+        let cond = self.value(
+            Op::Binary {
+                op: BinOp::Eq,
+                a: tag,
+                b: wanted,
+            },
+            BOOL,
+            span,
+        );
+        self.branch(
+            cond,
+            |b| b.arm_body(subject, first),
+            |b| b.match_arms(subject, tag, rest, span),
+        );
+    }
+
+    /// What `Op::VariantOf` gives for a value this pattern accepts.
+    fn variant_code(&self, subject: Reg, pattern: &Pattern) -> i64 {
+        match pattern {
+            Pattern::None => 0,
+            Pattern::Some(_) => 1,
+            Pattern::Variant { variant, .. } => {
+                let Ty::Struct(name) = self.reg_type(subject) else {
+                    panic!("a variant of a non-enum, the checker should have rejected it");
+                };
+                let id = self.ctx.structs[name.as_str()];
+                self.ctx.layouts[id]
+                    .fields
+                    .iter()
+                    .position(|v| *v == variant.name)
+                    .expect("checked by resolve") as i64
+            }
+            Pattern::Wildcard => unreachable!("a wildcard is not tested"),
+        }
+    }
+
+    /// The types of the values a pattern takes out of `subject`.
+    fn binding_types(&self, subject: Reg, pattern: &Pattern) -> Vec<Ty> {
+        match (pattern, self.reg_type(subject)) {
+            (Pattern::Some(_), Ty::Optional(inner)) => vec![*inner],
+            (Pattern::Variant { .. }, Ty::Struct(name)) => {
+                let code = self.variant_code(subject, pattern) as usize;
+                self.ctx.variant_types[name.as_str()][code].clone()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    fn arm_body(&mut self, subject: Reg, arm: &'p MatchArm) {
+        self.scopes.push(HashMap::new());
+        let base = self.vars.len();
+        let types = self.binding_types(subject, &arm.pattern);
+        for (index, (name, ty)) in arm.pattern.bindings().iter().zip(types).enumerate() {
+            if name.name != "_" {
+                let field = Op::VariantField {
+                    base: subject,
+                    index,
+                };
+                let value = self.value(field, ty, arm.span);
+                self.declare(&name.name, Some(value));
+            }
+        }
+        self.block(&arm.body);
+        self.scopes.pop();
+        self.vars.truncate(base);
+    }
+
     fn if_stmt(&mut self, cond: &'p Expr, then: &'p ast::Block, otherwise: Option<&'p ast::Block>) {
         let cond = self.expr(cond);
+        self.branch(
+            cond,
+            |b| b.block(then),
+            |b| {
+                if let Some(otherwise) = otherwise {
+                    b.block(otherwise);
+                }
+            },
+        );
+    }
+
+    /// Runs one of two pieces of code and joins the variables afterwards.
+    fn branch(
+        &mut self,
+        cond: Reg,
+        then: impl FnOnce(&mut Self),
+        otherwise: impl FnOnce(&mut Self),
+    ) {
         let then_block = self.new_block(Vec::new());
         let else_block = self.new_block(Vec::new());
         self.terminate(Terminator::Branch {
@@ -549,14 +674,12 @@ impl<'c, 'p> Builder<'c, 'p> {
         let before = self.vars.clone();
 
         self.switch_to(then_block);
-        self.block(then);
+        then(self);
         let then_end = (!self.terminated).then_some(self.current);
         let then_vars = std::mem::replace(&mut self.vars, before);
 
         self.switch_to(else_block);
-        if let Some(otherwise) = otherwise {
-            self.block(otherwise);
-        }
+        otherwise(self);
         let else_end = (!self.terminated).then_some(self.current);
         let else_vars = std::mem::take(&mut self.vars);
 
@@ -847,6 +970,33 @@ impl<'c, 'p> Builder<'c, 'p> {
                 self.value(Op::FieldGet { base, index }, ty, e.span)
             }
             ExprKind::StructLit { name, fields } => self.struct_literal(name, fields, ty, e.span),
+            ExprKind::Variant {
+                name,
+                variant,
+                args,
+            } => {
+                let values = args.iter().map(|arg| self.expr(arg)).collect();
+                let id = self.ctx.structs[name.name.as_str()];
+                let variant = self.ctx.layouts[id]
+                    .fields
+                    .iter()
+                    .position(|v| *v == variant.name)
+                    .expect("checked by resolve");
+                self.value(
+                    Op::MakeEnum {
+                        id,
+                        variant,
+                        values,
+                    },
+                    ty,
+                    e.span,
+                )
+            }
+            ExprKind::Some(value) => {
+                let value = self.expr(value);
+                self.value(Op::MakeSome(value), ty, e.span)
+            }
+            ExprKind::None => self.value(Op::MakeNone, ty, e.span),
             ExprKind::Tuple(items) => {
                 let items = items.iter().map(|item| self.expr(item)).collect();
                 self.value(Op::MakeTuple(items), ty, e.span)
@@ -1013,6 +1163,11 @@ fn collect_assigned<'p>(block: &'p ast::Block, names: &mut HashSet<&'p str>) {
             StmtKind::While { body, .. }
             | StmtKind::For { body, .. }
             | StmtKind::ForEach { body, .. } => collect_assigned(body, names),
+            StmtKind::Match { arms, .. } => {
+                for arm in arms {
+                    collect_assigned(&arm.body, names);
+                }
+            }
             StmtKind::Let { .. }
             | StmtKind::LetTuple { .. }
             | StmtKind::Break

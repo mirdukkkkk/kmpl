@@ -36,6 +36,21 @@ pub enum Item {
     Const(Const),
     Function(Function),
     Struct(StructDef),
+    Enum(EnumDef),
+}
+
+/// `enum Shape { Circle(real), Empty }`: at least one variant.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumDef {
+    pub name: Ident,
+    pub variants: Vec<EnumVariant>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumVariant {
+    pub name: Ident,
+    /// The types of the values it carries, possibly none.
+    pub fields: Vec<TypeExpr>,
 }
 
 /// `struct Point { x: real, y: real }`

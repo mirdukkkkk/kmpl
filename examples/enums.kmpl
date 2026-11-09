@@ -1,0 +1,50 @@
+// Enums hold one of several shapes of data, `T?` is a value or nothing, and
+// `match` handles every case.
+
+enum Shape {
+    Circle(real),
+    Rect(real, real),
+    Empty,
+}
+
+fn area(s: Shape) -> real {
+    match s {
+        Shape::Circle(r) => {
+            return PI * r * r;
+        }
+        Shape::Rect(w, h) => {
+            return w * h;
+        }
+        Shape::Empty => {
+            return 0.0;
+        }
+    }
+}
+
+fn first(a: [int]) -> int? {
+    if len(a) == 0 {
+        return none;
+    }
+    return some(a[0]);
+}
+
+fn first_or_stop(a: [int]) -> int {
+    match first(a) {
+        some(x) => {
+            return x;
+        }
+        none => {
+            panic("the array is empty");
+        }
+    }
+}
+
+fn main() {
+    print(area(Shape::Rect(2.0, 3.0)));
+    print(area(Shape::Empty));
+    print(Shape::Circle(1.0));
+
+    print(first([7, 8]));
+    print(first([]));
+    print(first_or_stop([7, 8]));
+}

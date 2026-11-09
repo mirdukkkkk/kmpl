@@ -5,7 +5,7 @@ fn args() -> [string] {
     return _io_args();
 }
 
-// A line without its line break, and `false` at the end of input.
-fn read_line() -> (string, bool) {
+// A line without its line break, or `none` at the end of input.
+fn read_line() -> string? {
     return _io_read_line();
 }

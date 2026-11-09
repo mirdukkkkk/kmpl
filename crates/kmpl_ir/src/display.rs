@@ -40,6 +40,7 @@ fn type_text(ty: &Ty) -> String {
             format!("({})", parts.join(", "))
         }
         Ty::Struct(name) => name.clone(),
+        Ty::Optional(inner) => format!("{}?", type_text(inner)),
     }
 }
 
@@ -129,6 +130,19 @@ impl Module {
                 format!("struct {}({})", self.structs[*id].name, list(values))
             }
             Op::FieldGet { base, index } => format!("field {base}, {index}"),
+            Op::MakeEnum {
+                id,
+                variant,
+                values,
+            } => {
+                let layout = &self.structs[*id];
+                let name = &layout.fields[*variant];
+                format!("enum {}::{name}({})", layout.name, list(values))
+            }
+            Op::MakeSome(value) => format!("some {value}"),
+            Op::MakeNone => "none".to_owned(),
+            Op::VariantOf(base) => format!("variant_of {base}"),
+            Op::VariantField { base, index } => format!("variant_field {base}, {index}"),
             Op::PathGet { base, path } => format!("get {base}{}", path_text(path)),
             Op::PathSet {
                 base, path, value, ..

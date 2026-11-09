@@ -1,6 +1,36 @@
 use super::{assert_error, assert_ok, errors};
 
 #[test]
+fn enum_names_are_checked() {
+    assert_error("enum A { X, X }", "variant `X` is already defined in `A`");
+    assert_error("enum A { X(B) }", "unknown type `B`");
+    assert_error("enum A { X } const A: int = 1;", "`A` is already defined");
+    assert_error("enum A { X } fn f() { let a = B::X; }", "unknown enum `B`");
+    assert_error(
+        "enum A { X } fn f() { let a = A::Y; }",
+        "`A` has no variant `Y`",
+    );
+    assert_error(
+        "struct A { } fn f() { let a = A::Y; }",
+        "`A` is not an enum",
+    );
+    assert_error(
+        "enum A { X(int) } fn f() { let a = A::X; }",
+        "`A::X` holds 1 values, but 0 were given",
+    );
+    assert_error(
+        "enum A { X(int) } fn f(a: A) { match a { A::X(b, c) => { } } }",
+        "`A::X` holds 1 values, but the pattern names 2",
+    );
+    assert_error(
+        "enum A { X } fn f() { let a = A; }",
+        "`A` is an enum, not a value",
+    );
+    assert_ok("enum Tree { Leaf, Node(Tree, Tree) }");
+    assert_ok("struct Node { next: Node? }");
+}
+
+#[test]
 fn valid_program() {
     assert_ok(
         "const N: int = 10;
@@ -453,10 +483,10 @@ fn constants_cannot_depend_on_the_run() {
         "a constant cannot call `_io_args`: its value depends on how the program is run",
     );
     assert_error(
-        "const A: (string, bool) = _io_read_line();",
+        "const A: string? = _io_read_line();",
         "a constant cannot call `_io_read_line`: its value depends on how the program is run",
     );
-    assert_ok(r#"const A: (int, bool) = _text_parse_int("1");"#);
+    assert_ok(r#"const A: int? = _text_parse_int("1");"#);
     assert_error(
         "fn f() { _io_args(1); }",
         "`_io_args` takes 0 arguments, but 1 was given",

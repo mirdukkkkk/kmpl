@@ -18,7 +18,9 @@
 
 use std::collections::HashMap;
 
-use kmpl_ast::{Block, Expr, ExprKind, Function, Ident, Item, PathStep, Program, Stmt, StmtKind};
+use kmpl_ast::{
+    Block, Expr, ExprKind, Function, Ident, Item, MatchArm, PathStep, Program, Stmt, StmtKind,
+};
 
 use crate::error::CheckError;
 
@@ -171,6 +173,10 @@ impl<'a> InitChecker<'a> {
                 self.for_body(var, body);
                 false
             }
+            StmtKind::Match { value, arms } => {
+                self.expr(value);
+                self.match_arms(arms)
+            }
             StmtKind::Break | StmtKind::Continue => true,
             StmtKind::Return(value) => {
                 if let Some(value) = value {
@@ -180,7 +186,7 @@ impl<'a> InitChecker<'a> {
             }
             StmtKind::Expr(e) => {
                 self.expr(e);
-                false
+                stmt.is_panic()
             }
         }
     }
@@ -193,6 +199,40 @@ impl<'a> InitChecker<'a> {
         self.block(body);
         self.scopes.pop();
         self.init = before;
+    }
+
+    /// Runs every arm from the same starting state. After the `match` a
+    /// variable is assigned if every arm that gets there assigned it. Returns
+    /// `true` if no arm gets there.
+    fn match_arms(&mut self, arms: &'a [MatchArm]) -> bool {
+        let before = self.init.clone();
+        let mut merged: Option<Vec<bool>> = None;
+
+        for arm in arms {
+            self.init.clone_from(&before);
+            self.scopes.push(HashMap::new());
+            for name in arm.pattern.bindings() {
+                self.declare(name, true);
+            }
+            let diverges = self.block(&arm.body);
+            self.scopes.pop();
+            self.init.truncate(before.len());
+
+            if !diverges {
+                merged = Some(match merged {
+                    None => self.init.clone(),
+                    Some(so_far) => so_far
+                        .iter()
+                        .zip(&self.init)
+                        .map(|(a, b)| *a && *b)
+                        .collect(),
+                });
+            }
+        }
+
+        let diverges = merged.is_none() && !arms.is_empty();
+        self.init = merged.unwrap_or(before);
+        diverges
     }
 
     /// Runs both branches from the same starting state and merges the
@@ -227,7 +267,14 @@ impl<'a> InitChecker<'a> {
             | ExprKind::Real(_)
             | ExprKind::Complex { .. }
             | ExprKind::Bool(_)
-            | ExprKind::Str(_) => {}
+            | ExprKind::Str(_)
+            | ExprKind::None => {}
+            ExprKind::Variant { args, .. } => {
+                for arg in args {
+                    self.expr(arg);
+                }
+            }
+            ExprKind::Some(value) => self.expr(value),
             ExprKind::Var(name) => self.read(name),
             ExprKind::Unary { operand, .. } => self.expr(operand),
             ExprKind::Binary { lhs, rhs, .. } => {

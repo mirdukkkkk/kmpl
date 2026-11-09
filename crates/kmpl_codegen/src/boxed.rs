@@ -359,6 +359,23 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
                 *index as u64,
                 &self.slots_of(&[*base], current)?,
             ),
+            Op::MakeEnum {
+                id,
+                variant,
+                values,
+            } => run(
+                abi::OP_MAKE_ENUM,
+                (*id as u64) << 32 | *variant as u64,
+                &self.slots_of(values, current)?,
+            ),
+            Op::MakeSome(value) => run(abi::OP_MAKE_SOME, 0, &self.slots_of(&[*value], current)?),
+            Op::MakeNone => run(abi::OP_MAKE_NONE, 0, &[]),
+            Op::VariantOf(base) => run(abi::OP_VARIANT_OF, 0, &self.slots_of(&[*base], current)?),
+            Op::VariantField { base, index } => run(
+                abi::OP_VARIANT_FIELD,
+                *index as u64,
+                &self.slots_of(&[*base], current)?,
+            ),
             Op::PathGet { base, path } => {
                 let mut slots = vec![self.slot_of(*base, current)?];
                 self.path_slots(path, &mut slots, current)?;

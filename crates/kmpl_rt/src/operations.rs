@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use kmpl_builtins::abi::{self, Slot};
-use kmpl_builtins::{StructValue, Value, ops};
+use kmpl_builtins::{EnumValue, StructValue, Value, ops};
 
 use crate::{STATE, fail, text};
 
@@ -102,6 +102,24 @@ pub unsafe fn operation(code: u64, extra: u64, args: &[Slot]) -> Result<Value, S
             abi::OP_FIELD_GET => match borrowed(args[0]) {
                 Value::Struct(s) => s.values[extra as usize].clone(),
                 other => panic!("a field of {other:?}"),
+            },
+            abi::OP_MAKE_ENUM => Value::Enum(Arc::new(EnumValue {
+                layout: STATE.with_borrow(|state| state.layouts[(extra >> 32) as usize].clone()),
+                variant: (extra & 0xffff_ffff) as usize,
+                values: values(args),
+            })),
+            abi::OP_MAKE_SOME => Value::Optional(Some(Arc::new(value(args[0])))),
+            abi::OP_MAKE_NONE => Value::Optional(None),
+            abi::OP_VARIANT_OF => Value::Int(match borrowed(args[0]) {
+                Value::Enum(e) => e.variant as i64,
+                Value::Optional(None) => 0,
+                Value::Optional(Some(_)) => 1,
+                other => panic!("the variant of {other:?}"),
+            }),
+            abi::OP_VARIANT_FIELD => match borrowed(args[0]) {
+                Value::Enum(e) => e.values[extra as usize].clone(),
+                Value::Optional(Some(inner)) => (**inner).clone(),
+                other => panic!("a value inside {other:?}"),
             },
             abi::OP_PATH_GET => read_path(borrowed(args[0]), &args[1..]),
             abi::OP_PATH_SET => {

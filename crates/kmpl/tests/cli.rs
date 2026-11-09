@@ -382,25 +382,30 @@ fn stdin_reaches_the_program() {
         r#"import (read_line) from "std:io"; import (parse_int) from "std:text";
         fn main() {
             print("number?");
-            let (line, _) = read_line();
-            let (n, ok) = parse_int(line);
-            print(n * 2);
-            print(ok);
+            match read_line() {
+                some(line) => {
+                    match parse_int(line) {
+                        some(n) => { print(n * 2); }
+                        none => { panic("not a number"); }
+                    }
+                }
+                none => { }
+            }
         }"#,
     );
     let out = kmpl_with_input(&[path.as_os_str()], b"21\n");
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
-    assert_eq!(stdout(&out), "number?\n42\ntrue\n");
+    assert_eq!(stdout(&out), "number?\n42\n");
 }
 
 #[test]
 fn end_of_input_without_any_data() {
     let path = source_file(
         "program_empty_stdin",
-        "import (read_line) from \"std:io\"; fn main() { let (_, ok) = read_line(); print(ok); }",
+        "import (read_line) from \"std:io\"; fn main() { print(read_line()); }",
     );
     let out = kmpl_with_input(&[path.as_os_str()], b"");
-    assert_eq!(stdout(&out), "false\n");
+    assert_eq!(stdout(&out), "none\n");
 }
 
 #[test]
@@ -656,7 +661,7 @@ fn every_std_library_can_be_imported() {
          import fs from \"std:fs\";
          fn main() { print(parse_int(\"4\")); print(bits.shr_logical(-1, 60)); print(len(io.args())); }",
     );
-    assert_eq!(stdout(&out), "(4, true)\n15\n0\n", "{}", stderr(&out));
+    assert_eq!(stdout(&out), "some(4)\n15\n0\n", "{}", stderr(&out));
 }
 
 #[test]
@@ -745,9 +750,9 @@ fn a_bad_kmpl_toml_is_reported_with_its_line() {
 fn a_constant_can_use_a_pure_library() {
     let out = run(
         "const_std_pure",
-        "import (parse_int) from \"std:text\"; const X: (int, bool) = parse_int(\"41\"); fn main() { print(X); }",
+        "import (parse_int) from \"std:text\"; const X: int? = parse_int(\"41\"); fn main() { print(X); }",
     );
-    assert_eq!(stdout(&out), "(41, true)\n", "{}", stderr(&out));
+    assert_eq!(stdout(&out), "some(41)\n", "{}", stderr(&out));
 }
 
 #[test]

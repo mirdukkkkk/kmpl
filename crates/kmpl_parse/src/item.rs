@@ -1,8 +1,8 @@
 //! Top-level items: `const` and `fn`.
 
 use kmpl_ast::{
-    Const, Function, Generic, Import, ImportNames, ImportedItem, Item, Param, Program, StructDef,
-    StructField, Type,
+    Const, EnumDef, EnumVariant, Function, Generic, Import, ImportNames, ImportedItem, Item, Param,
+    Program, StructDef, StructField, Type,
 };
 use kmpl_lexer::Token;
 
@@ -85,8 +85,42 @@ fn item(ts: &mut TokenStream) -> PResult<Item> {
         Some(Token::Const) => Ok(Item::Const(const_item(ts)?)),
         Some(Token::Fn) => Ok(Item::Function(function(ts)?)),
         Some(Token::Struct) => Ok(Item::Struct(struct_def(ts)?)),
-        _ => Err(ts.error_expected("`const`, `fn` or `struct`")),
+        Some(Token::Enum) => Ok(Item::Enum(enum_def(ts)?)),
+        _ => Err(ts.error_expected("`const`, `fn`, `struct` or `enum`")),
     }
+}
+
+/// `'enum' IDENT '{' variant (',' variant)* ','? '}'`, where
+/// `variant ::= IDENT ('(' type (',' type)* ','? ')')?`
+fn enum_def(ts: &mut TokenStream) -> PResult<EnumDef> {
+    ts.expect(Token::Enum)?;
+    let name = ts.expect_ident()?;
+    ts.expect(Token::LBrace)?;
+
+    let mut variants = Vec::new();
+    loop {
+        let variant = ts.expect_ident()?;
+        let mut fields = Vec::new();
+        if ts.eat(&Token::LParen).is_some() {
+            loop {
+                fields.push(ty(ts)?);
+                if ts.eat(&Token::Comma).is_none() || ts.peek() == Some(&Token::RParen) {
+                    break;
+                }
+            }
+            ts.expect(Token::RParen)?;
+        }
+        variants.push(EnumVariant {
+            name: variant,
+            fields,
+        });
+        if ts.eat(&Token::Comma).is_none() || ts.peek() == Some(&Token::RBrace) {
+            break;
+        }
+    }
+    ts.expect(Token::RBrace)?;
+
+    Ok(EnumDef { name, variants })
 }
 
 /// `'struct' IDENT '{' (IDENT ':' type (',' IDENT ':' type)* ','?)? '}'`

@@ -68,6 +68,7 @@ fn items_get_the_module_prefix() {
             Item::Const(c) => c.name.name.as_str(),
             Item::Function(f) => f.name.name.as_str(),
             Item::Struct(s) => s.name.name.as_str(),
+            Item::Enum(e) => e.name.name.as_str(),
         })
         .collect();
     assert_eq!(names, ["lib.a.G", "lib.a.f", "main"]);

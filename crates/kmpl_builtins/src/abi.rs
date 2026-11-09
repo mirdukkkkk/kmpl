@@ -43,6 +43,12 @@ pub const OP_MAKE_STRUCT: u64 = 11;
 pub const OP_FIELD_GET: u64 = 12;
 pub const OP_PATH_GET: u64 = 13;
 pub const OP_PATH_SET: u64 = 14;
+/// `extra` is the layout in the upper 32 bits and the variant in the lower.
+pub const OP_MAKE_ENUM: u64 = 15;
+pub const OP_MAKE_SOME: u64 = 16;
+pub const OP_MAKE_NONE: u64 = 17;
+pub const OP_VARIANT_OF: u64 = 18;
+pub const OP_VARIANT_FIELD: u64 = 19;
 
 // The forms of an array, for `OP_MAKE_ARRAY`.
 pub const ARRAY_OF_VALUES: u64 = 0;

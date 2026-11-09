@@ -31,7 +31,7 @@ pub fn rewrite(program: &mut Program, inference: &Inference) {
         match item {
             Item::Const(c) => r.expr(&mut c.value),
             Item::Function(f) => r.block(&mut f.body),
-            Item::Struct(_) => {}
+            Item::Struct(_) | Item::Enum(_) => {}
         }
     }
 }
@@ -89,6 +89,12 @@ impl Rewriter<'_> {
                     }
                     self.block(body);
                 }
+                StmtKind::Match { value, arms } => {
+                    self.expr(value);
+                    for arm in arms {
+                        self.block(&mut arm.body);
+                    }
+                }
                 StmtKind::Break | StmtKind::Continue => {}
                 StmtKind::Return(value) => {
                     if let Some(value) = value {
@@ -118,7 +124,17 @@ impl Rewriter<'_> {
                     e.kind = ExprKind::Complex { re: *v, im: 0.0 };
                 }
             }
-            ExprKind::Complex { .. } | ExprKind::Bool(_) | ExprKind::Str(_) | ExprKind::Var(_) => {}
+            ExprKind::Complex { .. }
+            | ExprKind::Bool(_)
+            | ExprKind::Str(_)
+            | ExprKind::Var(_)
+            | ExprKind::None => {}
+            ExprKind::Variant { args, .. } => {
+                for arg in args {
+                    self.expr(arg);
+                }
+            }
+            ExprKind::Some(value) => self.expr(value),
             ExprKind::Unary { operand, .. } => self.expr(operand),
             ExprKind::Binary { lhs, rhs, .. } => {
                 self.expr(lhs);

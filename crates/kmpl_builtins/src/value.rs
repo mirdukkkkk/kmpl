@@ -26,7 +26,17 @@ pub struct StructValue {
     pub values: Vec<Value>,
 }
 
-/// A runtime value. One variant per `Type`, plus arrays, tuples and structs.
+/// A value of an enum. The layout's `fields` are the names of the variants,
+/// and `values` is what this variant carries.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumValue {
+    pub layout: Arc<StructLayout>,
+    pub variant: usize,
+    pub values: Vec<Value>,
+}
+
+/// A runtime value. One variant per `Type`, plus arrays, tuples, structs,
+/// enums and optionals.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Int(i64),
@@ -57,6 +67,10 @@ pub enum Value {
     Tuple(Arc<[Value]>),
     /// A value too, written through `Arc::make_mut` like an array.
     Struct(Arc<StructValue>),
+    /// Never changed after it is built, so it is simply shared.
+    Enum(Arc<EnumValue>),
+    /// `some(value)` or `none`, shared like an enum.
+    Optional(Option<Arc<Value>>),
 }
 
 impl Value {
@@ -79,6 +93,8 @@ impl Value {
             }
             Value::Tuple(_) => panic!("a tuple has no `Type`"),
             Value::Struct(_) => panic!("a struct has no `Type`"),
+            Value::Enum(_) => panic!("an enum has no `Type`"),
+            Value::Optional(_) => panic!("an optional has no `Type`"),
         }
     }
 
@@ -234,6 +250,17 @@ impl std::fmt::Display for Value {
                 let parts: Vec<String> = items.iter().map(Value::to_string).collect();
                 write!(f, "({})", parts.join(", "))
             }
+            Value::Enum(e) => {
+                let name = e.layout.name.rsplit('.').next().unwrap_or_default();
+                let variant = &e.layout.fields[e.variant];
+                if e.values.is_empty() {
+                    return write!(f, "{name}::{variant}");
+                }
+                let parts: Vec<String> = e.values.iter().map(Value::to_string).collect();
+                write!(f, "{name}::{variant}({})", parts.join(", "))
+            }
+            Value::Optional(Some(value)) => write!(f, "some({value})"),
+            Value::Optional(None) => write!(f, "none"),
             Value::Struct(s) => {
                 // In a module the name is `lib.geometry.Point`.
                 let name = s.layout.name.rsplit('.').next().unwrap_or_default();

@@ -95,6 +95,10 @@ fn signatures_match_implementations() {
         };
 
         for &t in choices {
+            // Stopping the program is all it does.
+            if b.name == "panic" {
+                continue;
+            }
             let args: Vec<Value> = b
                 .params
                 .iter()
@@ -115,6 +119,14 @@ fn signatures_match_implementations() {
                 assert!(matches!(result, Some(Value::Array(_))), "`{}`", b.name);
                 continue;
             }
+            if let RetType::Optional(inner) = b.ret {
+                match result {
+                    Some(Value::Optional(Some(value))) => assert_eq!(value.ty(), inner),
+                    Some(Value::Optional(None)) => {}
+                    other => panic!("`{}` must return an optional, got {other:?}", b.name),
+                }
+                continue;
+            }
             if let RetType::Pair(first, second) = b.ret {
                 let Some(Value::Tuple(items)) = result else {
                     panic!("`{}` must return a tuple", b.name);
@@ -130,7 +142,10 @@ fn signatures_match_implementations() {
                 RetType::T => Some(t),
                 RetType::Magnitude if t == Type::Complex => Some(Type::Real),
                 RetType::Magnitude => Some(t),
-                RetType::ArrayOfElem | RetType::ArrayOf(_) | RetType::Pair(..) => {
+                RetType::ArrayOfElem
+                | RetType::ArrayOf(_)
+                | RetType::Pair(..)
+                | RetType::Optional(_) => {
                     unreachable!("handled above")
                 }
             };

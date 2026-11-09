@@ -248,6 +248,8 @@ fn primary(ts: &mut TokenStream) -> PResult<Expr> {
         Some(Token::True) => ExprKind::Bool(true),
         Some(Token::False) => ExprKind::Bool(false),
         Some(Token::Str(text)) => ExprKind::Str(text.clone()),
+        Some(Token::KwNone) => ExprKind::None,
+        Some(Token::KwSome) => return some(ts),
         Some(Token::Ident(_)) => return var_or_call(ts),
         Some(Token::LBracket) => return array(ts),
         Some(Token::LParen) => {
@@ -264,6 +266,18 @@ fn primary(ts: &mut TokenStream) -> PResult<Expr> {
 
     ts.next();
     Ok(Expr { kind, span: start })
+}
+
+/// `'some' '(' expr ')'`
+fn some(ts: &mut TokenStream) -> PResult<Expr> {
+    let start = ts.expect(Token::KwSome)?;
+    ts.expect(Token::LParen)?;
+    let value = inner_expr(ts)?;
+    let close = ts.expect(Token::RParen)?;
+    Ok(Expr {
+        kind: ExprKind::Some(Box::new(value)),
+        span: start.to(close),
+    })
 }
 
 /// The rest of `'(' expr (',' expr)+ ','? ')'`, after the first element.
@@ -329,13 +343,13 @@ pub fn dotted_name(ts: &mut TokenStream) -> PResult<Ident> {
     })
 }
 
-/// Is the next thing `a.b(` or `a.B {`? Those name an item of a module.
+/// Is the next thing `a.b(`, `a.B {` or `a.B::`? Those name an item of a module.
 /// Any other `a.b` reads a field, which `postfix` handles.
 fn at_module_item(ts: &TokenStream) -> bool {
     ts.peek_nth(1) == Some(&Token::Dot)
         && matches!(ts.peek_nth(2), Some(Token::Ident(_)))
         && match ts.peek_nth(3) {
-            Some(Token::LParen) => true,
+            Some(Token::LParen | Token::ColonColon) => true,
             Some(Token::LBrace) => ts.struct_literals,
             _ => false,
         }
@@ -346,6 +360,10 @@ fn var_or_call(ts: &mut TokenStream) -> PResult<Expr> {
         true => dotted_name(ts)?,
         false => ts.expect_ident()?,
     };
+
+    if ts.eat(&Token::ColonColon).is_some() {
+        return variant(ts, name);
+    }
 
     if ts.struct_literals && ts.peek() == Some(&Token::LBrace) {
         return struct_literal(ts, name);
@@ -359,6 +377,17 @@ fn var_or_call(ts: &mut TokenStream) -> PResult<Expr> {
         });
     }
 
+    let (args, close) = call_args(ts)?;
+    let span = name.span.to(close);
+
+    Ok(Expr {
+        kind: ExprKind::Call { name, args },
+        span,
+    })
+}
+
+/// The rest of a call after `(`: the arguments and the span of `)`.
+fn call_args(ts: &mut TokenStream) -> PResult<(Vec<Expr>, Span)> {
     let mut args = Vec::new();
     while ts.peek() != Some(&Token::RParen) {
         args.push(inner_expr(ts)?);
@@ -367,10 +396,23 @@ fn var_or_call(ts: &mut TokenStream) -> PResult<Expr> {
         }
     }
     let close = ts.expect(Token::RParen)?;
-    let span = name.span.to(close);
+    Ok((args, close))
+}
 
+/// The rest of `name '::' IDENT ('(' args ')')?`.
+fn variant(ts: &mut TokenStream, name: Ident) -> PResult<Expr> {
+    let variant = ts.expect_ident()?;
+    let (args, end) = match ts.eat(&Token::LParen) {
+        Some(_) => call_args(ts)?,
+        None => (Vec::new(), variant.span),
+    };
+    let span = name.span.to(end);
     Ok(Expr {
-        kind: ExprKind::Call { name, args },
+        kind: ExprKind::Variant {
+            name,
+            variant,
+            args,
+        },
         span,
     })
 }

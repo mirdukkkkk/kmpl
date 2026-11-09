@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use kmpl_ast::Type;
 
-use crate::{Builtin, RetType, Value, ok, pair};
+use crate::{Builtin, RetType, Value, ok, optional};
 
 pub(super) static BUILTINS: &[Builtin] = &[
     Builtin {
@@ -25,7 +25,7 @@ pub(super) static BUILTINS: &[Builtin] = &[
         name: "_io_read_line",
         generic: &[],
         params: &[],
-        ret: RetType::Pair(Type::Str, Type::Bool),
+        ret: RetType::Optional(Type::Str),
         func: |_, io| {
             // A prompt printed just before has to show while this waits.
             io.out
@@ -40,7 +40,7 @@ pub(super) static BUILTINS: &[Builtin] = &[
 
             let text = line.strip_suffix('\n').unwrap_or(&line);
             let text = text.strip_suffix('\r').unwrap_or(text);
-            ok(pair(Value::Str(text.into()), Value::Bool(read > 0)))
+            ok(optional((read > 0).then(|| Value::Str(text.into()))))
         },
     },
 ];

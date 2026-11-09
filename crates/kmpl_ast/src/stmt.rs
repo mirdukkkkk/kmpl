@@ -1,4 +1,4 @@
-use crate::{BinOp, Expr, Ident, Span, TypeExpr};
+use crate::{BinOp, Expr, ExprKind, Ident, Span, TypeExpr};
 
 pub type Block = Vec<Stmt>;
 
@@ -15,6 +15,8 @@ pub enum PathStep {
     Field(Ident),
 }
 
+// A tree lives only while the program is compiled, so the size does not matter.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtKind {
     Let {
@@ -57,8 +59,50 @@ pub enum StmtKind {
         array: Expr,
         body: Block,
     },
+    /// `match value { pattern => { ... } ... }`
+    Match { value: Expr, arms: Vec<MatchArm> },
     Break,
     Continue,
     Return(Option<Expr>),
     Expr(Expr),
+}
+
+impl Stmt {
+    /// Is this a call to the built-in `panic`, which never comes back?
+    pub fn is_panic(&self) -> bool {
+        matches!(&self.kind, StmtKind::Expr(Expr { kind: ExprKind::Call { name, .. }, .. })
+            if name.name == "panic")
+    }
+}
+
+impl Pattern {
+    /// The variables this pattern creates, possibly with `_` among them.
+    pub fn bindings(&self) -> &[Ident] {
+        match self {
+            Pattern::Variant { bindings, .. } => bindings,
+            Pattern::Some(name) => std::slice::from_ref(name),
+            Pattern::None | Pattern::Wildcard => &[],
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    /// Where the pattern starts, for messages about it.
+    pub span: Span,
+    pub body: Block,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Pattern {
+    /// `Shape::Rect(w, h)`. `name` is the enum. A binding `_` is a value
+    /// nobody needs.
+    Variant { name: Ident, variant: Ident, bindings: Vec<Ident> },
+    /// `some(x)`
+    Some(Ident),
+    /// `none`
+    None,
+    /// `_`
+    Wildcard,
 }
