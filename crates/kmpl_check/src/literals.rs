@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 
-use kmpl_ast::{Block, Expr, ExprKind, Item, PathStep, Program, Span, StmtKind, Type};
+use kmpl_ast::{Block, Expr, ExprKind, Item, Program, Span, StmtKind, Type};
 
 use crate::infer::Inference;
 
@@ -50,7 +50,7 @@ impl Rewriter<'_> {
                 }
                 StmtKind::PathAssign { path, value, .. } => {
                     for step in path {
-                        if let PathStep::Index(index) = step {
+                        for index in step.indices_mut() {
                             self.expr(index);
                         }
                     }
@@ -167,6 +167,11 @@ impl Rewriter<'_> {
             ExprKind::Index { base, index } => {
                 self.expr(base);
                 self.expr(index);
+            }
+            ExprKind::Cell { base, row, col } => {
+                self.expr(base);
+                self.expr(row);
+                self.expr(col);
             }
             ExprKind::Slice {
                 base, start, end, ..

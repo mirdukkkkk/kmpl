@@ -89,3 +89,18 @@ fn error_span_points_at_bad_token() {
     let err = parse("1 + ;").unwrap_err();
     assert_eq!(err.span, Span::new(4, 5));
 }
+
+#[test]
+fn matrix_cells() {
+    assert_eq!(tree("m[i, j]"), "(cell m i j)");
+    assert_eq!(tree("m[i + 1, 2 * j]"), "(cell m (+ i 1) (* 2 j))");
+    assert_eq!(tree("a.m[i, j]"), "(cell (. a m) i j)");
+    assert_eq!(tree("a[k][i, j]"), "(cell (index a k) i j)");
+    assert_eq!(tree("m[i, j] * 2"), "(* (cell m i j) 2)");
+}
+
+#[test]
+fn matrix_cell_needs_exactly_two_indices() {
+    assert!(error("m[i, j, k]").contains("expected `]`"));
+    assert!(error("m[i,]").contains("expected"));
+}

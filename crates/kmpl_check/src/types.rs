@@ -20,7 +20,7 @@ use kmpl_ast::{Ty, Type};
 pub struct TypeSet(u16);
 
 /// All types, in the order used for defaults and for messages.
-const ALL: [Type; 9] = [
+const ALL: [Type; 10] = [
     Type::Int,
     Type::Real,
     Type::Complex,
@@ -30,21 +30,22 @@ const ALL: [Type; 9] = [
     Type::Vec4,
     Type::Str,
     Type::Bytes,
+    Type::Matrix,
 ];
 
 impl TypeSet {
-    pub const ANY: TypeSet = TypeSet(0b11_1111_1111_1111);
+    pub const ANY: TypeSet = TypeSet(0b111_1111_1111_1111);
     /// The set of a variable known to be an array. The bit after the
-    /// nine types in `ALL`.
-    pub const ARRAY: TypeSet = TypeSet(1 << 9);
+    /// ten types in `ALL`.
+    pub const ARRAY: TypeSet = TypeSet(1 << 10);
     /// The set of a variable known to be a tuple.
-    pub const TUPLE: TypeSet = TypeSet(1 << 10);
+    pub const TUPLE: TypeSet = TypeSet(1 << 11);
     /// The set of a variable known to be a struct.
-    pub const STRUCT: TypeSet = TypeSet(1 << 11);
+    pub const STRUCT: TypeSet = TypeSet(1 << 12);
     /// The set of a variable known to be `T?`.
-    pub const OPTIONAL: TypeSet = TypeSet(1 << 12);
+    pub const OPTIONAL: TypeSet = TypeSet(1 << 13);
     /// The set of a variable known to be a function.
-    pub const FUNCTION: TypeSet = TypeSet(1 << 13);
+    pub const FUNCTION: TypeSet = TypeSet(1 << 14);
     /// Type of an integer literal like `1`.
     pub const NUMBER: TypeSet = TypeSet::of(&[Type::Int, Type::Real, Type::Complex]);
     /// Type of a real literal like `1.0`.
@@ -54,8 +55,9 @@ impl TypeSet {
     /// Types that `<`, `<=`, `>`, `>=` work on, strings among them.
     pub const COMPARABLE: TypeSet = TypeSet(TypeSet::ORDERED.0 | TypeSet::bit(Type::Str));
     pub const VECTOR: TypeSet = TypeSet::of(&[Type::Vec2, Type::Vec3, Type::Vec4]);
+    pub const MATRIX: TypeSet = TypeSet::single(Type::Matrix);
     /// Types that `+`, `-` and unary `-` work on.
-    pub const LINEAR: TypeSet = TypeSet(TypeSet::NUMBER.0 | TypeSet::VECTOR.0);
+    pub const LINEAR: TypeSet = TypeSet(TypeSet::NUMBER.0 | TypeSet::VECTOR.0 | TypeSet::MATRIX.0);
     /// Types that `+` works on: strings join.
     pub const ADDABLE: TypeSet = TypeSet(TypeSet::LINEAR.0 | TypeSet::bit(Type::Str));
 
@@ -153,6 +155,7 @@ pub fn type_name(ty: Type) -> &'static str {
         Type::Vec4 => "vec4",
         Type::Str => "string",
         Type::Bytes => "bytes",
+        Type::Matrix => "matrix",
     }
 }
 

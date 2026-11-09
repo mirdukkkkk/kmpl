@@ -696,16 +696,19 @@ fn linalg_reports_bad_shapes_as_errors() {
         stderr(&out)
     };
     assert!(
-        message("la_square", "print(linalg.det([[1.0, 2.0]]));")
+        message("la_square", "print(linalg.det([[1.0, 2.0]].to_matrix()));")
             .contains("`linalg.det` needs a square matrix, this one is 1 by 2")
     );
     assert!(
-        message("la_ragged", "print(linalg.norm([[1.0], []]));")
+        message("la_ragged", "print(linalg.norm([[1.0], []].to_matrix()));")
             .contains("the rows of this matrix have different lengths")
     );
     assert!(
-        message("la_vector", "print(linalg.solve([[1.0]], [1.0, 2.0]));")
-            .contains("a matrix with 1 rows and a vector of 2 numbers")
+        message(
+            "la_vector",
+            "print(linalg.solve([[1.0]].to_matrix(), [1.0, 2.0]));"
+        )
+        .contains("a matrix with 1 rows and a vector of 2 numbers")
     );
 }
 
@@ -761,10 +764,66 @@ fn linalg_works_in_a_constant_and_with_int_literals() {
     let out = run(
         "la_const",
         "import linalg from \"std:linalg\";
-         const D: real = linalg.det([[2, 0], [0, 3]]);
+         const D: real = linalg.det([[2, 0], [0, 3]].to_matrix());
          fn main() { print(D); print(linalg.identity(1) * [5.0]); }",
     );
     assert_eq!(stdout(&out), "6.0\n[5.0]\n", "{}", stderr(&out));
+}
+
+#[test]
+fn linalg_takes_rows_and_columns_of_a_matrix() {
+    let out = run(
+        "la_row_col",
+        "import linalg from \"std:linalg\";
+         fn main() {
+             let m = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]].to_matrix();
+             print(linalg.row(m, 1));
+             print(linalg.col(m, 2));
+             print(linalg.col(linalg.transpose(m), 1));
+         }",
+    );
+    assert_eq!(
+        stdout(&out),
+        "[4.0, 5.0, 6.0]\n[3.0, 6.0]\n[4.0, 5.0, 6.0]\n",
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn matrix_built_ins_read_well_with_a_dot() {
+    let out = run(
+        "matrix_dot",
+        "fn main() {
+             let m = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]].to_matrix();
+             print(m.rows()); print(m.cols());
+             print(m.to_rows()[1][2]);
+             print(m[1, 2]);
+         }",
+    );
+    assert_eq!(stdout(&out), "2\n3\n6.0\n6.0\n", "{}", stderr(&out));
+}
+
+#[test]
+fn linalg_row_and_col_report_bad_indices() {
+    let message = |name: &str, body: &str| {
+        let source = format!("import linalg from \"std:linalg\"; fn main() {{ {body} }}");
+        let out = run(name, &source);
+        assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+        stderr(&out)
+    };
+    assert!(
+        message("la_row_bad", "print(linalg.row(linalg.identity(2), 2));")
+            .contains("row 2 is out of bounds for a matrix with 2 rows")
+    );
+    assert!(
+        message("la_row_neg", "print(linalg.row(linalg.identity(2), -1));")
+            .contains("row -1 is out of bounds for a matrix with 2 rows")
+    );
+    assert!(
+        message("la_col_bad", "print(linalg.col(linalg.identity(2), 5));")
+            .contains("column 5 is out of bounds for a matrix with 2 columns")
+    );
 }
 
 #[test]

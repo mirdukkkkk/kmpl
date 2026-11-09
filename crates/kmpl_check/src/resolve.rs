@@ -20,8 +20,8 @@
 use std::collections::{HashMap, HashSet};
 
 use kmpl_ast::{
-    Block, EnumDef, Expr, ExprKind, Function, Ident, Item, Lambda, PathStep, Pattern, Program,
-    Span, Stmt, StmtKind, StructDef, Type, TypeExpr,
+    Block, EnumDef, Expr, ExprKind, Function, Ident, Item, Lambda, Pattern, Program, Span, Stmt,
+    StmtKind, StructDef, Type, TypeExpr,
 };
 
 use crate::error::CheckError;
@@ -378,7 +378,7 @@ impl<'a> Resolver<'a> {
             } => {
                 self.expr(value);
                 for step in path {
-                    if let PathStep::Index(index) = step {
+                    for index in step.indices() {
                         self.expr(index);
                     }
                 }
@@ -599,6 +599,11 @@ impl<'a> Resolver<'a> {
             ExprKind::Index { base, index } => {
                 self.expr(base);
                 self.expr(index);
+            }
+            ExprKind::Cell { base, row, col } => {
+                self.expr(base);
+                self.expr(row);
+                self.expr(col);
             }
             ExprKind::Slice {
                 base, start, end, ..

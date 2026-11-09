@@ -7,6 +7,7 @@
 pub mod abi;
 mod complex;
 mod math;
+mod matrix;
 pub mod ops;
 mod stdlib;
 mod value;
@@ -14,6 +15,7 @@ mod value;
 #[cfg(test)]
 mod tests;
 
+pub use matrix::Matrix;
 pub use stdlib::Random;
 pub use value::{EnumValue, StructLayout, StructValue, Value};
 
@@ -93,7 +95,7 @@ pub enum ParamType {
     /// `E?`
     OptionalOfElem,
     /// `[[real]]`
-    Matrix,
+    Rows,
     /// `[real]`
     Reals,
 }
@@ -121,9 +123,7 @@ pub enum RetType {
     /// `real` for a vector, `int` for what is counted. Used by `length`.
     Length,
     /// `[[real]]`
-    Matrix,
-    /// `[[real]]?`
-    OptionalMatrix,
+    Rows,
     /// `[real]?`
     OptionalReals,
 }
@@ -504,6 +504,45 @@ static BUILTINS: &[Builtin] = &[
             }
             ok(array)
         },
+    },
+    // ----- matrices -----
+    Builtin {
+        name: "matrix",
+        generic: &[],
+        params: &[ParamType::Exact(Type::Int), ParamType::Exact(Type::Int)],
+        ret: RetType::Exact(Type::Matrix),
+        func: |a, _| {
+            let zeros = Matrix::zeros(a[0].as_int(), a[1].as_int())?;
+            ok(Value::Matrix(Arc::new(zeros)))
+        },
+    },
+    Builtin {
+        name: "rows",
+        generic: &[],
+        params: &[ParamType::Exact(Type::Matrix)],
+        ret: RetType::Exact(Type::Int),
+        func: |a, _| ok(Value::Int(a[0].as_matrix().rows as i64)),
+    },
+    Builtin {
+        name: "cols",
+        generic: &[],
+        params: &[ParamType::Exact(Type::Matrix)],
+        ret: RetType::Exact(Type::Int),
+        func: |a, _| ok(Value::Int(a[0].as_matrix().cols as i64)),
+    },
+    Builtin {
+        name: "to_matrix",
+        generic: &[],
+        params: &[ParamType::Rows],
+        ret: RetType::Exact(Type::Matrix),
+        func: |a, _| ok(Value::Matrix(Arc::new(Matrix::from_rows(&a[0])?))),
+    },
+    Builtin {
+        name: "to_rows",
+        generic: &[],
+        params: &[ParamType::Exact(Type::Matrix)],
+        ret: RetType::Rows,
+        func: |a, _| ok(a[0].as_matrix().to_rows()),
     },
     // ----- strings -----
     // Each character as its own string, so that a program can jump around

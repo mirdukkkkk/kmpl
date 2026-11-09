@@ -184,6 +184,23 @@ unsafe fn index(slot: Slot, location: Slot, len: usize) -> usize {
     })
 }
 
+/// The position of `[row, col]` in the numbers of a matrix. `steps` starts
+/// with the row, where it is reported, the column and where that is.
+///
+/// # Safety
+/// See `slot_text`.
+unsafe fn cell(steps: &[Slot], rows: usize, cols: usize) -> usize {
+    let line = |i: Slot, location: Slot, count, what| {
+        ops::checked_line(int(i), count, what).unwrap_or_else(|message| {
+            // SAFETY: promised by the caller.
+            fail(&message, &unsafe { slot_text(location) })
+        })
+    };
+    let row = line(steps[0], steps[1], rows, "row");
+    let col = line(steps[2], steps[3], cols, "column");
+    row * cols + col
+}
+
 /// # Safety
 /// See `operation`.
 unsafe fn read_path(root: &Value, mut steps: &[Slot]) -> Value {
@@ -205,6 +222,11 @@ unsafe fn read_path(root: &Value, mut steps: &[Slot]) -> Value {
                 // SAFETY: promised by the caller.
                 let i = unsafe { index(*step, rest[0], array.array_len()) };
                 return element(array, i);
+            }
+            (_, Value::Matrix(matrix)) => {
+                // SAFETY: promised by the caller.
+                let position = unsafe { cell(steps, matrix.rows, matrix.cols) };
+                return Value::Real(matrix.data[position]);
             }
             (_, other) => panic!("bad target {other:?}"),
         }
@@ -242,6 +264,13 @@ unsafe fn write_path(root: &mut Value, mut steps: &[Slot], value: Value) {
                 // SAFETY: promised by the caller.
                 let i = unsafe { index(*step, rest[0], items.len()) };
                 items[i] = value.as_int();
+                return;
+            }
+            (_, Value::Matrix(matrix)) => {
+                let matrix = Arc::make_mut(matrix);
+                // SAFETY: promised by the caller.
+                let position = unsafe { cell(steps, matrix.rows, matrix.cols) };
+                matrix.data[position] = value.as_real();
                 return;
             }
             (_, Value::Bytes(items)) => {

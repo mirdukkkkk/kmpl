@@ -37,6 +37,8 @@ pub(crate) struct Runtime<'ctx> {
     pub array_view: FunctionValue<'ctx>,
     pub array_unique: FunctionValue<'ctx>,
     pub index_error: FunctionValue<'ctx>,
+    pub matrix_shape: FunctionValue<'ctx>,
+    pub cell_error: FunctionValue<'ctx>,
 }
 
 pub struct Translator<'ctx, 'm> {
@@ -273,7 +275,7 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
                     .build_store(slot, self.pointer_type().const_null())?;
                 slots[reg] = Some(slot);
                 if is_flat(ty) {
-                    flat[reg] = Some(self.flat_slots()?);
+                    flat[reg] = Some(self.flat_slots(ty)?);
                 }
             }
         }
@@ -721,7 +723,12 @@ fn declare_runtime<'ctx>(context: &'ctx Context, llvm: &Module<'ctx>) -> Runtime
         void.fn_type(&[int, int, ptr, int], false),
         None,
     );
-    for function in [error, index_error] {
+    let cell_error = llvm.add_function(
+        "kmpl_rt_cell_error",
+        void.fn_type(&[int, int, int, ptr, int], false),
+        None,
+    );
+    for function in [error, index_error, cell_error] {
         for attribute in ["noreturn", "cold"] {
             let kind = Attribute::get_named_enum_kind_id(attribute);
             function.add_attribute(
@@ -732,8 +739,12 @@ fn declare_runtime<'ctx>(context: &'ctx Context, llvm: &Module<'ctx>) -> Runtime
     }
     let view = Translator::view_type(context);
 
+    let shape = Translator::shape_type(context);
+
     Runtime {
         index_error,
+        cell_error,
+        matrix_shape: llvm.add_function("kmpl_rt_matrix_shape", shape.fn_type(&[ptr], false), None),
         array_view: llvm.add_function("kmpl_rt_array_view", view.fn_type(&[ptr], false), None),
         array_unique: llvm.add_function("kmpl_rt_array_unique", view.fn_type(&[ptr], false), None),
         init: llvm.add_function("kmpl_rt_init", void.fn_type(&[ptr, int], false), None),

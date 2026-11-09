@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use kmpl_ast::Type;
 
+use crate::Matrix;
+
 /// The shape of a struct, shared by all its values.
 #[derive(Debug, PartialEq)]
 pub struct StructLayout {
@@ -63,6 +65,8 @@ pub enum Value {
     Ints(Arc<Vec<i64>>),
     /// `bytes`, written through `Arc::make_mut` like an array.
     Bytes(Arc<Vec<u8>>),
+    /// `matrix`, written through `Arc::make_mut` like an array.
+    Matrix(Arc<Matrix>),
     /// Never changed after it is built, so it is simply shared.
     Tuple(Arc<[Value]>),
     /// A value too, written through `Arc::make_mut` like an array.
@@ -88,6 +92,7 @@ impl Value {
             Value::Vec4(_) => Type::Vec4,
             Value::Str(_) => Type::Str,
             Value::Bytes(_) => Type::Bytes,
+            Value::Matrix(_) => Type::Matrix,
             Value::Array(_) | Value::Reals(_) | Value::Ints(_) => {
                 panic!("an array has no `Type`")
             }
@@ -155,6 +160,14 @@ impl Value {
         match self {
             Value::Bytes(items) => items,
             other => panic!("expected bytes, got {other:?}"),
+        }
+    }
+
+    /// The inside of a `matrix`. Panics on other variants, like `as_real`.
+    pub fn as_matrix(&self) -> &Matrix {
+        match self {
+            Value::Matrix(matrix) => matrix,
+            other => panic!("expected a matrix, got {other:?}"),
         }
     }
 
@@ -248,6 +261,7 @@ impl std::fmt::Display for Value {
                 let parts: Vec<String> = items.iter().map(u8::to_string).collect();
                 write!(f, "[{}]", parts.join(", "))
             }
+            Value::Matrix(matrix) => write!(f, "{matrix}"),
             Value::Tuple(items) => {
                 let parts: Vec<String> = items.iter().map(Value::to_string).collect();
                 write!(f, "({})", parts.join(", "))

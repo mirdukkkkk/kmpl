@@ -166,7 +166,7 @@ fn generic_parameter_that_cannot_be_inferred() {
 fn too_many_copies() {
     assert_error(
         "fn f<A, B, C>() { }",
-        "`f` would need 729 copies, more than 256; narrow the bounds of its generic parameters",
+        "`f` would need 1000 copies, more than 256; narrow the bounds of its generic parameters",
     );
 }
 

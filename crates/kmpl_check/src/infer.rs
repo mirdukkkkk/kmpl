@@ -347,6 +347,11 @@ impl<'a> Infer<'a> {
                                 self.index_type(index);
                                 self.array_elem(var, name.span)
                             }
+                            PathStep::Cell(row, col) => {
+                                self.index_type(row);
+                                self.index_type(col);
+                                self.cell_type(var, name.span)
+                            }
                             PathStep::Field(field) => self.field_type(var, field, name.span),
                         };
                     }
@@ -708,6 +713,12 @@ impl<'a> Infer<'a> {
                 self.index_type(index);
                 self.read_elem(base_ty, base.span)
             }
+            ExprKind::Cell { base, row, col } => {
+                let base_ty = self.expr(base);
+                self.index_type(row);
+                self.index_type(col);
+                self.cell_type(base_ty, base.span)
+            }
             ExprKind::Slice {
                 base, start, end, ..
             } => {
@@ -878,6 +889,13 @@ impl<'a> Infer<'a> {
         if self.is_bytes(ty) {
             return self.known(Type::Int);
         }
+        if self.is_matrix(ty) {
+            self.error(
+                "a `matrix` takes a row and a column: `m[i, j]`".to_owned(),
+                span,
+            );
+            return self.u.new_var(TypeSet::ANY);
+        }
         let elem = self.u.new_var(TypeSet::ANY);
         let array = self.u.new_array(elem);
         if self.u.unify(ty, array).is_err() {
@@ -885,6 +903,24 @@ impl<'a> Infer<'a> {
             self.error(format!("expected an array, found {found}"), span);
         }
         elem
+    }
+
+    /// What `ty[row, col]` gives: `ty` must be a `matrix`.
+    fn cell_type(&mut self, ty: TyVar, span: Span) -> TyVar {
+        if self.u.element(ty).is_some() {
+            let found = self.u.describe(ty);
+            self.error(
+                format!("only a `matrix` takes a row and a column, found {found}: write `a[i][j]`"),
+                span,
+            );
+        } else {
+            self.expect(ty, Type::Matrix, span);
+        }
+        self.known(Type::Real)
+    }
+
+    fn is_matrix(&self, ty: TyVar) -> bool {
+        self.u.set(ty) == TypeSet::MATRIX
     }
 
     fn is_bytes(&self, ty: TyVar) -> bool {
@@ -973,6 +1009,12 @@ impl<'a> Infer<'a> {
     fn mul_div(&mut self, op: BinOp, l: TyVar, r: TyVar, rhs_span: Span, span: Span) -> TyVar {
         match (self.u.element(l), self.u.element(r)) {
             (None, None) => self.scalar_mul_div(op, l, r, rhs_span, span),
+            // `matrix * [real]` is a `[real]`, the other way round is nothing.
+            (None, Some(elem)) if op == BinOp::Mul && self.is_matrix(l) => {
+                self.expect(elem, Type::Real, rhs_span);
+                r
+            }
+            (Some(_), None) if self.is_matrix(r) => self.bad_operands(op, l, r, span),
             (Some(elem), None) => {
                 let result = self.mul_div(op, elem, r, rhs_span, span);
                 self.u.new_array(result)
@@ -1022,7 +1064,7 @@ impl<'a> Infer<'a> {
     }
 
     /// `number * number`, `vec * real`, `real * vec`, `number / number`,
-    /// `vec / real`.
+    /// `vec / real`. A `matrix` scales like a vector, and two multiply.
     fn scalar_mul_div(
         &mut self,
         op: BinOp,
@@ -1034,10 +1076,14 @@ impl<'a> Infer<'a> {
         let sym = op_symbol(op);
         let (ls, rs) = (self.u.set(l), self.u.set(r));
         let is_number = |s: TypeSet| s.is_subset(TypeSet::NUMBER);
-        let is_vector = |s: TypeSet| s.is_subset(TypeSet::VECTOR);
+        // Scaled by a `real`, like a vector.
+        let is_vector = |s: TypeSet| s.is_subset(TypeSet::VECTOR) || s == TypeSet::MATRIX;
 
         if is_number(ls) && is_number(rs) {
             self.unify(r, l, rhs_span);
+            return l;
+        }
+        if op == BinOp::Mul && ls == TypeSet::MATRIX && rs == TypeSet::MATRIX {
             return l;
         }
         if is_vector(ls) && is_number(rs) {
@@ -1120,8 +1166,8 @@ impl<'a> Infer<'a> {
                     let expected = self.reals();
                     self.unify(arg_ty, expected, arg.span);
                 }
-                ParamType::Matrix => {
-                    let expected = self.matrix();
+                ParamType::Rows => {
+                    let expected = self.rows();
                     self.unify(arg_ty, expected, arg.span);
                 }
                 ParamType::ArrayOfElem if on_bytes || self.is_bytes(arg_ty) => {
@@ -1149,11 +1195,7 @@ impl<'a> Infer<'a> {
             RetType::Length if on_vector => Some(self.known(Type::Real)),
             RetType::Length => Some(self.known(Type::Int)),
             RetType::Elem => Some(elem),
-            RetType::Matrix => Some(self.matrix()),
-            RetType::OptionalMatrix => {
-                let inner = self.matrix();
-                Some(self.u.new_optional(inner))
-            }
+            RetType::Rows => Some(self.rows()),
             RetType::OptionalReals => {
                 let inner = self.reals();
                 Some(self.u.new_optional(inner))
@@ -1187,7 +1229,7 @@ impl<'a> Infer<'a> {
     }
 
     /// `[[real]]`
-    fn matrix(&mut self) -> TyVar {
+    fn rows(&mut self) -> TyVar {
         let row = self.reals();
         self.u.new_array(row)
     }

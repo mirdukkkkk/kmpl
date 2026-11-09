@@ -12,7 +12,28 @@ pub struct Stmt {
 #[derive(Debug, Clone, PartialEq)]
 pub enum PathStep {
     Index(Expr),
+    /// `[row, col]` of a `matrix`.
+    Cell(Expr, Expr),
     Field(Ident),
+}
+
+impl PathStep {
+    /// The expressions this step evaluates, in order.
+    pub fn indices(&self) -> Vec<&Expr> {
+        match self {
+            PathStep::Index(index) => vec![index],
+            PathStep::Cell(row, col) => vec![row, col],
+            PathStep::Field(_) => Vec::new(),
+        }
+    }
+
+    pub fn indices_mut(&mut self) -> Vec<&mut Expr> {
+        match self {
+            PathStep::Index(index) => vec![index],
+            PathStep::Cell(row, col) => vec![row, col],
+            PathStep::Field(_) => Vec::new(),
+        }
+    }
 }
 
 // A tree lives only while the program is compiled, so the size does not matter.

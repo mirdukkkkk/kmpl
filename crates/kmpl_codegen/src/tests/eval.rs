@@ -1,4 +1,4 @@
-use super::{output, run, run_with, runtime_error};
+use super::{output, run, run_mode, run_with, runtime_error};
 
 #[test]
 fn print_values() {
@@ -2369,4 +2369,462 @@ fn a_function_failing_for_a_constant_is_a_runtime_error() {
         runtime_error("fn f(z: int) -> int { return 1 / z; } const A: int = f(0); fn main() { }"),
         "division by zero"
     );
+}
+
+#[test]
+fn matrix_is_zero_at_first() {
+    assert_eq!(
+        output("let m = matrix(2, 3); print(m); print(m[1, 2]); print(rows(m)); print(cols(m));"),
+        "[[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]\n0.0\n2\n3\n"
+    );
+}
+
+#[test]
+fn matrix_cells_are_written_in_nested_loops() {
+    assert_eq!(
+        output(
+            "let m = matrix(3, 3);
+             for i in 0..3 { for j in 0..3 { m[i, j] = real(i * 3 + j); } }
+             for i in 0..3 { m[i, i] += 10; }
+             let sum = 0.0;
+             for i in 0..rows(m) { for j in 0..cols(m) { sum += m[i, j]; } }
+             print(m);
+             print(sum);"
+        ),
+        "[[10.0, 1.0, 2.0], [3.0, 14.0, 5.0], [6.0, 7.0, 18.0]]\n66.0\n"
+    );
+}
+
+#[test]
+fn matrix_compound_assignment_on_cells() {
+    assert_eq!(
+        output(
+            "let m = to_matrix([[1.0, 2.0], [3.0, 4.0]]);
+             m[0, 0] += 1; m[0, 1] -= 1; m[1, 0] *= 2; m[1, 1] /= 4;
+             print(m);"
+        ),
+        "[[2.0, 1.0], [6.0, 1.0]]\n"
+    );
+}
+
+#[test]
+fn matrix_index_expressions_run_once_in_order() {
+    assert_eq!(
+        output(
+            "let m = matrix(2, 2);
+             let n = 0;
+             m[n, n] = 5; n = 1; m[n, n - 1] += 7;
+             print(m);"
+        ),
+        "[[5.0, 0.0], [7.0, 0.0]]\n"
+    );
+}
+
+#[test]
+fn matrix_has_value_semantics() {
+    assert_eq!(
+        output(
+            "let a = matrix(1, 2);
+             let b = a;
+             b[0, 0] = 1.0;
+             a[0, 1] = 2.0;
+             print(a); print(b);"
+        ),
+        "[[0.0, 2.0]]\n[[1.0, 0.0]]\n"
+    );
+}
+
+#[test]
+fn matrix_passed_to_a_function_is_copied() {
+    let src = "fn fill(m: matrix) -> matrix { m[0, 0] = 9.0; return m; }
+               fn make() -> matrix { let m = matrix(2, 2); m[1, 1] = 4.0; return m; }
+               fn main() {
+                   let a = make();
+                   let b = fill(a);
+                   print(a); print(b);
+                   let c = fill(make());
+                   print(c);
+               }";
+    assert_eq!(
+        run(src).unwrap(),
+        "[[0.0, 0.0], [0.0, 4.0]]\n[[9.0, 0.0], [0.0, 4.0]]\n[[9.0, 0.0], [0.0, 4.0]]\n"
+    );
+}
+
+#[test]
+fn matrix_in_a_struct_field() {
+    let src = "struct S { m: matrix, k: int }
+               fn main() {
+                   let s = S { m: matrix(2, 2), k: 1 };
+                   let t = s;
+                   s.m[0, 1] = 3.0;
+                   s.m[1, 0] += 2.0;
+                   t.m[0, 0] = 1.0;
+                   print(s.m); print(t.m);
+                   print(s.m[0, 1] + s.m[1, 0]);
+                   print(rows(s.m));
+               }";
+    assert_eq!(
+        run(src).unwrap(),
+        "[[0.0, 3.0], [2.0, 0.0]]\n[[1.0, 0.0], [0.0, 0.0]]\n5.0\n2\n"
+    );
+}
+
+#[test]
+fn matrix_in_an_array() {
+    let src = "fn main() {
+                   let list = [matrix(1, 1), matrix(2, 2)];
+                   let copy = list;
+                   list[1][1, 1] = 5.0;
+                   list[0][0, 0] += 1.5;
+                   copy[0][0, 0] = -1.0;
+                   print(list); print(copy);
+                   let m = list[1];
+                   m[0, 0] = 8.0;
+                   print(list[1][0, 0]); print(m[0, 0]);
+               }";
+    assert_eq!(
+        run(src).unwrap(),
+        "[[[1.5]], [[0.0, 0.0], [0.0, 5.0]]]\n[[[-1.0]], [[0.0, 0.0], [0.0, 0.0]]]\n0.0\n8.0\n"
+    );
+}
+
+#[test]
+fn matrix_as_a_constant() {
+    let src = "const M: matrix = to_matrix([[1.0, 2.0], [3.0, 4.0]]);
+               fn main() {
+                   print(M); print(M[1, 0]);
+                   let m = M;
+                   m[1, 0] = 0.0;
+                   print(m); print(M);
+               }";
+    assert_eq!(
+        run(src).unwrap(),
+        "[[1.0, 2.0], [3.0, 4.0]]\n3.0\n[[1.0, 2.0], [0.0, 4.0]]\n[[1.0, 2.0], [3.0, 4.0]]\n"
+    );
+}
+
+#[test]
+fn matrix_operators() {
+    let src = "fn main() {
+                   let a = to_matrix([[1.0, 2.0], [3.0, 4.0]]);
+                   let b = to_matrix([[0.5, 0.0], [1.0, 2.0]]);
+                   print(a + b); print(a - b); print(-a);
+                   print(a * b);
+                   print(a * [1.0, 1.0]);
+                   print(a * 2.0); print(2.0 * a); print(a * 2); print(a / 2.0); print(3 * a);
+                   print(a == a); print(a == b); print(a != b);
+                   print(a == to_matrix([[1.0, 2.0], [3.0, 5.0]]));
+                   print(matrix(0, 2) == matrix(2, 0));
+               }";
+    assert_eq!(
+        run(src).unwrap(),
+        "[[1.5, 2.0], [4.0, 6.0]]\n[[0.5, 2.0], [2.0, 2.0]]\n[[-1.0, -2.0], [-3.0, -4.0]]\n\
+         [[2.5, 4.0], [5.5, 8.0]]\n[3.0, 7.0]\n\
+         [[2.0, 4.0], [6.0, 8.0]]\n[[2.0, 4.0], [6.0, 8.0]]\n[[2.0, 4.0], [6.0, 8.0]]\n[[0.5, 1.0], [1.5, 2.0]]\n[[3.0, 6.0], [9.0, 12.0]]\n\
+         true\nfalse\ntrue\nfalse\nfalse\n"
+    );
+}
+
+#[test]
+fn matrix_product_of_non_square_shapes() {
+    let src = "fn main() {
+                   let a = to_matrix([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+                   let b = to_matrix([[1.0], [0.0], [2.0]]);
+                   print(a * b);
+                   print(a * [1.0, 0.0, 1.0]);
+                   print(rows(b * to_matrix([[1.0, 2.0]])));
+               }";
+    assert_eq!(run(src).unwrap(), "[[7.0], [16.0]]\n[4.0, 10.0]\n3\n");
+}
+
+#[test]
+fn matrix_operator_errors() {
+    let fails = |body: &str| runtime_error(&format!("fn main() {{ {body} }}"));
+    assert_eq!(
+        fails("print(matrix(1, 2) + matrix(2, 1));"),
+        "matrices have different shapes: 1x2 and 2x1"
+    );
+    assert_eq!(
+        fails("print(matrix(1, 2) - matrix(2, 1));"),
+        "matrices have different shapes: 1x2 and 2x1"
+    );
+    assert_eq!(
+        fails("print(matrix(2, 3) * matrix(2, 3));"),
+        "cannot multiply a 2x3 matrix by a 2x3 matrix"
+    );
+    assert_eq!(
+        fails("print(matrix(2, 3) * [1.0]);"),
+        "cannot multiply a 2x3 matrix by a vector of length 1"
+    );
+}
+
+#[test]
+fn matrix_size_errors() {
+    assert_eq!(
+        runtime_error("fn main() { let n = -1; print(matrix(n, 2)); }"),
+        "a matrix cannot have -1 rows"
+    );
+    assert_eq!(
+        runtime_error("fn main() { let n = -2; print(matrix(2, n)); }"),
+        "a matrix cannot have -2 columns"
+    );
+}
+
+#[test]
+fn matrix_cell_out_of_bounds() {
+    let fails = |body: &str| runtime_error(&format!("fn main() {{ {body} }}"));
+    let m = "let m = matrix(3, 4); let i = 5; let j = -1;";
+    assert_eq!(
+        fails(&format!("{m} print(m[i, 0]);")),
+        "row 5 is out of bounds for a matrix with 3 rows"
+    );
+    assert_eq!(
+        fails(&format!("{m} print(m[3, 0]);")),
+        "row 3 is out of bounds for a matrix with 3 rows"
+    );
+    assert_eq!(
+        fails(&format!("{m} print(m[j, 0]);")),
+        "row -1 is out of bounds for a matrix with 3 rows"
+    );
+    assert_eq!(
+        fails(&format!("{m} print(m[0, i]);")),
+        "column 5 is out of bounds for a matrix with 4 columns"
+    );
+    assert_eq!(
+        fails(&format!("{m} print(m[0, j]);")),
+        "column -1 is out of bounds for a matrix with 4 columns"
+    );
+    assert_eq!(
+        fails(&format!("{m} m[i, 0] = 1.0;")),
+        "row 5 is out of bounds for a matrix with 3 rows"
+    );
+    assert_eq!(
+        fails(&format!("{m} m[0, j] += 1.0;")),
+        "column -1 is out of bounds for a matrix with 4 columns"
+    );
+}
+
+#[test]
+fn matrix_cell_out_of_bounds_through_a_field_and_an_array() {
+    let fails = |src: &str| runtime_error(src);
+    let s = "struct S { m: matrix }";
+    assert_eq!(
+        fails(&format!(
+            "{s} fn main() {{ let s = S {{ m: matrix(3, 4) }}; let i = 5; print(s.m[i, 0]); }}"
+        )),
+        "row 5 is out of bounds for a matrix with 3 rows"
+    );
+    assert_eq!(
+        fails(&format!(
+            "{s} fn main() {{ let s = S {{ m: matrix(3, 4) }}; let j = -3; s.m[0, j] = 1.0; }}"
+        )),
+        "column -3 is out of bounds for a matrix with 4 columns"
+    );
+    assert_eq!(
+        fails("fn main() { let l = [matrix(2, 2)]; let i = 2; l[0][i, 0] += 1.0; }"),
+        "row 2 is out of bounds for a matrix with 2 rows"
+    );
+    assert_eq!(
+        fails("fn main() { let l = [matrix(2, 2)]; let j = 2; print(l[0][0, j]); }"),
+        "column 2 is out of bounds for a matrix with 2 columns"
+    );
+}
+
+#[test]
+fn matrix_cell_error_points_at_the_bad_index() {
+    let check = |src: &str, expected: &str| {
+        for optimize in [true, false] {
+            let (error, _) = run_mode(src, &[], b"", optimize).unwrap_err();
+            assert_eq!(&src[error.span.start..error.span.end], expected, "{src}");
+        }
+    };
+    check(
+        "fn main() { let m = matrix(2, 2); let i = 4; print(m[i + 1, 0]); }",
+        "i + 1",
+    );
+    check(
+        "fn main() { let m = matrix(2, 2); let j = 4; print(m[0, j * 2]); }",
+        "j * 2",
+    );
+    check(
+        "fn main() { let m = matrix(2, 2); let j = 4; m[0, j] = 1.0; }",
+        "j",
+    );
+    check(
+        "struct S { m: matrix } fn main() { let s = S { m: matrix(2, 2) }; let i = 4; print(s.m[i, 0]); }",
+        "i",
+    );
+}
+
+#[test]
+fn matrix_rows_and_cols_of_empty_shapes() {
+    assert_eq!(
+        output(
+            "let a = matrix(0, 3); let b = matrix(2, 0); let c = matrix(0, 0);
+             print(rows(a)); print(cols(a)); print(rows(b)); print(cols(b));
+             print(a); print(b); print(c);
+             print(to_rows(a).length()); print(to_rows(b).length());"
+        ),
+        "0\n3\n2\n0\n[]\n[[], []]\n[]\n0\n2\n"
+    );
+}
+
+#[test]
+fn matrix_empty_cell_access_is_out_of_bounds() {
+    assert_eq!(
+        runtime_error("fn main() { print(matrix(0, 3)[0, 0]); }"),
+        "row 0 is out of bounds for a matrix with 0 rows"
+    );
+    assert_eq!(
+        runtime_error("fn main() { print(matrix(2, 0)[0, 0]); }"),
+        "column 0 is out of bounds for a matrix with 0 columns"
+    );
+}
+
+#[test]
+fn matrix_round_trip_through_rows() {
+    let src = "fn main() {
+                   let rows = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+                   let m = to_matrix(rows);
+                   print(rows(m)); print(cols(m));
+                   let back = to_rows(m);
+                   print(back == rows);
+                   back[0][0] = 100.0;
+                   print(m[0, 0]);
+                   print(to_matrix(back)[0, 0]);
+                   print(to_matrix([[1, 2], [3, 4]]));
+                   print(rows(to_matrix(to_rows(matrix(0, 0)))));
+               }";
+    assert_eq!(
+        run(src).unwrap(),
+        "2\n3\ntrue\n1.0\n100.0\n[[1.0, 2.0], [3.0, 4.0]]\n0\n"
+    );
+}
+
+#[test]
+fn matrix_printed_like_the_nested_array() {
+    assert_eq!(
+        output(
+            "let rows = [[1.5, 2.0], [3.0, -4.0]];
+             print(to_matrix(rows)); print(rows); print(string(to_matrix(rows)) == string(rows));"
+        ),
+        "[[1.5, 2.0], [3.0, -4.0]]\n[[1.5, 2.0], [3.0, -4.0]]\ntrue\n"
+    );
+}
+
+#[test]
+fn matrix_to_matrix_rejects_uneven_rows() {
+    assert_eq!(
+        runtime_error("fn main() { print(to_matrix([[1.0], [1.0, 2.0]])); }"),
+        "the rows of this matrix have different lengths"
+    );
+}
+
+#[test]
+fn matrix_product_loop_matches_the_operator() {
+    let src = "fn product(a: matrix, b: matrix) -> matrix {
+                   let c = matrix(rows(a), cols(b));
+                   for i in 0..rows(a) {
+                       for j in 0..cols(b) {
+                           let s = 0.0;
+                           for k in 0..cols(a) { s += a[i, k] * b[k, j]; }
+                           c[i, j] = s;
+                       }
+                   }
+                   return c;
+               }
+               fn main() {
+                   let n = 7;
+                   let a = matrix(n, n + 1);
+                   let b = matrix(n + 1, n - 2);
+                   for i in 0..rows(a) { for j in 0..cols(a) { a[i, j] = real(i * 3 - j) / 4.0; } }
+                   for i in 0..rows(b) { for j in 0..cols(b) { b[i, j] = real(i + j * j) / 8.0; } }
+                   print(product(a, b) == a * b);
+                   print(rows(a * b)); print(cols(a * b));
+               }";
+    assert_eq!(run(src).unwrap(), "true\n7\n5\n");
+}
+
+#[test]
+fn matrix_through_if_joins() {
+    let src = "fn pick(c: bool) -> matrix {
+                   let m = matrix(1, 1);
+                   if c { m = matrix(2, 3); m[1, 2] = 6.0; } else { m[0, 0] = 1.0; }
+                   return m;
+               }
+               fn main() {
+                   let a = pick(true); let b = pick(false);
+                   print(a); print(b);
+                   print(rows(a) + rows(b)); print(cols(a) + cols(b));
+                   let m = matrix(1, 1);
+                   if rows(a) > 1 { m = a; m[0, 0] = 2.0; }
+                   print(m); print(a);
+                   let late;
+                   if true { late = matrix(2, 2); } else { late = matrix(1, 1); }
+                   late[1, 1] = 3.0;
+                   print(late);
+               }";
+    assert_eq!(
+        run(src).unwrap(),
+        "[[0.0, 0.0, 0.0], [0.0, 0.0, 6.0]]\n[[1.0]]\n3\n4\n\
+         [[2.0, 0.0, 0.0], [0.0, 0.0, 6.0]]\n[[0.0, 0.0, 0.0], [0.0, 0.0, 6.0]]\n[[0.0, 0.0], [0.0, 3.0]]\n"
+    );
+}
+
+#[test]
+fn matrix_changed_shape_in_a_while_loop() {
+    let src = "fn main() {
+                   let m = matrix(1, 1);
+                   m[0, 0] = 1.0;
+                   let k = 0;
+                   while k < 3 {
+                       let n = matrix(rows(m) + 1, cols(m) + 1);
+                       for i in 0..rows(m) { for j in 0..cols(m) { n[i, j] = m[i, j]; } }
+                       n[rows(m), cols(m)] = real(k + 2);
+                       m = n;
+                       m[0, 0] += 10;
+                       k += 1;
+                   }
+                   print(m); print(rows(m)); print(cols(m));
+               }";
+    assert_eq!(
+        run(src).unwrap(),
+        "[[31.0, 0.0, 0.0, 0.0], [0.0, 2.0, 0.0, 0.0], [0.0, 0.0, 3.0, 0.0], [0.0, 0.0, 0.0, 4.0]]\n4\n4\n"
+    );
+}
+
+#[test]
+fn matrix_written_in_a_loop_after_a_copy() {
+    let src = "fn main() {
+                   let a = matrix(2, 2);
+                   let keep = a;
+                   let i = 0;
+                   while i < 4 { a[i / 2, i - i / 2 * 2] = real(i); i += 1; }
+                   print(a); print(keep);
+               }";
+    assert_eq!(
+        run(src).unwrap(),
+        "[[0.0, 1.0], [2.0, 3.0]]\n[[0.0, 0.0], [0.0, 0.0]]\n"
+    );
+}
+
+#[test]
+fn matrix_in_a_generic_function() {
+    let src = "fn first<T>(a: T, b: T) -> T { return a; }
+               fn main() {
+                   let m = first(matrix(1, 2), matrix(2, 1));
+                   m[0, 1] = 1.0;
+                   print(m);
+               }";
+    assert_eq!(run(src).unwrap(), "[[0.0, 1.0]]\n");
+}
+
+#[test]
+fn matrices_in_an_array_add_up() {
+    let src = "fn main() {
+                   let a = [to_matrix([[1.0]]), to_matrix([[2.0, 3.0]])];
+                   print(a + a);
+               }";
+    assert_eq!(run(src).unwrap(), "[[[2.0]], [[4.0, 6.0]]]\n");
 }

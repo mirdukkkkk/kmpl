@@ -34,6 +34,7 @@ fn type_text(ty: &Ty) -> String {
         Ty::Prim(Type::Vec4) => "vec4".to_owned(),
         Ty::Prim(Type::Str) => "string".to_owned(),
         Ty::Prim(Type::Bytes) => "bytes".to_owned(),
+        Ty::Prim(Type::Matrix) => "matrix".to_owned(),
         Ty::Array(elem) => format!("[{}]", type_text(elem)),
         Ty::Tuple(items) => {
             let parts: Vec<String> = items.iter().map(type_text).collect();

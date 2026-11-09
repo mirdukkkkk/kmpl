@@ -11,7 +11,7 @@ use std::io::{BufReader, BufWriter, Stdin, Stdout, Write};
 use std::sync::Arc;
 use std::time::Instant;
 
-use kmpl_builtins::abi::{self, ArrayView, Slot};
+use kmpl_builtins::abi::{self, ArrayView, MatrixShape, Slot};
 use kmpl_builtins::{Builtin, Io, Random, StructLayout, Value, ops};
 
 use operations::{operation, to_slot, value};
@@ -161,10 +161,10 @@ pub unsafe extern "C" fn kmpl_rt_unbox_vector(value: *mut Value, out: *mut f64) 
     }
 }
 
-/// Where the numbers of a flat array are, for reading.
+/// Where the numbers of a flat array or a matrix are, for reading.
 ///
 /// # Safety
-/// `value` is a valid pointer to a `[real]` or `[int]`.
+/// `value` is a valid pointer to a `[real]`, an `[int]` or a `matrix`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kmpl_rt_array_view(value: *const Value) -> ArrayView {
     // SAFETY: promised by the caller.
@@ -177,15 +177,34 @@ pub unsafe extern "C" fn kmpl_rt_array_view(value: *const Value) -> ArrayView {
             data: items.as_ptr() as *mut u8,
             len: items.len() as u64,
         },
+        Value::Matrix(matrix) => ArrayView {
+            data: matrix.data.as_ptr() as *mut u8,
+            len: matrix.data.len() as u64,
+        },
         other => panic!("expected a flat array, got {other:?}"),
     }
 }
 
-/// Makes sure nothing else shares this flat array, copying it if something
-/// does, and says where its numbers are for writing.
+/// How many rows and columns a matrix has.
 ///
 /// # Safety
-/// `value` is a valid pointer to a `[real]` or `[int]`, owned by the caller.
+/// `value` is a valid pointer to a `matrix`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmpl_rt_matrix_shape(value: *const Value) -> MatrixShape {
+    // SAFETY: promised by the caller.
+    let matrix = unsafe { &*value }.as_matrix();
+    MatrixShape {
+        rows: matrix.rows as u64,
+        cols: matrix.cols as u64,
+    }
+}
+
+/// Makes sure nothing else shares this flat array or matrix, copying it if
+/// something does, and says where its numbers are for writing.
+///
+/// # Safety
+/// `value` is a valid pointer to a `[real]`, an `[int]` or a `matrix`, owned
+/// by the caller.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kmpl_rt_array_unique(value: *mut Value) -> ArrayView {
     // SAFETY: promised by the caller.
@@ -202,6 +221,13 @@ pub unsafe extern "C" fn kmpl_rt_array_unique(value: *mut Value) -> ArrayView {
             ArrayView {
                 data: items.as_mut_ptr() as *mut u8,
                 len: items.len() as u64,
+            }
+        }
+        Value::Matrix(matrix) => {
+            let data = &mut Arc::make_mut(matrix).data;
+            ArrayView {
+                data: data.as_mut_ptr() as *mut u8,
+                len: data.len() as u64,
             }
         }
         other => panic!("expected a flat array, got {other:?}"),
@@ -221,6 +247,26 @@ pub unsafe extern "C" fn kmpl_rt_index_error(
 ) -> ! {
     let message = ops::checked_index(index, len as usize)
         .expect_err("generated code checked that this index is bad");
+    // SAFETY: promised by the caller.
+    fail(&message, &unsafe { text(location, location_length) })
+}
+
+/// Stops the program with the error for a bad row of a matrix, or a bad
+/// column if `column` is not zero.
+///
+/// # Safety
+/// The location is a constant, see `text`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmpl_rt_cell_error(
+    index: i64,
+    count: u64,
+    column: u64,
+    location: *const u8,
+    location_length: u64,
+) -> ! {
+    let what = if column == 0 { "row" } else { "column" };
+    let message = ops::checked_line(index, count as usize, what)
+        .expect_err("generated code checked that this row or column is bad");
     // SAFETY: promised by the caller.
     fail(&message, &unsafe { text(location, location_length) })
 }

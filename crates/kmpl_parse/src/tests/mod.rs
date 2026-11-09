@@ -163,6 +163,7 @@ fn sexp_stmt(s: &Stmt) -> String {
                 .iter()
                 .map(|step| match step {
                     PathStep::Index(index) => sexp(index),
+                    PathStep::Cell(row, col) => format!("{},{}", sexp(row), sexp(col)),
                     PathStep::Field(field) => format!(".{}", field.name),
                 })
                 .collect();
@@ -301,6 +302,9 @@ fn sexp(e: &Expr) -> String {
         }
         ExprKind::ArrayFill { value, len } => format!("(fill {} {})", sexp(value), sexp(len)),
         ExprKind::Index { base, index } => format!("(index {} {})", sexp(base), sexp(index)),
+        ExprKind::Cell { base, row, col } => {
+            format!("(cell {} {} {})", sexp(base), sexp(row), sexp(col))
+        }
         ExprKind::Slice {
             base,
             start,

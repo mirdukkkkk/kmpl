@@ -7,7 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use kmpl_ast::{Block, Expr, ExprKind, Function, Ident, Item, PathStep, Program, Stmt, StmtKind};
+use kmpl_ast::{Block, Expr, ExprKind, Function, Ident, Item, Program, Stmt, StmtKind};
 
 use crate::error::CheckError;
 
@@ -156,7 +156,7 @@ impl<'a> Walk<'a> {
             StmtKind::PathAssign { path, value, .. } => {
                 self.expr(value);
                 for step in path {
-                    if let PathStep::Index(index) = step {
+                    for index in step.indices() {
                         self.expr(index);
                     }
                 }
@@ -276,6 +276,11 @@ impl<'a> Walk<'a> {
             ExprKind::Index { base, index } => {
                 self.expr(base);
                 self.expr(index);
+            }
+            ExprKind::Cell { base, row, col } => {
+                self.expr(base);
+                self.expr(row);
+                self.expr(col);
             }
             ExprKind::Slice {
                 base, start, end, ..

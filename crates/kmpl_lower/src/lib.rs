@@ -166,7 +166,7 @@ fn visit_block<'p>(block: &'p ast::Block, f: &mut impl FnMut(&'p Expr)) {
             }
             StmtKind::PathAssign { path, value, .. } => {
                 for step in path {
-                    if let PathStep::Index(index) = step {
+                    for index in step.indices() {
                         visit_expr(index, f);
                     }
                 }
@@ -260,6 +260,11 @@ fn visit_expr<'p>(e: &'p Expr, f: &mut impl FnMut(&'p Expr)) {
         ExprKind::Index { base, index } => {
             visit_expr(base, f);
             visit_expr(index, f);
+        }
+        ExprKind::Cell { base, row, col } => {
+            visit_expr(base, f);
+            visit_expr(row, f);
+            visit_expr(col, f);
         }
         ExprKind::Slice {
             base, start, end, ..
@@ -856,6 +861,11 @@ impl<'c, 'p> Builder<'c, 'p> {
                     steps.push(Step::Index(self.expr(index), index.span));
                     ty = element_type(ty);
                 }
+                PathStep::Cell(row, col) => {
+                    steps.push(Step::Index(self.expr(row), row.span));
+                    steps.push(Step::Index(self.expr(col), col.span));
+                    ty = Ty::Prim(Type::Real);
+                }
                 PathStep::Field(field) => {
                     let (index, field_ty) = self.field(&ty, &field.name);
                     steps.push(Step::Field(index));
@@ -1387,6 +1397,15 @@ impl<'c, 'p> Builder<'c, 'p> {
                     ty,
                     index.span,
                 )
+            }
+            // A matrix takes two steps of a path where an array takes one.
+            ExprKind::Cell { base, row, col } => {
+                let base = self.expr(base);
+                let path = vec![
+                    Step::Index(self.expr(row), row.span),
+                    Step::Index(self.expr(col), col.span),
+                ];
+                self.value(Op::PathGet { base, path }, ty, e.span)
             }
             ExprKind::Slice {
                 base,

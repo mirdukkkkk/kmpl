@@ -181,7 +181,7 @@ fn main() {
 }
 ```
 
-## Arrays and matrices
+## Arrays
 
 Arrays are values: `let b = a;` makes an independent copy. Indices are `int`,
 from zero, and a bad index stops the program with an error.
@@ -203,8 +203,8 @@ print(concat([1], [2, 3]));  // [1, 2, 3]
 `a = push(a, x);`.
 
 `+`, `-` and unary `-` work element by element. `*` and `/` by a number apply to
-every element. A matrix is just a `[[real]]`, and `*` on matrices is the matrix
-product:
+every element. An array of arrays can be used as a matrix, and `*` on them is the
+matrix product:
 
 ```kmpl
 let a = [1.0, 2.0];
@@ -218,6 +218,43 @@ print(m * a);  // [5.0, 11.0]
 
 Sizes are only known when the program runs, so mismatched sizes are runtime
 errors. `[real] * [real]` is not allowed.
+
+## Matrices
+
+`matrix` is a built-in type: rows and columns of `real`, stored as one block.
+`matrix(rows, cols)` is all zeros, `m[i, j]` reads or writes one number, and
+`rows` and `cols` give the shape. Like arrays, matrices are values. A bad row or
+column stops the program with an error. `m[i]` on a matrix and `a[i, j]` on an
+array are compile errors.
+
+```kmpl
+let m = matrix(2, 3);
+m[1, 2] = 5.0;
+m[0, 0] += 1.5;
+let b = m;
+b[0, 0] = 9.0;
+print(m[0, 0]);  // 1.5
+print(m.rows());  // 2
+print(m.cols());  // 3
+print(m);  // [[1.5, 0.0, 0.0], [0.0, 0.0, 5.0]]
+```
+
+`to_matrix` turns a `[[real]]` into a matrix and `to_rows` turns it back. The
+operators are `+`, `-`, unary `-`, `*` (the matrix product), `matrix * [real]`
+(gives `[real]`), `matrix * real`, `real * matrix`, `matrix / real`, `==` and
+`!=`. Shapes are checked when the program runs. `[real] * matrix` is not allowed.
+
+```kmpl
+let a = [[1.0, 2.0], [3.0, 4.0]].to_matrix();
+print(a * a);  // [[7.0, 10.0], [15.0, 22.0]]
+print(a * [1.0, 1.0]);  // [3.0, 7.0]
+print(2.0 * a);  // [[2.0, 4.0], [6.0, 8.0]]
+print(a.to_rows());  // [[1.0, 2.0], [3.0, 4.0]]
+```
+
+A matrix is for `real` only, and its access `m[i, j]` is compiled to direct
+reads and writes. The product of arrays of arrays works for any number type, but
+`a[i][j]` goes through the runtime and is slower.
 
 ## Tuples
 
@@ -564,7 +601,7 @@ Libraries that come with `kmpl` are imported from `std:`:
 | `std:text` | `parse_int parse_real split join trim starts_with ends_with contains find replace repeat to_upper to_lower is_digit is_letter is_space code from_code` |
 | `std:bits` | `shr_logical` |
 | `std:array` | `map filter fold any all` |
-| `std:linalg` | `solve det inverse transpose identity trace norm` |
+| `std:linalg` | `solve det inverse transpose identity trace norm row col` |
 | `std:stats` | `mean median variance stddev quantile correlation histogram linear_fit` |
 | `std:random` | `seed real int normal shuffle` |
 | `std:time` | `clock now sleep` |
@@ -584,22 +621,24 @@ fn main() {
 }
 ```
 
-`std:linalg` works on matrices written as `[[real]]`:
+`std:linalg` works on `matrix`:
 
 ```kmpl
 import linalg from "std:linalg";
 
 fn main() {
-    let a = [[2.0, 0.0], [0.0, 4.0]];
+    let a = [[2.0, 0.0], [0.0, 4.0]].to_matrix();
     print(linalg.solve(a, [2.0, 8.0]));  // some([1.0, 2.0])
     print(linalg.det(a));  // 8.0
-    print(linalg.inverse([[1.0, 2.0], [2.0, 4.0]]));  // none
+    print(linalg.inverse(a));  // some([[0.5, 0.0], [0.0, 0.25]])
+    print(linalg.inverse([[1.0, 2.0], [2.0, 4.0]].to_matrix()));  // none
+    print(linalg.col(a, 1));  // [0.0, 4.0]
 }
 ```
 
 `solve` and `inverse` return `none` for a singular matrix, and a matrix of the wrong
-shape stops the program. Its numbers are copied, so a function of this library is
-as fast as Rust, while a loop over `a[i][j]` in your own code is slower.
+shape stops the program. `row(a, i)` and `col(a, j)` give a copy of one row or
+column as `[real]`. The functions of this library run as Rust code.
 
 `random.real()` is from 0.0 up to 1.0, and `random.int(1, 7)` from 1 to 6, like
 `1..7`. An empty range stops the program. After `random.seed(n)` the numbers are

@@ -951,3 +951,151 @@ fn match_and_panic_end_paths() {
         "`y` is used before being assigned",
     );
 }
+
+#[test]
+fn matrix_cells_are_reals() {
+    assert_ok("fn f(m: matrix) { let x: real = m[0, 1]; }");
+    assert_ok("fn f(m: matrix) { m[0, 1] = 2; m[1, 1] += 3; }");
+    assert_ok("fn f(m: matrix, i: int, j: int) { let x: real = m[i + 1, j * 2]; }");
+    assert_error(
+        "fn f(m: matrix) { let x: int = m[0, 0]; }",
+        "mismatched types: expected `int`, found `real`",
+    );
+    assert_error(
+        "fn f(m: matrix) { m[0, 0] = true; }",
+        "mismatched types: expected `real`, found `bool`",
+    );
+    assert_error(
+        "fn f(m: matrix) { let x = m[0.5, 0]; }",
+        "mismatched types: expected `int`, found `real` or `complex`",
+    );
+    assert_error(
+        "fn f(m: matrix) { let x = m[0, 1.5]; }",
+        "mismatched types: expected `int`, found `real` or `complex`",
+    );
+}
+
+#[test]
+fn matrix_cells_in_paths() {
+    assert_ok(
+        "struct S { m: matrix }
+         fn f(s: S, list: [matrix], k: int) { s.m[0, 0] = 1.0; list[k][1, 1] += 2.0; let x = s.m[0, 1]; }",
+    );
+}
+
+#[test]
+fn a_matrix_takes_a_row_and_a_column() {
+    assert_error(
+        "fn f(m: matrix) { let r = m[0]; }",
+        "a `matrix` takes a row and a column: `m[i, j]`",
+    );
+    assert_error(
+        "fn f(m: matrix) { m[0] = 1.0; }",
+        "a `matrix` takes a row and a column: `m[i, j]`",
+    );
+}
+
+#[test]
+fn only_a_matrix_takes_two_indices() {
+    assert_error(
+        "fn f(a: [[real]]) { let x = a[0, 1]; }",
+        "only a `matrix` takes a row and a column, found `[[real]]`: write `a[i][j]`",
+    );
+    assert_error(
+        "fn f(a: [[real]]) { a[0, 1] = 1.0; }",
+        "only a `matrix` takes a row and a column, found `[[real]]`: write `a[i][j]`",
+    );
+}
+
+#[test]
+fn matrix_arithmetic() {
+    assert_ok("fn f(a: matrix, b: matrix) { let c: matrix = a + b - a; let d: matrix = -a; }");
+    assert_ok("fn f(a: matrix, b: matrix) { let c: matrix = a * b; }");
+    assert_ok("fn f(a: matrix, v: [real]) { let c: [real] = a * v; }");
+    assert_ok(
+        "fn f(a: matrix, k: real) { let b: matrix = a * k; let c: matrix = k * a; let d: matrix = a / k; }",
+    );
+    assert_ok(
+        "fn f(a: matrix) { let b: matrix = a * 2; let c: matrix = 2 * a; let d: matrix = a / 2; }",
+    );
+    assert_ok("fn f(a: matrix, b: matrix) { let p: bool = a == b; let q = a != b; }");
+    assert_ok("fn f(a: matrix) { a += a; a *= 2.0; a /= 2.0; }");
+}
+
+#[test]
+fn matrix_arithmetic_errors() {
+    assert_error(
+        "fn f(a: matrix, v: [real]) { let c = v * a; }",
+        "cannot apply `*` to `[real]` and `matrix`",
+    );
+    assert_error(
+        "fn f(a: matrix, b: matrix) { let c = a / b; }",
+        "cannot apply `/` to `matrix` and `matrix`",
+    );
+    assert_error(
+        "fn f(a: matrix) { let c = a + 1.0; }",
+        "mismatched types: expected `matrix`, found `real` or `complex`",
+    );
+    assert_error(
+        "fn f(a: matrix) { let c = a + 1; }",
+        "mismatched types: expected `matrix`, found `int`, `real` or `complex`",
+    );
+    assert_error(
+        "fn f(a: matrix, v: vec3) { let c = a * v; }",
+        "cannot apply `*` to `matrix` and `vec3`",
+    );
+    assert_error(
+        "fn f(a: matrix, k: int) { let c = a * k; }",
+        "mismatched types: expected `real`, found `int`",
+    );
+    assert_error(
+        "fn f(a: matrix, b: matrix) { let c = a < b; }",
+        "cannot apply `<` to `matrix`",
+    );
+}
+
+#[test]
+fn matrix_built_ins() {
+    assert_ok(
+        "fn f() {
+             let m: matrix = matrix(2, 3);
+             let r: int = rows(m); let c: int = cols(m);
+             let a: [[real]] = to_rows(m);
+             let n: matrix = to_matrix(a);
+             let k: matrix = to_matrix([[1, 2], [3, 4]]);
+         }",
+    );
+    assert_error(
+        "fn f() { let m = matrix(2.5, 1); }",
+        "mismatched types: expected `int`, found `real` or `complex`",
+    );
+    assert_error(
+        "fn f(a: [[int]]) { let m = to_matrix(a); }",
+        "mismatched types: expected `[[real]]`, found `[[int]]`",
+    );
+    assert_error(
+        "fn f(a: [real]) { let m = rows(a); }",
+        "mismatched types: expected `matrix`, found `[real]`",
+    );
+}
+
+#[test]
+fn matrices_in_signatures_structs_and_arrays() {
+    assert_ok("fn g(m: matrix) -> matrix { return m; } fn f(m: matrix) { let n: matrix = g(m); }");
+    assert_ok(
+        "struct S { m: matrix } fn f() { let s = S { m: matrix(1, 1) }; let x: real = s.m[0, 0]; }",
+    );
+    assert_ok("fn f(a: [matrix], b: [matrix]) { let c: [matrix] = a + b; let d: matrix = a[0]; }");
+    assert_ok(
+        "fn f() { let a = [matrix(1, 1), matrix(2, 2)]; let b: [matrix] = push(a, matrix(0, 0)); }",
+    );
+    assert_ok("fn f(m: matrix) -> matrix? { return some(m); }");
+}
+
+#[test]
+fn matrices_in_generics() {
+    assert_ok(
+        "fn id<T>(x: T) -> T { return x; }
+         fn f(m: matrix) { let n: matrix = id(m); let k: real = id(m)[0, 0]; }",
+    );
+}
