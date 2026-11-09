@@ -295,6 +295,9 @@ impl<'m> Vm<'m, '_> {
             let result = match &inst.op {
                 Op::Binary { op, a, b } => Some(self.binary(*op, *a, *b, base, inst.span)?),
                 Op::Const(value) => Some(constant(value)),
+                Op::Builtin { id, args } => {
+                    self.builtin(*id, args, &inst.frees, base, inst.span)?
+                }
                 Op::RangeContinues {
                     value,
                     end,
@@ -381,10 +384,10 @@ impl<'m> Vm<'m, '_> {
                 (UnOp::Not, Value::Bool(x)) => Value::Bool(!x),
                 (_, other) => ops::unary(*op, other.clone()).map_err(|m| error(m, span))?,
             },
-            Op::Builtin { id, args } => return self.builtin(*id, args, base, span),
             Op::Call { .. }
             | Op::Binary { .. }
             | Op::Const(_)
+            | Op::Builtin { .. }
             | Op::RangeContinues { .. }
             | Op::AddOverflows { .. } => unreachable!("handled by `execute`"),
             Op::GetGlobal(id) => self.globals[*id].clone(),
@@ -480,19 +483,33 @@ impl<'m> Vm<'m, '_> {
         ops::binary(op, left.clone(), right.clone()).map_err(|m| error(m, span))
     }
 
+    /// An argument used for the last time is moved, so the built-in can
+    /// reuse it. The rest are shared.
     fn builtin(
         &mut self,
         id: usize,
         args: &[Reg],
+        frees: &[Reg],
         base: usize,
         span: Span,
     ) -> Result<Option<Value>> {
         let mut values = std::mem::take(&mut self.scratch);
         values.clear();
-        values.extend(args.iter().map(|r| self.reg(base, *r).clone()));
+        for (position, reg) in args.iter().enumerate() {
+            let slot = base + reg.0 as usize;
+            let last_use = frees.contains(reg) && !args[position + 1..].contains(reg);
+            values.push(if last_use {
+                std::mem::replace(&mut self.registers[slot], EMPTY)
+            } else {
+                self.registers[slot].clone()
+            });
+        }
 
-        let result = (self.builtins[id].func)(&values, &mut self.io);
+        let result = (self.builtins[id].func)(&mut values, &mut self.io);
 
+        // Holding on to the arguments would make a later write to one of
+        // those arrays copy it.
+        values.clear();
         self.scratch = values;
         result.map_err(|m| error(m, span))
     }

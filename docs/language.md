@@ -180,8 +180,8 @@ print(push(a, 4.0));  // [1.0, 2.0, 3.0, 4.0]
 print(concat([1], [2, 3]));  // [1, 2, 3]
 ```
 
-`push` and `concat` return a new array, so write `a = push(a, x);`. Each call
-copies the array, so create arrays of the final size in long loops.
+`push` and `concat` return a new array and leave the old one alone, so write
+`a = push(a, x);`.
 
 `+`, `-` and unary `-` work element by element. `*` and `/` by a number apply to
 every element. A matrix is just a `[[real]]`, and `*` on matrices is the matrix

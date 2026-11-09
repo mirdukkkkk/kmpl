@@ -35,7 +35,7 @@ fn call_with_out(
         input: &mut input,
         args: &[],
     };
-    (b.func)(args, &mut io)
+    (b.func)(&mut args.to_vec(), &mut io)
 }
 
 /// Like `call_with_out`, discarding the output.

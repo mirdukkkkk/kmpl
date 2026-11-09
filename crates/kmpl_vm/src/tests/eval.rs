@@ -1267,7 +1267,10 @@ fn swapping_values_in_a_while_loop() {
 
 #[test]
 fn a_loop_that_never_runs_keeps_moved_work_harmless() {
-    assert_eq!(output("for i in 0..0 { print(2.0 * 3.0); } print(1);"), "1\n");
+    assert_eq!(
+        output("for i in 0..0 { print(2.0 * 3.0); } print(1);"),
+        "1\n"
+    );
     assert_eq!(
         output("let x = 2.0; let i = 0; while i < 0 { print(x * x); i += 1; } print(x);"),
         "2.0\n"
@@ -1325,5 +1328,63 @@ fn ranges_near_the_end_of_int() {
     assert_eq!(
         output(&format!("for i in {min}+1..={min} step -1 {{ print(i); }}")),
         "-9223372036854775807\n-9223372036854775808\n"
+    );
+}
+
+#[test]
+fn reading_an_array_does_not_make_the_next_write_copy_it() {
+    let src = "fn main() {
+                   let n = 200000;
+                   let a = [0; n];
+                   for i in 0..n { a[i] = len(a); }
+                   print(a[n - 1]);
+               }";
+    assert_eq!(run(src).unwrap(), "200000\n");
+}
+
+#[test]
+fn a_loop_of_pushes_does_not_copy() {
+    let src = "fn main() {
+                   let a: [int] = [];
+                   for i in 0..200000 { a = push(a, i); }
+                   print(len(a));
+                   print(a[199999]);
+               }";
+    assert_eq!(run(src).unwrap(), "200000\n199999\n");
+}
+
+#[test]
+fn push_and_concat_leave_other_holders_alone() {
+    assert_eq!(
+        output("let a = [1]; let b = a; a = push(a, 2); print(a); print(b);"),
+        "[1, 2]\n[1]\n"
+    );
+    assert_eq!(
+        output(
+            "let a = [1]; let b = push(a, 2); let c = push(a, 3); print(a); print(b); print(c);"
+        ),
+        "[1]\n[1, 2]\n[1, 3]\n"
+    );
+    assert_eq!(
+        output("let a = [1, 2]; print(concat(a, a));"),
+        "[1, 2, 1, 2]\n"
+    );
+    assert_eq!(
+        output("let a = [1]; let b = a; a = concat(a, [2]); print(a); print(b);"),
+        "[1, 2]\n[1]\n"
+    );
+    assert_eq!(
+        output("let m = [[1]]; m = push(m, m[0]); m[0][0] = 9; print(m);"),
+        "[[9], [1]]\n"
+    );
+}
+
+#[test]
+fn matrix_product_of_every_number_type() {
+    assert_eq!(output("print([[1.5, 2.0]] * [0.5, 2.0]);"), "[4.75]\n");
+    assert_eq!(output("print([[2, 3]] * [4, 5]);"), "[23]\n");
+    assert_eq!(
+        output("print([[1.0i, 2.0i]] * [1.0i, 1.0i]);"),
+        "[-3.0+0.0i]\n"
     );
 }

@@ -178,10 +178,17 @@ fn matrix_rows(matrix: &[Value]) -> Result<(Vec<&[Value]>, usize), String> {
 fn sum_of_products<'v>(x: &[Value], y: impl Iterator<Item = &'v Value>) -> Result<Value, String> {
     let mut total = None;
     for (p, q) in x.iter().zip(y) {
-        let term = binary(BinOp::Mul, p.clone(), q.clone())?;
-        total = Some(match total {
-            Some(sum) => binary(BinOp::Add, sum, term)?,
-            None => term,
+        total = Some(match (total, p, q) {
+            // Matrices are nearly always `real`.
+            (Some(Value::Real(sum)), Value::Real(a), Value::Real(b)) => Value::Real(sum + a * b),
+            (None, Value::Real(a), Value::Real(b)) => Value::Real(a * b),
+            (total, p, q) => {
+                let term = binary(BinOp::Mul, p.clone(), q.clone())?;
+                match total {
+                    Some(sum) => binary(BinOp::Add, sum, term)?,
+                    None => term,
+                }
+            }
         });
     }
     Ok(total.expect("the caller checked there is at least one column"))
