@@ -380,6 +380,11 @@ pub const DIVISION_BY_ZERO: &str = "division by zero";
 pub const ZERO_STEP: &str = "loop step cannot be zero";
 pub const BAD_SHIFT: &str = "shift amount must be from 0 to 63";
 
+/// `v` as an element of `bytes`.
+pub fn byte(v: i64) -> Result<u8, String> {
+    u8::try_from(v).map_err(|_| format!("byte value {v} is not from 0 to 255"))
+}
+
 /// `n` as the amount of a shift.
 pub fn shift_amount(n: i64) -> Result<u32, String> {
     match u32::try_from(n) {

@@ -51,6 +51,8 @@ pub enum Value {
     Reals(Arc<Vec<f64>>),
     /// `[int]`, like `Reals`.
     Ints(Arc<Vec<i64>>),
+    /// `bytes`, written through `Arc::make_mut` like an array.
+    Bytes(Arc<Vec<u8>>),
     /// Never changed after it is built, so it is simply shared.
     Tuple(Arc<[Value]>),
     /// A value too, written through `Arc::make_mut` like an array.
@@ -71,6 +73,7 @@ impl Value {
             Value::Vec3(_) => Type::Vec3,
             Value::Vec4(_) => Type::Vec4,
             Value::Str(_) => Type::Str,
+            Value::Bytes(_) => Type::Bytes,
             Value::Array(_) | Value::Reals(_) | Value::Ints(_) => {
                 panic!("an array has no `Type`")
             }
@@ -131,12 +134,21 @@ impl Value {
         }
     }
 
+    /// The contents of a `bytes`. Panics on other variants, like `as_real`.
+    pub fn as_bytes(&self) -> &[u8] {
+        match self {
+            Value::Bytes(items) => items,
+            other => panic!("expected bytes, got {other:?}"),
+        }
+    }
+
     /// The length of an array of any form. Panics on other variants.
     pub fn array_len(&self) -> usize {
         match self {
             Value::Array(items) => items.len(),
             Value::Reals(items) => items.len(),
             Value::Ints(items) => items.len(),
+            Value::Bytes(items) => items.len(),
             other => panic!("expected an array, got {other:?}"),
         }
     }
@@ -212,6 +224,10 @@ impl std::fmt::Display for Value {
             }
             Value::Ints(items) => {
                 let parts: Vec<String> = items.iter().map(i64::to_string).collect();
+                write!(f, "[{}]", parts.join(", "))
+            }
+            Value::Bytes(items) => {
+                let parts: Vec<String> = items.iter().map(u8::to_string).collect();
                 write!(f, "[{}]", parts.join(", "))
             }
             Value::Tuple(items) => {

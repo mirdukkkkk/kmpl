@@ -21,6 +21,7 @@ fn main() {
 | `complex` | `2.0i`, `1.0 + 2.0i` | |
 | `vec2`, `vec3`, `vec4` | `vec3(1, 2, 3)` | |
 | `string` | `"text\n"` | UTF-8, cannot be changed in place |
+| `bytes` | `bytes("text")` | Raw bytes; elements are `int` from 0 to 255 |
 | `[T]` | `[1, 2, 3]` | array of any length |
 | `(A, B)` | `(1, 2.5)` | tuple of two or more values |
 
@@ -60,6 +61,17 @@ const AREA: real = PI * RADIUS * RADIUS;
 fn main() {
     print(AREA > 12.5);  // true
 }
+```
+
+`bytes` holds raw data. `b[i]` and `for x in b` give `int`s, and slices, `len`,
+`push`, `concat` and `==` work as on arrays. `string(b)` decodes UTF-8 and stops the
+program if the data is not valid UTF-8, while `print(b)` shows the numbers:
+
+```kmpl
+let b = bytes("AB");
+b[0] = 97;
+print(string(b));  // aB
+print(b);  // [97, 66]
 ```
 
 ## Operators

@@ -417,6 +417,7 @@ pub static BUILTINS: &[Builtin] = &[
                 Value::Array(items) => Arc::make_mut(items).push(a[1].clone()),
                 Value::Reals(items) => Arc::make_mut(items).push(a[1].as_real()),
                 Value::Ints(items) => Arc::make_mut(items).push(a[1].as_int()),
+                Value::Bytes(items) => Arc::make_mut(items).push(ops::byte(a[1].as_int())?),
                 other => panic!("expected an array, got {other:?}"),
             }
             ok(array)
@@ -433,6 +434,7 @@ pub static BUILTINS: &[Builtin] = &[
                 Value::Array(items) => Arc::make_mut(items).extend_from_slice(a[1].as_array()),
                 Value::Reals(items) => Arc::make_mut(items).extend_from_slice(a[1].as_reals()),
                 Value::Ints(items) => Arc::make_mut(items).extend_from_slice(a[1].as_ints()),
+                Value::Bytes(items) => Arc::make_mut(items).extend_from_slice(a[1].as_bytes()),
                 other => panic!("expected an array, got {other:?}"),
             }
             ok(array)
@@ -444,7 +446,21 @@ pub static BUILTINS: &[Builtin] = &[
         generic: &[],
         params: &[ParamType::Any],
         ret: RetType::Exact(Type::Str),
-        func: |a, _| ok(Value::Str(a[0].to_string().into())),
+        func: |a, _| match &a[0] {
+            // The text inside the bytes, not the numbers `print` shows.
+            Value::Bytes(items) => match std::str::from_utf8(items) {
+                Ok(text) => ok(Value::Str(text.into())),
+                Err(_) => Err("bytes are not valid UTF-8".to_owned()),
+            },
+            other => ok(Value::Str(other.to_string().into())),
+        },
+    },
+    Builtin {
+        name: "bytes",
+        generic: &[],
+        params: &[ParamType::Exact(Type::Str)],
+        ret: RetType::Exact(Type::Bytes),
+        func: |a, _| ok(Value::Bytes(Arc::new(a[0].as_str().as_bytes().to_vec()))),
     },
     Builtin {
         name: "parse_int",

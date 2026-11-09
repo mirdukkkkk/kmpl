@@ -80,7 +80,7 @@ fn errors() {
 fn generic_functions() {
     assert_eq!(
         tree("fn id<T>(x: T) -> T { return x; }"),
-        "(fn id<T: int|real|bool|complex|vec2|vec3|vec4|str> [(x T)] T [(return x)])"
+        "(fn id<T: int|real|bool|complex|vec2|vec3|vec4|str|bytes> [(x T)] T [(return x)])"
     );
     assert_eq!(
         tree("fn lerp<T: float | vector>(a: T, b: T, t: real) -> T { }"),

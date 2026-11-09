@@ -472,10 +472,7 @@ impl<'c, 'p> Builder<'c, 'p> {
             match step {
                 PathStep::Index(index) => {
                     steps.push(Step::Index(self.expr(index), index.span));
-                    let Ty::Array(elem) = ty else {
-                        panic!("indexing a non-array, the checker should have rejected it");
-                    };
-                    ty = *elem;
+                    ty = element_type(ty);
                 }
                 PathStep::Field(field) => {
                     let (index, field_ty) = self.field(&ty, &field.name);
@@ -736,15 +733,13 @@ impl<'c, 'p> Builder<'c, 'p> {
         let base = self.vars.len();
         let item = match elements {
             Some(array) => {
-                let Ty::Array(elem) = self.reg_type(array) else {
-                    panic!("iterating a non-array, the checker should have rejected it");
-                };
+                let elem = element_type(self.reg_type(array).clone());
                 self.value(
                     Op::Index {
                         base: array,
                         index: counter,
                     },
-                    *elem,
+                    elem,
                     span,
                 )
             }
@@ -1025,5 +1020,14 @@ fn collect_assigned<'p>(block: &'p ast::Block, names: &mut HashSet<&'p str>) {
             | StmtKind::Return(_)
             | StmtKind::Expr(_) => {}
         }
+    }
+}
+
+/// What indexing a value of type `ty` gives.
+fn element_type(ty: Ty) -> Ty {
+    match ty {
+        Ty::Array(element) => *element,
+        Ty::Prim(Type::Bytes) => INT,
+        other => panic!("indexing {other:?}, the checker should have rejected it"),
     }
 }

@@ -20,7 +20,7 @@ use kmpl_ast::{Ty, Type};
 pub struct TypeSet(u16);
 
 /// All types, in the order used for defaults and for messages.
-const ALL: [Type; 8] = [
+const ALL: [Type; 9] = [
     Type::Int,
     Type::Real,
     Type::Complex,
@@ -29,17 +29,18 @@ const ALL: [Type; 8] = [
     Type::Vec3,
     Type::Vec4,
     Type::Str,
+    Type::Bytes,
 ];
 
 impl TypeSet {
-    pub const ANY: TypeSet = TypeSet(0b111_1111_1111);
+    pub const ANY: TypeSet = TypeSet(0b1111_1111_1111);
     /// The set of a variable known to be an array. The bit after the
-    /// eight types in `ALL`.
-    pub const ARRAY: TypeSet = TypeSet(1 << 8);
+    /// nine types in `ALL`.
+    pub const ARRAY: TypeSet = TypeSet(1 << 9);
     /// The set of a variable known to be a tuple.
-    pub const TUPLE: TypeSet = TypeSet(1 << 9);
+    pub const TUPLE: TypeSet = TypeSet(1 << 10);
     /// The set of a variable known to be a struct.
-    pub const STRUCT: TypeSet = TypeSet(1 << 10);
+    pub const STRUCT: TypeSet = TypeSet(1 << 11);
     /// Type of an integer literal like `1`.
     pub const NUMBER: TypeSet = TypeSet::of(&[Type::Int, Type::Real, Type::Complex]);
     /// Type of a real literal like `1.0`.
@@ -145,6 +146,7 @@ pub fn type_name(ty: Type) -> &'static str {
         Type::Vec3 => "vec3",
         Type::Vec4 => "vec4",
         Type::Str => "string",
+        Type::Bytes => "bytes",
     }
 }
 

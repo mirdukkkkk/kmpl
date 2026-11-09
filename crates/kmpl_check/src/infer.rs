@@ -564,6 +564,10 @@ impl<'a> Infer<'a> {
 
     /// The element type of `ty`, which must be an array.
     fn array_elem(&mut self, ty: TyVar, span: Span) -> TyVar {
+        // Bytes read and write as `int`s from 0 to 255.
+        if self.is_bytes(ty) {
+            return self.known(Type::Int);
+        }
         let elem = self.u.new_var(TypeSet::ANY);
         let array = self.u.new_array(elem);
         if self.u.unify(ty, array).is_err() {
@@ -571,6 +575,10 @@ impl<'a> Infer<'a> {
             self.error(format!("expected an array, found {found}"), span);
         }
         elem
+    }
+
+    fn is_bytes(&self, ty: TyVar) -> bool {
+        self.u.set(ty) == TypeSet::single(Type::Bytes)
     }
 
     fn literal(&mut self, set: TypeSet, span: Span) -> TyVar {
@@ -755,6 +763,8 @@ impl<'a> Infer<'a> {
         let builtin = kmpl_builtins::lookup(&name.name).expect("checked by resolve");
         let t = self.u.new_var(TypeSet::of(builtin.generic));
         let elem = self.u.new_var(TypeSet::ANY);
+        // `push` and `concat` also work on `bytes` and then give `bytes`.
+        let mut on_bytes = false;
 
         for (arg, param) in args.iter().zip(builtin.params) {
             let arg_ty = self.expr(arg);
@@ -763,11 +773,17 @@ impl<'a> Infer<'a> {
                 ParamType::T => self.unify(arg_ty, t, arg.span),
                 ParamType::Any => {}
                 ParamType::Collection => {
-                    if self.u.set(arg_ty) != TypeSet::single(Type::Str) {
+                    let string = self.u.set(arg_ty) == TypeSet::single(Type::Str);
+                    if !string && !self.is_bytes(arg_ty) {
                         self.array_elem(arg_ty, arg.span);
                     }
                 }
                 ParamType::Elem => self.unify(arg_ty, elem, arg.span),
+                ParamType::ArrayOfElem if on_bytes || self.is_bytes(arg_ty) => {
+                    on_bytes = true;
+                    self.expect(elem, Type::Int, arg.span);
+                    self.expect(arg_ty, Type::Bytes, arg.span);
+                }
                 ParamType::ArrayOfElem => {
                     let array = self.u.new_array(elem);
                     self.unify(arg_ty, array, arg.span);
@@ -779,6 +795,7 @@ impl<'a> Infer<'a> {
             RetType::Nothing => None,
             RetType::Exact(ty) => Some(self.known(ty)),
             RetType::T => Some(t),
+            RetType::ArrayOfElem if on_bytes => Some(self.known(Type::Bytes)),
             RetType::ArrayOfElem => Some(self.u.new_array(elem)),
             RetType::ArrayOf(ty) => {
                 let elem = self.known(ty);

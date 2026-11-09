@@ -21,6 +21,7 @@ fn sample(ty: Type) -> Value {
         Type::Vec3 => Value::Vec3([1.0, 2.0, 3.0]),
         Type::Vec4 => Value::Vec4([1.0, 2.0, 3.0, 4.0]),
         Type::Str => Value::Str("text".into()),
+        Type::Bytes => Value::Bytes(std::sync::Arc::new(vec![1, 2])),
     }
 }
 

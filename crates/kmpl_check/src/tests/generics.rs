@@ -108,7 +108,7 @@ fn generic_parameter_that_cannot_be_inferred() {
 fn too_many_copies() {
     assert_error(
         "fn f<A, B, C>() { }",
-        "`f` would need 512 copies, more than 256; narrow the bounds of its generic parameters",
+        "`f` would need 729 copies, more than 256; narrow the bounds of its generic parameters",
     );
 }
 
@@ -216,7 +216,7 @@ fn tuples_of_generic_parameters() {
     );
     assert_error(
         "fn id<T>(x: T) -> T { return x; } fn g() { id((1, 2)); }",
-        "mismatched types: expected `int`, `real`, `complex`, `bool`, `vec2`, `vec3`, `vec4` or `string`, found `(int, int)`",
+        "mismatched types: expected `int`, `real`, `complex`, `bool`, `vec2`, `vec3`, `vec4`, `string` or `bytes`, found `(int, int)`",
     );
 }
 

@@ -147,7 +147,8 @@ fn preheader(f: &Function, found: &Loop) -> Option<usize> {
 }
 
 fn is_number_or_string(f: &Function, reg: Reg) -> bool {
-    matches!(f.types[reg.0 as usize], Ty::Prim(_))
+    // `bytes` can be written in place, like an array.
+    matches!(&f.types[reg.0 as usize], Ty::Prim(ty) if *ty != kmpl_ast::Type::Bytes)
 }
 
 fn hoist_from(f: &mut Function, found: &Loop, preheader: usize) -> bool {

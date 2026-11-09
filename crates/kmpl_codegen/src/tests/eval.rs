@@ -1557,3 +1557,65 @@ fn bitwise_precedence_follows_rust() {
         "6\n3\ntrue\n"
     );
 }
+
+#[test]
+fn bytes_read_and_write_like_a_small_array() {
+    assert_eq!(
+        output(
+            "let b = bytes(\"AB\"); print(b); print(len(b)); print(b[1]); b[0] = 97; print(string(b));"
+        ),
+        "[65, 66]\n2\n66\naB\n"
+    );
+    assert_eq!(
+        output("let s = 0; for x in bytes(\"ab\") { s += x; } print(s);"),
+        "195\n"
+    );
+}
+
+#[test]
+fn bytes_slices_push_concat_and_value_semantics() {
+    assert_eq!(
+        output(
+            "let a = bytes(\"abcd\"); let c = a; c[0] = 122;
+             let d = push(a[1..3], 33); print(string(concat(d, c)));
+             print(string(a)); print(a == c);"
+        ),
+        "bc!zbcd\nabcd\nfalse\n"
+    );
+}
+
+#[test]
+fn bytes_of_a_string_count_bytes_not_characters() {
+    assert_eq!(
+        output("print(len(bytes(\"ж\"))); print(len(\"ж\"));"),
+        "2\n1\n"
+    );
+}
+
+#[test]
+fn a_byte_out_of_range_is_an_error() {
+    assert_eq!(
+        runtime_error("fn main() { let b = bytes(\"a\"); b[0] = 256; print(b); }"),
+        "byte value 256 is not from 0 to 255"
+    );
+    assert_eq!(
+        runtime_error("fn main() { let n = -1; print(push(bytes(\"\"), n)); }"),
+        "byte value -1 is not from 0 to 255"
+    );
+}
+
+#[test]
+fn invalid_utf8_is_an_error_when_decoded() {
+    assert_eq!(
+        runtime_error("fn main() { let b = bytes(\"a\"); b[0] = 255; print(string(b)); }"),
+        "bytes are not valid UTF-8"
+    );
+}
+
+#[test]
+fn bytes_are_checked_like_arrays() {
+    assert_eq!(
+        runtime_error("fn main() { let b = bytes(\"a\"); let i = 1; print(b[i]); }"),
+        "index 1 is out of bounds for an array of length 1"
+    );
+}

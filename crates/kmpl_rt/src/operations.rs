@@ -132,6 +132,7 @@ unsafe fn slice(flags: u64, args: &[Slot]) -> Result<Value, String> {
     Ok(match array {
         Value::Reals(items) => Value::Reals(Arc::new(items[range].to_vec())),
         Value::Ints(items) => Value::Ints(Arc::new(items[range].to_vec())),
+        Value::Bytes(items) => Value::Bytes(Arc::new(items[range].to_vec())),
         other => Value::Array(Arc::new(other.as_array()[range].to_vec())),
     })
 }
@@ -141,6 +142,7 @@ fn element(array: &Value, position: usize) -> Value {
     match array {
         Value::Reals(items) => Value::Real(items[position]),
         Value::Ints(items) => Value::Int(items[position]),
+        Value::Bytes(items) => Value::Int(i64::from(items[position])),
         other => other.as_array()[position].clone(),
     }
 }
@@ -173,7 +175,7 @@ unsafe fn read_path(root: &Value, mut steps: &[Slot]) -> Value {
                 target = &items[i];
             }
             // Numbers have no parts, so this is the last step.
-            (_, array @ (Value::Reals(_) | Value::Ints(_))) => {
+            (_, array @ (Value::Reals(_) | Value::Ints(_) | Value::Bytes(_))) => {
                 // SAFETY: promised by the caller.
                 let i = unsafe { index(*step, rest[0], array.array_len()) };
                 return element(array, i);
@@ -214,6 +216,16 @@ unsafe fn write_path(root: &mut Value, mut steps: &[Slot], value: Value) {
                 // SAFETY: promised by the caller.
                 let i = unsafe { index(*step, rest[0], items.len()) };
                 items[i] = value.as_int();
+                return;
+            }
+            (_, Value::Bytes(items)) => {
+                let items = Arc::make_mut(items);
+                // SAFETY: promised by the caller.
+                let i = unsafe { index(*step, rest[0], items.len()) };
+                items[i] = ops::byte(value.as_int()).unwrap_or_else(|message| {
+                    // SAFETY: promised by the caller.
+                    fail(&message, &unsafe { slot_text(rest[0]) })
+                });
                 return;
             }
             (_, other) => panic!("bad target {other:?}"),
