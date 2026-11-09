@@ -7,6 +7,11 @@ license.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Link against the shared libLLVM instead of embedding LLVM in the binary.
+# For distributions that already ship LLVM.
+dynamic-llvm = ["inkwell/llvm23-1-force-dynamic"]
+
 [dependencies]
 kmpl_ast.workspace = true
 kmpl_builtins.workspace = true

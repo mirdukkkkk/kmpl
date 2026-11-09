@@ -46,7 +46,8 @@ standard input and output.
 
 You need a recent stable Rust and LLVM 23 (`LLVM_SYS_231_PREFIX` names its
 location; the Nix dev shell sets it up). `kmpl build` also needs a C compiler
-named `cc` to link.
+named `cc` to link. LLVM is embedded in the binary; packagers can build with
+`--features dynamic-llvm` to link against the shared library instead.
 
 ```sh
 git clone https://github.com/mirdukkkkk/kmpl
