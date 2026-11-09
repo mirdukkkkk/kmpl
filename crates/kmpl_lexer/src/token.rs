@@ -120,6 +120,7 @@ fn unescape(literal: &str) -> Option<String> {
         text.push(match chars.next()? {
             'n' => '\n',
             't' => '\t',
+            'r' => '\r',
             '"' => '"',
             '\\' => '\\',
             _ => return None,

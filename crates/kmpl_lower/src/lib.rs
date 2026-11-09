@@ -502,7 +502,7 @@ impl<'c, 'p> Builder<'c, 'p> {
                 // May be a call to a function that returns nothing.
                 ExprKind::Call { name, args } => {
                     self.call(name, args, None, e.span);
-                    if stmt.is_panic() {
+                    if stmt.never_returns() {
                         self.terminate(Terminator::Unreachable);
                     }
                 }

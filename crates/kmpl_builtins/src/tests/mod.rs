@@ -102,6 +102,7 @@ fn signatures_match_implementations() {
             // with the sample arguments.
             if [
                 "panic",
+                "exit",
                 "_text_code",
                 "_text_join",
                 "_time_sleep",

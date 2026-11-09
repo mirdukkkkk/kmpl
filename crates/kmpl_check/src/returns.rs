@@ -30,7 +30,7 @@ fn always_returns(block: &Block) -> bool {
 }
 
 fn stmt_always_returns(stmt: &Stmt) -> bool {
-    if stmt.is_panic() {
+    if stmt.never_returns() {
         return true;
     }
     match &stmt.kind {

@@ -230,7 +230,10 @@ fn runtime_errors_name_the_imported_file() {
                 "main.kmpl",
                 "import a from \"./a\";\nfn main() { print(a.f(0)); }\n",
             ),
-            ("a.kmpl", "pub fn f(x: int) -> int {\n    return 1 / x;\n}\n"),
+            (
+                "a.kmpl",
+                "pub fn f(x: int) -> int {\n    return 1 / x;\n}\n",
+            ),
         ],
     );
     assert_eq!(out.status.code(), Some(1));
@@ -825,6 +828,46 @@ fn stats_reports_what_it_cannot_do() {
         message("st_fit", "print(stats.linear_fit([1.0, 1.0], [1.0, 2.0]));")
             .contains("`stats.linear_fit` needs `x` values that differ")
     );
+}
+
+#[test]
+fn exit_ends_the_program_with_its_code() {
+    let out = run(
+        "exit_code",
+        "fn stop() -> int { print(\"before\"); exit(3); }
+         fn main() { print(stop()); print(\"after\"); }",
+    );
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "before\n");
+    assert_eq!(stderr(&out), "");
+}
+
+#[test]
+fn exit_refuses_a_code_it_cannot_give() {
+    let out = run("exit_range", "fn main() { exit(256); }");
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).contains("`exit` takes a code from 0 to 255, got 256"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn eprint_goes_to_the_error_stream() {
+    let out = run(
+        "eprint",
+        "fn main() { print(1); eprint(\"problem\"); eprint([1, 2]); print(2); }",
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "1\n2\n");
+    assert_eq!(stderr(&out), "problem\n[1, 2]\n");
+}
+
+#[test]
+fn a_carriage_return_can_be_written() {
+    let out = run("cr", "fn main() { print(length(\"a\\r\")); }");
+    assert_eq!(stdout(&out), "2\n", "{}", stderr(&out));
 }
 
 #[test]

@@ -186,7 +186,7 @@ impl<'a> InitChecker<'a> {
             }
             StmtKind::Expr(e) => {
                 self.expr(e);
-                stmt.is_panic()
+                stmt.never_returns()
             }
         }
     }

@@ -241,7 +241,7 @@ fn main() {
 ## Strings
 
 `+` joins strings, and `==` and `!=` compare them. `length` counts characters. The
-escapes are `\n`, `\t`, `\"` and `\\`.
+escapes are `\n`, `\t`, `\r`, `\"` and `\\`.
 
 ```kmpl
 let name = "мир";
@@ -624,8 +624,8 @@ fn main() {
 | Vectors | `vec2 vec3 vec4 dot length distance normalize cross` |
 | Arrays and strings | `length push concat chars` |
 | Optionals | `unwrap unwrap_or` |
-| Errors | `panic` |
-| Output | `print` |
+| Stopping | `panic exit` |
+| Output | `print eprint` |
 
 These functions work on single values. `sqrt` of an array is an error, so use a
 loop.

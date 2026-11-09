@@ -68,10 +68,10 @@ pub enum StmtKind {
 }
 
 impl Stmt {
-    /// Is this a call to the built-in `panic`, which never comes back?
-    pub fn is_panic(&self) -> bool {
+    /// Is this a call to the built-in `panic` or `exit`, which never come back?
+    pub fn never_returns(&self) -> bool {
         matches!(&self.kind, StmtKind::Expr(Expr { kind: ExprKind::Call { name, .. }, .. })
-            if name.name == "panic")
+            if name.name == "panic" || name.name == "exit")
     }
 }
 
