@@ -64,7 +64,7 @@ fn main() {
 
 ## Operators
 
-From weakest to strongest: `||`, `&&`, `== !=`, `< <= > >=`, `+ -`, `* /`, unary
+From weakest to strongest: `||`, `&&`, `== !=`, `< <= > >=`, `+ -`, `* / %`, unary
 `! -`, then `[index]` and `.field`, then `:swizzle`.
 
 `int` overflow and `int` division by zero stop the program with an error. `real`

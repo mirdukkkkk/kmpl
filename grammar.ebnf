@@ -37,7 +37,7 @@ continue    ::= 'continue' ';'
 return      ::= 'return' expr? ';'
 assign      ::= IDENT assignop expr ';'
 pathassign  ::= IDENT ('[' expr ']' | '.' IDENT)+ assignop expr ';'
-assignop    ::= '=' | '+=' | '-=' | '*=' | '/='
+assignop    ::= '=' | '+=' | '-=' | '*=' | '/=' | '%='
 exprstmt    ::= expr ';'
 
 (* expressions: from lowest to highest precedence *)
@@ -47,7 +47,7 @@ and         ::= eq ('&&' eq)*
 eq          ::= comp (('==' | '!=') comp)*
 comp        ::= add (('<' | '<=' | '>' | '>=') add)*
 add         ::= mul (('+' | '-') mul)*
-mul         ::= unary (('*' | '/') unary)*
+mul         ::= unary (('*' | '/' | '%') unary)*
 unary       ::= ('!' | '-') unary | postfix
 postfix     ::= primary ('[' (expr | slice) ']' | '.' IDENT)* (':' swizzle)?
 slice       ::= expr? '..' expr? | expr? '..=' expr

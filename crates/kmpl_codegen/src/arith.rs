@@ -70,6 +70,7 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
             BinOp::Sub => Ok(builder.build_float_sub(x, y, "")?.into()),
             BinOp::Mul => Ok(builder.build_float_mul(x, y, "")?.into()),
             BinOp::Div => Ok(builder.build_float_div(x, y, "")?.into()),
+            BinOp::Rem => Ok(builder.build_float_rem(x, y, "")?.into()),
             BinOp::Eq => compare(FloatPredicate::OEQ),
             // Unordered: `NaN != NaN` is true.
             BinOp::Ne => compare(FloatPredicate::UNE),
@@ -104,7 +105,14 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
             BinOp::Mul => Ok(self
                 .checked("llvm.smul.with.overflow", x, y, span, current)?
                 .into()),
-            BinOp::Div => Ok(self.checked_div(x, y, span, current)?.into()),
+            BinOp::Div => {
+                self.check_divisor(x, y, span, current)?;
+                Ok(builder.build_int_signed_div(x, y, "")?.into())
+            }
+            BinOp::Rem => {
+                self.check_divisor(x, y, span, current)?;
+                Ok(builder.build_int_signed_rem(x, y, "")?.into())
+            }
             BinOp::Eq => compare(IntPredicate::EQ),
             BinOp::Ne => compare(IntPredicate::NE),
             BinOp::Lt => compare(IntPredicate::SLT),
@@ -150,26 +158,25 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
         Ok(value)
     }
 
-    fn checked_div(
+    /// Stops the program if `x / y` or `x % y` is not defined.
+    fn check_divisor(
         &self,
         x: IntValue<'ctx>,
         y: IntValue<'ctx>,
         span: Span,
         current: &Current<'ctx, 'm>,
-    ) -> Result<IntValue<'ctx>> {
+    ) -> Result<()> {
         let builder = &self.builder;
         let i64_type = self.context.i64_type();
         let by_zero = builder.build_int_compare(IntPredicate::EQ, y, i64_type.const_zero(), "")?;
         self.fail_if(by_zero, ops::DIVISION_BY_ZERO, span, current)?;
 
-        // The one division that does not fit: `sdiv` would be undefined.
+        // The one division that does not fit: LLVM leaves it undefined.
         let minimum = i64_type.const_int(i64::MIN as u64, true);
         let minus_one = i64_type.const_int(-1i64 as u64, true);
         let is_minimum = builder.build_int_compare(IntPredicate::EQ, x, minimum, "")?;
         let is_minus_one = builder.build_int_compare(IntPredicate::EQ, y, minus_one, "")?;
         let overflow = builder.build_and(is_minimum, is_minus_one, "")?;
-        self.fail_if(overflow, ops::OVERFLOW, span, current)?;
-
-        builder.build_int_signed_div(x, y, "")
+        self.fail_if(overflow, ops::OVERFLOW, span, current)
     }
 }

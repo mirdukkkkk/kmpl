@@ -32,7 +32,9 @@ pub(super) fn is_pure(op: &Op, f: &Function) -> bool {
         Op::Unary { op: UnOp::Not, .. } => true,
         Op::Unary { op: UnOp::Neg, a } => cannot_fail(a),
         Op::Binary { op, a, b } => match op {
-            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => cannot_fail(a) && cannot_fail(b),
+            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
+                cannot_fail(a) && cannot_fail(b)
+            }
             _ => true,
         },
         // May fail or have an effect.

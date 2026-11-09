@@ -48,6 +48,7 @@ fn binary_name(op: BinOp) -> &'static str {
         BinOp::Sub => "sub",
         BinOp::Mul => "mul",
         BinOp::Div => "div",
+        BinOp::Rem => "rem",
         BinOp::Eq => "eq",
         BinOp::Ne => "ne",
         BinOp::Lt => "lt",

@@ -212,6 +212,7 @@ fn assign_op(token: Option<&Token>) -> Option<Option<BinOp>> {
         Token::MinusEq => Some(Some(BinOp::Sub)),
         Token::StarEq => Some(Some(BinOp::Mul)),
         Token::SlashEq => Some(Some(BinOp::Div)),
+        Token::PercentEq => Some(Some(BinOp::Rem)),
         _ => None,
     }
 }

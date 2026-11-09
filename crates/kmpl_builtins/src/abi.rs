@@ -60,7 +60,7 @@ pub const SLICE_INCLUSIVE: u64 = 1;
 pub const SLICE_HAS_START: u64 = 2;
 pub const SLICE_HAS_END: u64 = 4;
 
-const BIN_OPS: [BinOp; 12] = [
+const BIN_OPS: [BinOp; 13] = [
     BinOp::Add,
     BinOp::Sub,
     BinOp::Mul,
@@ -73,6 +73,7 @@ const BIN_OPS: [BinOp; 12] = [
     BinOp::Ge,
     BinOp::And,
     BinOp::Or,
+    BinOp::Rem,
 ];
 
 pub fn bin_op_code(op: BinOp) -> u64 {

@@ -447,6 +447,8 @@ pub fn int_op(op: BinOp, a: i64, b: i64) -> Result<Value, String> {
         BinOp::Div if b == 0 => Err(DIVISION_BY_ZERO.to_owned()),
         // Truncates toward zero; only `i64::MIN / -1` overflows.
         BinOp::Div => checked(a.checked_div(b)),
+        BinOp::Rem if b == 0 => Err(DIVISION_BY_ZERO.to_owned()),
+        BinOp::Rem => checked(a.checked_rem(b)),
         BinOp::Lt => Ok(Value::Bool(a < b)),
         BinOp::Le => Ok(Value::Bool(a <= b)),
         BinOp::Gt => Ok(Value::Bool(a > b)),
@@ -465,6 +467,7 @@ pub fn real_op(op: BinOp, a: f64, b: f64) -> Option<Value> {
         BinOp::Sub => Value::Real(a - b),
         BinOp::Mul => Value::Real(a * b),
         BinOp::Div => Value::Real(a / b),
+        BinOp::Rem => Value::Real(a % b),
         BinOp::Lt => Value::Bool(a < b),
         BinOp::Le => Value::Bool(a <= b),
         BinOp::Gt => Value::Bool(a > b),

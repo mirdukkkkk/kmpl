@@ -74,6 +74,7 @@ fn mul(ts: &mut TokenStream) -> PResult<Expr> {
     left_assoc(ts, unary, |tok| match tok {
         Token::Star => Some(BinOp::Mul),
         Token::Slash => Some(BinOp::Div),
+        Token::Percent => Some(BinOp::Rem),
         _ => None,
     })
 }

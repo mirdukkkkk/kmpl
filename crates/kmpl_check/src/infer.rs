@@ -606,6 +606,11 @@ impl<'a> Infer<'a> {
                 l
             }
             BinOp::Mul | BinOp::Div => self.mul_div(op, l, r, rhs_span, span),
+            BinOp::Rem => {
+                self.unify(r, l, rhs_span);
+                self.restrict(l, TypeSet::ORDERED, sym, span);
+                l
+            }
             BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
                 self.unify(r, l, rhs_span);
                 self.restrict(l, TypeSet::ORDERED, sym, span);
@@ -948,6 +953,7 @@ fn op_symbol(op: BinOp) -> &'static str {
         BinOp::Sub => "-",
         BinOp::Mul => "*",
         BinOp::Div => "/",
+        BinOp::Rem => "%",
         BinOp::Eq => "==",
         BinOp::Ne => "!=",
         BinOp::Lt => "<",

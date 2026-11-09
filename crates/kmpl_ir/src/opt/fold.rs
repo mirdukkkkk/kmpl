@@ -80,6 +80,7 @@ fn int_binary(op: BinOp, x: i64, y: i64) -> Option<Constant> {
         BinOp::Mul => int(x.checked_mul(y)),
         // `checked_div` is `None` for a zero divisor too.
         BinOp::Div => int(x.checked_div(y)),
+        BinOp::Rem => int(x.checked_rem(y)),
         BinOp::Eq => Some(Constant::Bool(x == y)),
         BinOp::Ne => Some(Constant::Bool(x != y)),
         BinOp::Lt => Some(Constant::Bool(x < y)),
@@ -98,6 +99,7 @@ fn real_binary(op: BinOp, x: f64, y: f64) -> Option<Constant> {
         BinOp::Sub => real(x - y),
         BinOp::Mul => real(x * y),
         BinOp::Div => real(x / y),
+        BinOp::Rem => real(x % y),
         BinOp::Eq => boolean(x == y),
         BinOp::Ne => boolean(x != y),
         BinOp::Lt => boolean(x < y),

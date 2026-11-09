@@ -1481,3 +1481,33 @@ fn flat_arrays_with_other_elements() {
         "[-1.5, -2.5]\n[2, 4]\n"
     );
 }
+
+#[test]
+fn remainder_of_ints_takes_the_sign_of_the_dividend() {
+    assert_eq!(
+        output("print(7 % 3); print(-7 % 3); print(7 % -3);"),
+        "1\n-1\n1\n"
+    );
+    assert_eq!(output("let x = 17; x %= 5; print(x);"), "2\n");
+}
+
+#[test]
+fn remainder_of_reals_works_and_zero_gives_nan() {
+    assert_eq!(
+        output("print(7.5 % 2.0); print(-7.5 % 2.0);"),
+        "1.5\n-1.5\n"
+    );
+    assert_eq!(output("let z = 0.0; print(is_nan(1.0 % z));"), "true\n");
+}
+
+#[test]
+fn remainder_errors_match_division() {
+    assert_eq!(
+        runtime_error("fn main() { let z = 0; print(1 % z); }"),
+        "division by zero"
+    );
+    assert_eq!(
+        runtime_error("fn main() { let m = -9223372036854775807 - 1; let n = -1; print(m % n); }"),
+        "integer overflow"
+    );
+}
