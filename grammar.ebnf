@@ -8,7 +8,7 @@ import      ::= 'import' (IDENT | '(' imported (',' imported)* ','? ')') 'from' 
 imported    ::= IDENT ('as' IDENT)?
 
 (* items *)
-item        ::= const | function | struct | enum
+item        ::= 'pub'? (const | function | struct | enum)
 typeparams  ::= '<' IDENT (',' IDENT)* ','? '>'
 struct      ::= 'struct' IDENT typeparams? '{' (field (',' field)* ','?)? '}'
 field       ::= IDENT ':' type

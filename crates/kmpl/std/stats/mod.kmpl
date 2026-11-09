@@ -1,40 +1,40 @@
 // Statistics of a list of numbers.
 
-fn mean(data: [real]) -> real {
+pub fn mean(data: [real]) -> real {
     return _stats_mean(data);
 }
 
-fn median(data: [real]) -> real {
+pub fn median(data: [real]) -> real {
     return _stats_median(data);
 }
 
 // Of a sample: divides by one less than the number of values.
-fn variance(data: [real]) -> real {
+pub fn variance(data: [real]) -> real {
     return _stats_variance(data);
 }
 
 // Of a sample, the root of `variance`.
-fn stddev(data: [real]) -> real {
+pub fn stddev(data: [real]) -> real {
     return _stats_stddev(data);
 }
 
 // `q` is from 0 to 1. Between two values the result is in proportion.
-fn quantile(data: [real], q: real) -> real {
+pub fn quantile(data: [real], q: real) -> real {
     return _stats_quantile(data, q);
 }
 
 // From -1.0 to 1.0.
-fn correlation(x: [real], y: [real]) -> real {
+pub fn correlation(x: [real], y: [real]) -> real {
     return _stats_correlation(x, y);
 }
 
 // How many values fall in each of `bins` equal parts from the smallest
 // value to the largest.
-fn histogram(data: [real], bins: int) -> [int] {
+pub fn histogram(data: [real], bins: int) -> [int] {
     return _stats_histogram(data, bins);
 }
 
 // The slope and the intercept of the best straight line through the points.
-fn linear_fit(x: [real], y: [real]) -> (real, real) {
+pub fn linear_fit(x: [real], y: [real]) -> (real, real) {
     return _stats_linear_fit(x, y);
 }

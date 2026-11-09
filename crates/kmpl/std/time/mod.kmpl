@@ -1,16 +1,16 @@
 // Time, in seconds.
 
 // Since the program started. It never goes back, so use it to measure.
-fn clock() -> real {
+pub fn clock() -> real {
     return _time_clock();
 }
 
 // Since the start of 1970, by the system clock, which can be changed.
-fn now() -> real {
+pub fn now() -> real {
     return _time_now();
 }
 
 // Waits for this long.
-fn sleep(seconds: real) {
+pub fn sleep(seconds: real) {
     _time_sleep(seconds);
 }

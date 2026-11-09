@@ -438,7 +438,7 @@ must be exactly one of them. With `.kmpl` at the end it is exactly that file.
 
 ```kmpl
 // lib/stats.kmpl
-fn mean(a: [real]) -> real {
+pub fn mean(a: [real]) -> real {
     let sum = 0.0;
     for x in a {
         sum += x;
@@ -463,7 +463,9 @@ another name, and a name that is already taken is an error:
 import (mean, mean as average) from "./lib/stats";
 ```
 
-Everything in a module is public. A file must import a module itself to use it,
+Only items marked `pub` can be used from other files; everything else is private
+to its file. A public struct has public fields and a public enum public variants.
+A file must import a module itself to use it,
 even if a module it imports already does. Only the `main` of the file you run is
 used.
 

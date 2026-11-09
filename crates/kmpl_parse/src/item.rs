@@ -19,10 +19,29 @@ pub fn program(ts: &mut TokenStream) -> PResult<Program> {
     }
 
     let mut items = Vec::new();
+    let mut public = Vec::new();
     while !ts.at_end() {
-        items.push(item(ts)?);
+        let is_public = ts.eat(&Token::Pub).is_some();
+        let parsed = item(ts)?;
+        if is_public {
+            public.push(item_name(&parsed).name.clone());
+        }
+        items.push(parsed);
     }
-    Ok(Program { imports, items })
+    Ok(Program {
+        imports,
+        items,
+        public,
+    })
+}
+
+fn item_name(item: &Item) -> &Ident {
+    match item {
+        Item::Const(c) => &c.name,
+        Item::Function(f) => &f.name,
+        Item::Struct(s) => &s.name,
+        Item::Enum(e) => &e.name,
+    }
 }
 
 /// `'import' (IDENT | '(' imported (',' imported)* ','? ')') 'from' STRING ';'`

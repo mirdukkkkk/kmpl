@@ -173,9 +173,9 @@ fn imports_run_in_dependency_order() {
             ),
             (
                 "lib/a.kmpl",
-                "import b from \"./b\"; const G: real = b.B + 1.0; fn f() -> real { return G; }",
+                "import b from \"./b\"; pub const G: real = b.B + 1.0; pub fn f() -> real { return G; }",
             ),
-            ("lib/b.kmpl", "const B: real = 1.0;"),
+            ("lib/b.kmpl", "pub const B: real = 1.0;"),
         ],
     );
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
@@ -193,13 +193,13 @@ fn a_shared_import_is_loaded_once() {
             ),
             (
                 "a.kmpl",
-                "import c from \"./c\"; fn f() -> int { return c.X; }",
+                "import c from \"./c\"; pub fn f() -> int { return c.X; }",
             ),
             (
                 "b.kmpl",
-                "import c from \"./c\"; fn g() -> int { return c.X; }",
+                "import c from \"./c\"; pub fn g() -> int { return c.X; }",
             ),
-            ("c.kmpl", "const X: int = 21;"),
+            ("c.kmpl", "pub const X: int = 21;"),
         ],
     );
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
@@ -230,7 +230,7 @@ fn runtime_errors_name_the_imported_file() {
                 "main.kmpl",
                 "import a from \"./a\";\nfn main() { print(a.f(0)); }\n",
             ),
-            ("a.kmpl", "fn f(x: int) -> int {\n    return 1 / x;\n}\n"),
+            ("a.kmpl", "pub fn f(x: int) -> int {\n    return 1 / x;\n}\n"),
         ],
     );
     assert_eq!(out.status.code(), Some(1));
@@ -525,9 +525,9 @@ fn a_directory_is_found_through_mod_kmpl() {
             ),
             (
                 "lib/a/mod.kmpl",
-                "import b from \"./b\";\nfn f() -> int { return b.N; }\n",
+                "import b from \"./b\";\npub fn f() -> int { return b.N; }\n",
             ),
-            ("lib/a/b.kmpl", "const N: int = 7;\n"),
+            ("lib/a/b.kmpl", "pub const N: int = 7;\n"),
         ],
     );
     assert_eq!(stdout(&out), "7\n", "{}", stderr(&out));
@@ -560,8 +560,8 @@ fn an_explicit_extension_names_exactly_that_file() {
                 "main.kmpl",
                 "import a from \"./a.kmpl\";\nfn main() { print(a.N); }\n",
             ),
-            ("a.kmpl", "const N: int = 1;\n"),
-            ("a/mod.kmpl", "const N: int = 2;\n"),
+            ("a.kmpl", "pub const N: int = 1;\n"),
+            ("a/mod.kmpl", "pub const N: int = 2;\n"),
         ],
     );
     assert_eq!(stdout(&out), "1\n", "{}", stderr(&out));
@@ -577,8 +577,8 @@ fn a_module_outside_the_program_directory() {
                 "import shared from \"../shared\";\nimport here from \"./shared\";\n\
                  fn main() { print(shared.N + here.N); }\n",
             ),
-            ("shared.kmpl", "const N: int = 1;\n"),
-            ("app/shared.kmpl", "const N: int = 20;\n"),
+            ("shared.kmpl", "pub const N: int = 1;\n"),
+            ("app/shared.kmpl", "pub const N: int = 20;\n"),
         ],
     );
     assert_eq!(stdout(&out), "21\n", "{}", stderr(&out));
@@ -596,8 +596,8 @@ fn items_imported_by_name() {
             ),
             (
                 "lib.kmpl",
-                "const K: int = 4;\nstruct Point { x: int }\n\
-                 fn twice(n: int) -> int { return n * 2; }\n",
+                "pub const K: int = 4;\npub struct Point { x: int }\n\
+                 pub fn twice(n: int) -> int { return n * 2; }\n",
             ),
         ],
     );
@@ -925,7 +925,7 @@ fn a_plain_name_comes_from_kmpl_toml() {
                 "app/kmpl.toml",
                 "version = 1\n\n[dependencies]\nhelpers = \"./vendor/helpers\"\n",
             ),
-            ("app/vendor/helpers/mod.kmpl", "const N: int = 5;\n"),
+            ("app/vendor/helpers/mod.kmpl", "pub const N: int = 5;\n"),
         ],
     );
     assert_eq!(stdout(&out), "5\n", "{}", stderr(&out));

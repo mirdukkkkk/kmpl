@@ -1,11 +1,11 @@
 // Command line arguments and standard input.
 
 // The arguments after the name of the program.
-fn args() -> [string] {
+pub fn args() -> [string] {
     return _io_args();
 }
 
 // A line without its line break, or `none` at the end of input.
-fn read_line() -> string? {
+pub fn read_line() -> string? {
     return _io_read_line();
 }

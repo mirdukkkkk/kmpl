@@ -43,18 +43,26 @@ pub struct ModuleImport {
 /// `modules` must list every imported module before the modules that import
 /// it: a constant can only use what comes before it.
 pub fn link(modules: Vec<Module>) -> Result<Program, Vec<CheckError>> {
-    let exports: HashMap<String, HashSet<String>> = modules
+    let defined: HashMap<String, HashSet<String>> = modules
         .iter()
         .map(|m| (m.prefix.clone(), item_names(&m.program)))
+        .collect();
+    let exports: HashMap<String, HashSet<String>> = modules
+        .iter()
+        .map(|m| (m.prefix.clone(), m.program.public.iter().cloned().collect()))
         .collect();
 
     let mut items = Vec::new();
     let mut errors = Vec::new();
     for mut module in modules {
-        let own = &exports[&module.prefix];
+        let own = &defined[&module.prefix];
         let mut names = ImportedNames::default();
         for import in &module.imports {
-            names.add(import, own, &exports[&import.target], &mut errors);
+            let target = Visible {
+                exported: &exports[&import.target],
+                defined: &defined[&import.target],
+            };
+            names.add(import, own, target, &mut errors);
         }
 
         let mut linker = Linker {
@@ -63,6 +71,7 @@ pub fn link(modules: Vec<Module>) -> Result<Program, Vec<CheckError>> {
             imports: &names.modules,
             items: &names.items,
             exports: &exports,
+            defined: &defined,
             scopes: Vec::new(),
             type_params: HashSet::new(),
             errors: Vec::new(),
@@ -78,6 +87,7 @@ pub fn link(modules: Vec<Module>) -> Result<Program, Vec<CheckError>> {
         Ok(Program {
             imports: Vec::new(),
             items,
+            public: Vec::new(),
         })
     } else {
         Err(errors)
@@ -97,6 +107,26 @@ fn item_names(program: &Program) -> HashSet<String> {
         .collect()
 }
 
+/// The names of a module that another file asks for.
+#[derive(Clone, Copy)]
+struct Visible<'a> {
+    exported: &'a HashSet<String>,
+    defined: &'a HashSet<String>,
+}
+
+impl Visible<'_> {
+    /// Why this name cannot be used from outside, if it cannot.
+    fn problem(&self, name: &str, module: &str) -> Option<String> {
+        if self.exported.contains(name) {
+            None
+        } else if self.defined.contains(name) {
+            Some(format!("`{name}` is private in {module}, it needs `pub`"))
+        } else {
+            Some(format!("{module} has no `{name}`"))
+        }
+    }
+}
+
 /// What the imports of one file bring into it.
 #[derive(Default)]
 struct ImportedNames {
@@ -111,7 +141,7 @@ impl ImportedNames {
         &mut self,
         import: &ModuleImport,
         own: &HashSet<String>,
-        exported: &HashSet<String>,
+        target: Visible<'_>,
         errors: &mut Vec<CheckError>,
     ) {
         match &import.names {
@@ -124,11 +154,8 @@ impl ImportedNames {
             }
             ImportNames::Items(list) => {
                 for item in list {
-                    if !exported.contains(&item.name.name) {
-                        errors.push(CheckError::new(
-                            format!("this module has no `{}`", item.name.name),
-                            item.name.span,
-                        ));
+                    if let Some(problem) = target.problem(&item.name.name, "this module") {
+                        errors.push(CheckError::new(problem, item.name.span));
                     } else if self.is_taken(&item.alias.name) {
                         errors.push(already_imported(&item.alias));
                     } else if let Some(problem) = name_clash(&item.alias.name, own) {
@@ -175,6 +202,7 @@ struct Linker<'a> {
     /// Name used in the code -> full name of an imported item.
     items: &'a HashMap<String, String>,
     exports: &'a HashMap<String, HashSet<String>>,
+    defined: &'a HashMap<String, HashSet<String>>,
     /// Local variables. Innermost scope is last.
     scopes: Vec<HashSet<String>>,
     /// Generic parameters of the current function. They hide structs.
@@ -281,8 +309,12 @@ impl Linker<'_> {
             );
             return;
         };
-        if !self.exports[target].contains(&member) {
-            self.error(format!("module `{module}` has no `{member}`"), name);
+        let visible = Visible {
+            exported: &self.exports[target],
+            defined: &self.defined[target],
+        };
+        if let Some(problem) = visible.problem(&member, &format!("module `{module}`")) {
+            self.error(problem, name);
             return;
         }
         name.name = format!("{target}.{member}");
