@@ -22,6 +22,7 @@ pub fn object_code(module: &Module, locate: &dyn Fn(Span) -> String) -> Result<V
     let machine = target_machine()?;
     llvm.set_triple(&machine.get_triple());
     llvm.set_data_layout(&machine.get_target_data().get_data_layout());
+    record_compiler(&context, &llvm)?;
     llvm.verify().map_err(|e| {
         format!(
             "kmpl: generated invalid code, this is a bug in kmpl: {}",
@@ -37,6 +38,18 @@ pub fn object_code(module: &Module, locate: &dyn Fn(Span) -> String) -> Result<V
         .write_to_memory_buffer(&llvm, FileType::Object)
         .map_err(|e| e.to_string())?;
     Ok(object.as_slice().to_vec())
+}
+
+/// Puts `kmpl <version>` into the `.comment` section of the executable, next
+/// to what the C and Rust compilers leave there.
+fn record_compiler<'ctx>(
+    context: &'ctx Context,
+    llvm: &inkwell::module::Module<'ctx>,
+) -> Result<(), String> {
+    let name = context.metadata_string(concat!("kmpl ", env!("CARGO_PKG_VERSION")));
+    let node = context.metadata_node(&[name.into()]);
+    llvm.add_global_metadata("llvm.ident", &node)
+        .map_err(|e| e.to_string())
 }
 
 /// Code for a generic CPU of this architecture, so a built program also runs

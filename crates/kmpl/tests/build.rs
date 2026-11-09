@@ -138,3 +138,15 @@ fn a_failing_built_in_reports_its_error() {
     assert_eq!(out.status.code(), Some(1));
     assert!(stderr(&out).contains("--> program.kmpl:1:"), "{out:?}");
 }
+
+#[test]
+fn an_executable_is_stripped_and_names_the_compiler() {
+    let dir = project("metadata", "fn main() { }");
+    let out = kmpl_in(&dir, &["build", "program.kmpl", "-o", "made"]);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+
+    let bytes = std::fs::read(dir.join("made")).unwrap();
+    let contains = |text: &str| bytes.windows(text.len()).any(|w| w == text.as_bytes());
+    assert!(contains(concat!("kmpl ", env!("CARGO_PKG_VERSION"), "\0")));
+    assert!(!contains(".symtab"), "the symbol table is still there");
+}

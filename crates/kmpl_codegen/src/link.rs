@@ -63,7 +63,9 @@ pub fn link(object: &[u8], output: &Path) -> Result<(), String> {
         .arg(&runtime)
         .arg("-o")
         .arg(output)
-        .arg("-Wl,--gc-sections")
+        // Drops unused code, and the symbol table nothing needs: runtime
+        // errors are reported by the program itself.
+        .args(["-Wl,--gc-sections", "-Wl,-s"])
         .args(SYSTEM_LIBS)
         .output()
         .map_err(|e| format!("kmpl: cannot run the linker `cc`: {e}"))?;
