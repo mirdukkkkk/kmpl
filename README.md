@@ -37,13 +37,16 @@ fn main() {
 ## Status
 
 kmpl is a hobby project at version 0.1, and the language can still change.
-Programs are compiled to an optimized SSA intermediate representation and run on
-a virtual machine, which in a simple numeric loop is somewhat faster than CPython.
-Native code is planned. There is no file I/O yet, only standard input and output.
+Programs are compiled to an optimized SSA intermediate representation. `kmpl file`
+runs it on a virtual machine, and `kmpl build file` compiles it through LLVM to a
+native executable for Linux on x86-64 or ARM64. There is no file I/O yet, only
+standard input and output.
 
 ## Install
 
-You need a recent stable Rust.
+You need a recent stable Rust and LLVM 23 (`LLVM_SYS_231_PREFIX` names its
+location; the Nix dev shell sets it up). `kmpl build` also needs a C compiler
+named `cc` to link.
 
 ```sh
 git clone https://github.com/mirdukkkkk/kmpl
@@ -58,6 +61,7 @@ With Nix: `nix run . -- examples/demo.kmpl`.
 
 ```text
 kmpl [--ast | --ir] [--no-opt] <file> [args...]
+kmpl build [--no-opt] <file> [-o <output>]
 ```
 
 Everything after the file is passed to the program. `kmpl --help` lists the

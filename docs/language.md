@@ -292,6 +292,7 @@ used.
 ## Input
 
 `kmpl program.kmpl a b` gives the program its arguments through `args()`.
+A program compiled with `kmpl build program.kmpl` gets its own: `./program a b`.
 `read_line` returns a line and `false` at the end of input. `parse_int` and
 `parse_real` return a value and whether the text was a number.
 
