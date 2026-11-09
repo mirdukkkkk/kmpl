@@ -83,7 +83,10 @@ impl<'a> Walk<'a> {
             self.found = false;
         }
 
-        if kmpl_builtins::depends_on_run(&name.name) {
+        // What a variable holds is not known here, so it cannot be followed.
+        if self.is_local(&name.name) || self.constants.contains_key(name.name.as_str()) {
+            self.report("it calls a function held in a variable".to_owned());
+        } else if kmpl_builtins::depends_on_run(&name.name) {
             self.report("its value depends on how the program is run".to_owned());
         } else if let Some(function) = self.functions.get(name.name.as_str()).copied()
             && self.visited.insert(&name.name)
@@ -235,6 +238,14 @@ impl<'a> Walk<'a> {
                 }
             }
             ExprKind::Some(value) => self.expr(value),
+            ExprKind::Lambda(l) => {
+                self.scopes.push(HashSet::new());
+                for param in &l.params {
+                    self.declare(&param.name.name);
+                }
+                self.block(&l.body);
+                self.scopes.pop();
+            }
             ExprKind::Var(name) => self.variable(name),
             ExprKind::Unary { operand, .. } => self.expr(operand),
             ExprKind::Binary { lhs, rhs, .. } => {

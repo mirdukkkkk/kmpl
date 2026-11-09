@@ -1,7 +1,7 @@
 // Small helpers for the other modules in this directory.
 
-const TWO: real = 2.0;
+pub const TWO: real = 2.0;
 
-fn square(x: real) -> real {
+pub fn square(x: real) -> real {
     return x * x;
 }

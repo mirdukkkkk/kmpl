@@ -1,8 +1,9 @@
 //! Top-level items: `const` and `fn`.
 
 use kmpl_ast::{
-    Const, EnumDef, EnumVariant, Function, Generic, Ident, Import, ImportNames, ImportedItem, Item,
-    Param, Program, StructDef, StructField, Type,
+    Block, Const, EnumDef, EnumVariant, Expr, ExprKind, Function, Generic, Ident, Import,
+    ImportNames, ImportedItem, Item, Lambda, Param, Program, Span, StructDef, StructField, Type,
+    TypeExpr,
 };
 use kmpl_lexer::Token;
 
@@ -19,10 +20,29 @@ pub fn program(ts: &mut TokenStream) -> PResult<Program> {
     }
 
     let mut items = Vec::new();
+    let mut public = Vec::new();
     while !ts.at_end() {
-        items.push(item(ts)?);
+        let is_public = ts.eat(&Token::Pub).is_some();
+        let parsed = item(ts)?;
+        if is_public {
+            public.push(item_name(&parsed).name.clone());
+        }
+        items.push(parsed);
     }
-    Ok(Program { imports, items })
+    Ok(Program {
+        imports,
+        items,
+        public,
+    })
+}
+
+fn item_name(item: &Item) -> &Ident {
+    match item {
+        Item::Const(c) => &c.name,
+        Item::Function(f) => &f.name,
+        Item::Struct(s) => &s.name,
+        Item::Enum(e) => &e.name,
+    }
 }
 
 /// `'import' (IDENT | '(' imported (',' imported)* ','? ')') 'from' STRING ';'`
@@ -195,16 +215,10 @@ fn const_item(ts: &mut TokenStream) -> PResult<Const> {
     Ok(Const { name, ty, value })
 }
 
-/// `'fn' IDENT generics? '(' params? ')' ('->' type)? block`
-fn function(ts: &mut TokenStream) -> PResult<Function> {
-    let start = ts.expect(Token::Fn)?;
-    let name = ts.expect_ident()?;
-    let generics = if ts.peek() == Some(&Token::Lt) {
-        generics(ts)?
-    } else {
-        Vec::new()
-    };
-
+/// `'(' params? ')' ('->' type)? block`, and where the block ends.
+fn signature_and_body(
+    ts: &mut TokenStream,
+) -> PResult<(Vec<Param>, Option<TypeExpr>, Block, Span)> {
     ts.expect(Token::LParen)?;
     let mut params = Vec::new();
     while ts.peek() != Some(&Token::RParen) {
@@ -221,6 +235,34 @@ fn function(ts: &mut TokenStream) -> PResult<Function> {
     };
 
     let (body, end) = block(ts)?;
+    Ok((params, ret, body, end))
+}
+
+/// `'fn' '(' params? ')' ('->' type)? block`, as a value.
+pub fn lambda(ts: &mut TokenStream) -> PResult<Expr> {
+    let start = ts.expect(Token::Fn)?;
+    // A body is a place of its own, also inside the header of an `if`.
+    let outer = std::mem::replace(&mut ts.struct_literals, true);
+    let (params, ret, body, end) = signature_and_body(ts)?;
+    ts.struct_literals = outer;
+
+    Ok(Expr {
+        kind: ExprKind::Lambda(Box::new(Lambda { params, ret, body })),
+        span: start.to(end),
+    })
+}
+
+/// `'fn' IDENT generics? '(' params? ')' ('->' type)? block`
+fn function(ts: &mut TokenStream) -> PResult<Function> {
+    let start = ts.expect(Token::Fn)?;
+    let name = ts.expect_ident()?;
+    let generics = if ts.peek() == Some(&Token::Lt) {
+        generics(ts)?
+    } else {
+        Vec::new()
+    };
+
+    let (params, ret, body, end) = signature_and_body(ts)?;
 
     Ok(Function {
         name,

@@ -112,9 +112,10 @@ fn assign_to_non_variable() {
 
 #[test]
 fn function_used_as_value_and_back() {
+    assert_ok("fn f() { let x = f; }");
     assert_error(
-        "fn f() { let x = f; }",
-        "`f` is a function, call it with `f(...)`",
+        "fn f() { let x = sqrt; }",
+        "the built-in `sqrt` cannot be a value, wrap it in `fn(...) { ... }`",
     );
     assert_error("fn f() { let x = 1; x(); }", "`x` is not a function");
     assert_error("const N: int = 1; fn f() { N(); }", "`N` is not a function");

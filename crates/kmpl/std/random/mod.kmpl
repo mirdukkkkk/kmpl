@@ -1,26 +1,26 @@
 // Random numbers, not for secrets. Without `seed` every run is different.
 
 // Makes the numbers that follow the same on every run.
-fn seed(value: int) {
+pub fn seed(value: int) {
     _random_seed(value);
 }
 
 // From 0.0 up to, but not including, 1.0.
-fn real() -> real {
+pub fn real() -> real {
     return _random_real();
 }
 
 // From `low` up to, but not including, `high`, like `low..high`.
-fn int(low: int, high: int) -> int {
+pub fn int(low: int, high: int) -> int {
     return _random_int(low, high);
 }
 
 // Normally distributed, with this mean and standard deviation.
-fn normal(mean: real, deviation: real) -> real {
+pub fn normal(mean: real, deviation: real) -> real {
     return _random_normal(mean, deviation);
 }
 
 // The same elements in a random order.
-fn shuffle<T>(items: [T]) -> [T] {
+pub fn shuffle<T>(items: [T]) -> [T] {
     return _random_shuffle(items);
 }

@@ -17,8 +17,8 @@
 use std::collections::{HashMap, HashSet};
 
 use kmpl_ast::{
-    BinOp, Block, EnumDef, Expr, ExprKind, Function, Ident, Item, MatchArm, PathStep, Pattern,
-    Program, Span, Stmt, StmtKind, StructDef, Ty, Type, TypeExpr, UnOp,
+    BinOp, Block, EnumDef, Expr, ExprKind, Function, Ident, Item, Lambda, MatchArm, PathStep,
+    Pattern, Program, Span, Stmt, StmtKind, StructDef, Ty, Type, TypeExpr, UnOp,
 };
 use kmpl_builtins::{ParamType, RetType};
 
@@ -214,6 +214,11 @@ impl<'a> Infer<'a> {
             TypeExpr::Optional(inner) => {
                 let inner = self.type_var(inner, generics);
                 self.u.new_optional(inner)
+            }
+            TypeExpr::Function { params, ret } => {
+                let params = params.iter().map(|t| self.type_var(t, generics)).collect();
+                let ret = ret.as_ref().map(|t| self.type_var(t, generics));
+                self.u.new_function(params, ret)
             }
             TypeExpr::Applied { name, args } => {
                 let id = self.struct_ids[name.name.as_str()];
@@ -631,12 +636,16 @@ impl<'a> Infer<'a> {
                 Some(var) => var,
                 None => match self.consts.get(name.name.as_str()).copied() {
                     Some(ty) => self.annotated(ty),
-                    None => {
-                        let builtin = kmpl_builtins::lookup_const(&name.name);
-                        self.known(builtin.expect("checked by resolve").value.ty())
-                    }
+                    None => match self.functions.get(name.name.as_str()).copied() {
+                        Some(f) => self.function_value(f, e.span),
+                        None => {
+                            let builtin = kmpl_builtins::lookup_const(&name.name);
+                            self.known(builtin.expect("checked by resolve").value.ty())
+                        }
+                    },
                 },
             },
+            ExprKind::Lambda(l) => self.lambda(l),
             ExprKind::Unary { op, operand } => {
                 let ty = self.expr(operand);
                 match op {
@@ -761,6 +770,69 @@ impl<'a> Infer<'a> {
         result
     }
 
+    /// The type of a function used as a value, without calling it.
+    fn function_value(&mut self, f: &'a Function, span: Span) -> TyVar {
+        if !f.generics.is_empty() {
+            self.error(
+                format!(
+                    "the generic function `{}` cannot be a value, wrap it in `fn(...) {{ ... }}`",
+                    f.name.name
+                ),
+                span,
+            );
+            return self.u.new_var(TypeSet::ANY);
+        }
+        let params = f.params.iter().map(|p| self.annotated(&p.ty)).collect();
+        let ret = f.ret.as_ref().map(|t| self.annotated(t));
+        self.u.new_function(params, ret)
+    }
+
+    /// `fn(x: real) -> real { ... }`. The body sees the variables around it.
+    fn lambda(&mut self, l: &'a Lambda) -> TyVar {
+        let mut scope = HashMap::new();
+        let mut params = Vec::with_capacity(l.params.len());
+        for param in &l.params {
+            let var = self.annotated(&param.ty);
+            scope.insert(param.name.name.as_str(), var);
+            params.push(var);
+        }
+
+        let outer = self.current_fn.replace(("function", l.ret.as_ref()));
+        self.scopes.push(scope);
+        self.block(&l.body);
+        self.scopes.pop();
+        self.current_fn = outer;
+
+        let ret = l.ret.as_ref().map(|t| self.annotated(t));
+        self.u.new_function(params, ret)
+    }
+
+    /// A call through a variable that holds a function.
+    fn call_value(
+        &mut self,
+        name: &Ident,
+        params: Vec<TyVar>,
+        ret: Option<TyVar>,
+        args: &'a [Expr],
+    ) -> Option<TyVar> {
+        if params.len() != args.len() {
+            self.error(
+                format!(
+                    "`{}` takes {} arguments, but {} were given",
+                    name.name,
+                    params.len(),
+                    args.len()
+                ),
+                name.span,
+            );
+        }
+        for (arg, param) in args.iter().zip(params) {
+            let ty = self.expr(arg);
+            self.unify(ty, param, arg.span);
+        }
+        ret
+    }
+
     /// `resolve` already checked the variant and the number of arguments.
     fn variant_value(
         &mut self,
@@ -865,6 +937,9 @@ impl<'a> Infer<'a> {
             }
             BinOp::Eq | BinOp::Ne => {
                 self.unify(r, l, rhs_span);
+                if self.u.function_parts(l).is_some() {
+                    self.error(format!("cannot apply `{sym}` to functions"), span);
+                }
                 self.known(Type::Bool)
             }
             BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => {
@@ -994,11 +1069,28 @@ impl<'a> Infer<'a> {
     /// Checks a call and returns the type of its value, or `None` if the
     /// function returns nothing.
     fn call(&mut self, name: &'a Ident, args: &'a [Expr], span: Span) -> Option<TyVar> {
+        let held = match self.lookup(&name.name) {
+            Some(var) => Some(var),
+            None => self
+                .consts
+                .get(name.name.as_str())
+                .copied()
+                .map(|ty| self.annotated(ty)),
+        };
+        if let Some(var) = held
+            && let Some((params, ret)) = self.u.function_parts(var)
+        {
+            return self.call_value(name, params, ret, args);
+        }
+
         if let Some(&f) = self.functions.get(name.name.as_str()) {
             return self.call_user(f, args, span);
         }
 
-        let builtin = kmpl_builtins::lookup(&name.name).expect("checked by resolve");
+        let Some(builtin) = kmpl_builtins::lookup(&name.name) else {
+            self.error(format!("`{}` is not a function", name.name), name.span);
+            return Some(self.u.new_var(TypeSet::ANY));
+        };
         let t = self.u.new_var(TypeSet::of(builtin.generic));
         let elem = self.u.new_var(TypeSet::ANY);
         // `push` and `concat` also work on `bytes` and then give `bytes`.

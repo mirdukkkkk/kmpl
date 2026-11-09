@@ -5,6 +5,7 @@ use kmpl_ast::{BinOp, Expr, ExprKind, Ident, Span, UnOp};
 use kmpl_lexer::Token;
 
 use crate::error::{PResult, ParseError};
+use crate::item::lambda;
 use crate::token_stream::TokenStream;
 
 pub fn expr(ts: &mut TokenStream) -> PResult<Expr> {
@@ -281,6 +282,7 @@ fn primary(ts: &mut TokenStream) -> PResult<Expr> {
         }
         Some(Token::KwNone) => ExprKind::None,
         Some(Token::KwSome) => return some(ts),
+        Some(Token::Fn) => return lambda(ts),
         Some(Token::Ident(_)) => return var_or_call(ts),
         Some(Token::LBracket) => return array(ts),
         Some(Token::LParen) => {

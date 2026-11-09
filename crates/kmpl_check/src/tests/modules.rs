@@ -11,6 +11,24 @@ fn ident(name: &str) -> Ident {
 
 /// A module with `imports` as (name in the code, full name of the module).
 fn module(prefix: &str, imports: &[(&str, &str)], src: &str) -> Module {
+    let mut module = private_module(prefix, imports, src);
+    // Most tests here are about something else than `pub`.
+    module.program.public = module
+        .program
+        .items
+        .iter()
+        .map(|item| match item {
+            Item::Const(c) => c.name.name.clone(),
+            Item::Function(f) => f.name.name.clone(),
+            Item::Struct(s) => s.name.name.clone(),
+            Item::Enum(e) => e.name.name.clone(),
+        })
+        .collect();
+    module
+}
+
+/// A module exactly as written, with only what it marks `pub` visible.
+fn private_module(prefix: &str, imports: &[(&str, &str)], src: &str) -> Module {
     Module {
         prefix: prefix.to_owned(),
         imports: imports
@@ -22,6 +40,28 @@ fn module(prefix: &str, imports: &[(&str, &str)], src: &str) -> Module {
             .collect(),
         program: kmpl_parse::parse(kmpl_lexer::lex(src).unwrap()).unwrap(),
     }
+}
+
+#[test]
+fn only_what_is_marked_pub_can_be_used() {
+    let a = "pub const X: int = helper(); fn helper() -> int { return 1; }";
+    let works = link(vec![
+        private_module("a", &[], a),
+        private_module("", &[("a", "a")], "fn main() { print(a.X); }"),
+    ]);
+    assert!(works.is_ok());
+
+    let Err(errors) = link(vec![
+        private_module("a", &[], a),
+        private_module("", &[("a", "a")], "fn main() { print(a.helper()); }"),
+    ]) else {
+        panic!("a private function was reachable");
+    };
+    assert_eq!(errors.len(), 1);
+    assert_eq!(
+        errors[0].message,
+        "`helper` is private in module `a`, it needs `pub`"
+    );
 }
 
 fn link_errors(modules: Vec<Module>) -> Vec<String> {

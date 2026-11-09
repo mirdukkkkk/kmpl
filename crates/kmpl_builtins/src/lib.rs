@@ -555,13 +555,43 @@ static BUILTINS: &[Builtin] = &[
             Ok(None)
         },
     },
-    // The checker and the lowering know that this one never comes back.
+    Builtin {
+        name: "eprint",
+        generic: &[],
+        params: &[ParamType::Any],
+        ret: RetType::Nothing,
+        func: |a, io| {
+            // So that the two streams appear in the order they were written.
+            io.out
+                .flush()
+                .map_err(|e| format!("cannot write output: {e}"))?;
+            eprintln!("{}", a[0]);
+            Ok(None)
+        },
+    },
+    // The checker and the lowering know that these two never come back.
     Builtin {
         name: "panic",
         generic: &[],
         params: &[ParamType::Exact(Type::Str)],
         ret: RetType::Nothing,
         func: |a, _| Err(a[0].as_str().to_owned()),
+    },
+    Builtin {
+        name: "exit",
+        generic: &[],
+        params: &[ParamType::Exact(Type::Int)],
+        ret: RetType::Nothing,
+        func: |a, io| {
+            let code = a[0].as_int();
+            if !(0..=255).contains(&code) {
+                return Err(format!("`exit` takes a code from 0 to 255, got {code}"));
+            }
+            io.out
+                .flush()
+                .map_err(|e| format!("cannot write output: {e}"))?;
+            std::process::exit(code as i32);
+        },
     },
 ];
 

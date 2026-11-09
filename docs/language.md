@@ -241,7 +241,7 @@ fn main() {
 ## Strings
 
 `+` joins strings, and `==` and `!=` compare them. `length` counts characters. The
-escapes are `\n`, `\t`, `\"` and `\\`.
+escapes are `\n`, `\t`, `\r`, `\"` and `\\`.
 
 ```kmpl
 let name = "мир";
@@ -391,6 +391,40 @@ fn main() {
 `match` is a statement, and it works on enums and optionals only. In another
 module an enum is written `geometry.Shape::Circle(1.0)`.
 
+## Functions as values
+
+A function can be kept in a variable, a field or an array, passed along and
+returned. Its type is written `fn(real) -> real`. A function without a name has
+the types of its parameters and result written out. It reads the variables around
+it as they were when it was created, and cannot change them.
+
+```kmpl
+fn square(x: real) -> real {
+    return x * x;
+}
+
+fn apply(f: fn(real) -> real, x: real) -> real {
+    return f(x);
+}
+
+fn adder(n: int) -> fn(int) -> int {
+    return fn(x: int) -> int { return x + n; };
+}
+
+fn main() {
+    print(apply(square, 3.0));  // 9.0
+    let add2 = adder(2);
+    print(add2(1));  // 3
+    print(square);  // <fn>
+}
+```
+
+`std:array` has `map`, `filter`, `fold`, `any` and `all`. Functions cannot be
+compared. A generic function or a built-in has to be wrapped in a function without
+a name to become a value, and a function without a name cannot call itself. A
+constant cannot call a function held in a variable. A call through a variable is
+slower than a direct one.
+
 ## Generic structs and enums
 
 A struct or an enum can take types as arguments, written `<T>`. They are usually
@@ -438,7 +472,7 @@ must be exactly one of them. With `.kmpl` at the end it is exactly that file.
 
 ```kmpl
 // lib/stats.kmpl
-fn mean(a: [real]) -> real {
+pub fn mean(a: [real]) -> real {
     let sum = 0.0;
     for x in a {
         sum += x;
@@ -463,7 +497,9 @@ another name, and a name that is already taken is an error:
 import (mean, mean as average) from "./lib/stats";
 ```
 
-Everything in a module is public. A file must import a module itself to use it,
+Only items marked `pub` can be used from other files; everything else is private
+to its file. A public struct has public fields and a public enum public variants.
+A file must import a module itself to use it,
 even if a module it imports already does. Only the `main` of the file you run is
 used.
 
@@ -527,6 +563,7 @@ Libraries that come with `kmpl` are imported from `std:`:
 | `std:io` | `args read_line` |
 | `std:text` | `parse_int parse_real split join trim starts_with ends_with contains find replace repeat to_upper to_lower is_digit is_letter is_space code from_code` |
 | `std:bits` | `shr_logical` |
+| `std:array` | `map filter fold any all` |
 | `std:linalg` | `solve det inverse transpose identity trace norm` |
 | `std:stats` | `mean median variance stddev quantile correlation histogram linear_fit` |
 | `std:random` | `seed real int normal shuffle` |
@@ -622,8 +659,8 @@ fn main() {
 | Vectors | `vec2 vec3 vec4 dot length distance normalize cross` |
 | Arrays and strings | `length push concat chars` |
 | Optionals | `unwrap unwrap_or` |
-| Errors | `panic` |
-| Output | `print` |
+| Stopping | `panic exit` |
+| Output | `print eprint` |
 
 These functions work on single values. `sqrt` of an array is an error, so use a
 loop.

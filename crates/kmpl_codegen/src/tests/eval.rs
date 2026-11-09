@@ -1715,6 +1715,106 @@ fn growing_an_array_in_branches_does_not_copy() {
 }
 
 #[test]
+fn functions_are_values() {
+    let src = "fn square(x: real) -> real { return x * x; }
+               fn half(x: real) -> real { return x / 2.0; }
+               fn twice(f: fn(real) -> real, x: real) -> real { return f(f(x)); }
+               fn pick(first: bool) -> fn(real) -> real {
+                   if first { return square; }
+                   return half;
+               }
+               struct Holder { f: fn(real) -> real }
+               const C: fn(real) -> real = half;
+               fn main() {
+                   let f: fn(real) -> real = square;
+                   print(f(3.0));
+                   print(twice(half, 8.0));
+                   let chosen = pick(true);
+                   print(chosen(1.5));
+                   let other = pick(false);
+                   print(other(1.5));
+                   print(C(4.0));
+                   let h = Holder { f: half };
+                   let g = h.f;
+                   print(g(5.0));
+                   let all = [square, half];
+                   for item in all { print(item(2.0)); }
+                   print(f);
+               }";
+    assert_eq!(
+        run(src).unwrap(),
+        "9.0\n2.0\n2.25\n0.75\n2.0\n2.5\n4.0\n1.0\n<fn>\n"
+    );
+}
+
+#[test]
+fn functions_without_a_name_capture_copies() {
+    let src = "fn adder(n: int) -> fn(int) -> int {
+                   return fn(x: int) -> int { return x + n; };
+               }
+               fn main() {
+                   let add2 = adder(2);
+                   let add5 = adder(5);
+                   print(add2(1));
+                   print(add5(1));
+
+                   let k = 10;
+                   let a = [1, 2];
+                   let f = fn(i: int) -> int { return a[i] + k; };
+                   k = 100;
+                   a[0] = 50;
+                   print(f(0));
+                   print(k + a[0]);
+
+                   let say = fn(s: string) { print(\"said \" + s); };
+                   say(\"hi\");
+
+                   let outer = 3;
+                   let nest = fn(x: int) -> int {
+                       let inner = fn(y: int) -> int { return y * outer; };
+                       return inner(x) + 1;
+                   };
+                   print(nest(4));
+               }";
+    assert_eq!(run(src).unwrap(), "3\n6\n11\n150\nsaid hi\n13\n");
+}
+
+#[test]
+fn a_function_value_can_recurse_through_its_name() {
+    let src = "fn apply(f: fn(int) -> int, n: int) -> int { return f(n); }
+               fn down(n: int) -> int {
+                   if n <= 0 { return 0; }
+                   return n + apply(down, n - 1);
+               }
+               fn main() { print(down(4)); }";
+    assert_eq!(run(src).unwrap(), "10\n");
+}
+
+#[test]
+fn a_function_created_in_code_that_never_runs() {
+    let src = "fn f() -> fn(int) -> int {
+                   return fn(x: int) -> int { return x; };
+                   return fn(x: int) -> int { return x + 1; };
+               }
+               fn main() { let g = f(); print(g(1)); }";
+    assert_eq!(run(src).unwrap(), "1\n");
+}
+
+#[test]
+fn generic_functions_take_functions() {
+    let src = "fn map2<T, U>(items: [T], f: fn(T) -> U) -> [U] {
+                   let out: [U] = [];
+                   for x in items { out = push(out, f(x)); }
+                   return out;
+               }
+               fn main() {
+                   print(map2([1, 2], fn(x: int) -> real { return real(x) / 2.0; }));
+                   print(map2([[1], [2, 3]], fn(x: [int]) -> int { return length(x); }));
+               }";
+    assert_eq!(run(src).unwrap(), "[0.5, 1.0]\n[1, 2]\n");
+}
+
+#[test]
 fn array_writes_in_a_loop_do_not_copy() {
     // Quadratic copying would make this take far too long to finish.
     let src = "fn main() {

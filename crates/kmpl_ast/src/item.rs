@@ -4,6 +4,8 @@ use crate::{Block, Expr, Ident, Span, Type, TypeExpr};
 pub struct Program {
     pub imports: Vec<Import>,
     pub items: Vec<Item>,
+    /// The names of the items marked `pub`.
+    pub public: Vec<String>,
 }
 
 /// `import fs from "std:fs";` or `import (read, write as save) from "std:fs";`

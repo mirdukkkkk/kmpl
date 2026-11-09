@@ -12,6 +12,7 @@ pub enum Token {
     #[token("while")] While,
     #[token("import")] Import,
     #[token("struct")] Struct,
+    #[token("pub")] Pub,
     #[token("enum")] Enum,
     #[token("match")] Match,
     #[token("some")] KwSome,
@@ -119,6 +120,7 @@ fn unescape(literal: &str) -> Option<String> {
         text.push(match chars.next()? {
             'n' => '\n',
             't' => '\t',
+            'r' => '\r',
             '"' => '"',
             '\\' => '\\',
             _ => return None,
@@ -138,6 +140,7 @@ impl std::fmt::Display for Token {
             Token::While => "while",
             Token::Import => "import",
             Token::Struct => "struct",
+            Token::Pub => "pub",
             Token::Enum => "enum",
             Token::Match => "match",
             Token::KwSome => "some",

@@ -492,6 +492,22 @@ fn ty_kind(ts: &mut TokenStream) -> PResult<TypeExpr> {
     if ts.peek() == Some(&Token::LParen) {
         return Ok(TypeExpr::Tuple(two_or_more(ts, ty)?));
     }
+    if ts.eat(&Token::Fn).is_some() {
+        ts.expect(Token::LParen)?;
+        let mut params = Vec::new();
+        while ts.peek() != Some(&Token::RParen) {
+            params.push(ty(ts)?);
+            if ts.eat(&Token::Comma).is_none() {
+                break;
+            }
+        }
+        ts.expect(Token::RParen)?;
+        let ret = match ts.eat(&Token::Arrow) {
+            Some(_) => Some(Box::new(ty(ts)?)),
+            None => None,
+        };
+        return Ok(TypeExpr::Function { params, ret });
+    }
 
     let name = dotted_name(ts)?;
     if let Some(ty) = Type::from_name(&name.name) {

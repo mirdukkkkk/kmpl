@@ -341,6 +341,14 @@ impl<'ctx, 'm> Translator<'ctx, 'm> {
             self.terminator(&block.term, &block.term_frees, &mut current)?;
         }
 
+        // Without optimizing, blocks nothing jumps to are still there.
+        for (index, block) in current.blocks.iter().enumerate() {
+            if !order.contains(&index) {
+                self.builder.position_at_end(*block);
+                self.builder.build_unreachable()?;
+            }
+        }
+
         // Last, because a jump back up a loop passes values defined later.
         let edges = std::mem::take(&mut current.edges);
         for (target, from) in edges {

@@ -138,7 +138,10 @@ fn string_error_message(rest: &str) -> String {
     let mut chars = rest.chars().skip(1);
     while let Some(c) = chars.next() {
         match c {
-            '"' => return r#"unknown escape in string, use `\n`, `\t`, `\"` or `\\`"#.to_owned(),
+            '"' => {
+                return r#"unknown escape in string, use `\n`, `\t`, `\r`, `\"` or `\\`"#
+                    .to_owned();
+            }
             '\n' => break,
             '\\' => {
                 chars.next();

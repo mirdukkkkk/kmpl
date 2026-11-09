@@ -1,4 +1,4 @@
-fn mean(a: [real]) -> real {
+pub fn mean(a: [real]) -> real {
     let sum = 0.0;
     for x in a {
         sum += x;
@@ -6,7 +6,7 @@ fn mean(a: [real]) -> real {
     return sum / real(a.length());
 }
 
-fn min_max(a: [real]) -> (real, real) {
+pub fn min_max(a: [real]) -> (real, real) {
     let lo = a[0];
     let hi = a[0];
     for x in a {

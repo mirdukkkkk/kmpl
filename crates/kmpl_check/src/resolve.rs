@@ -20,11 +20,12 @@
 use std::collections::{HashMap, HashSet};
 
 use kmpl_ast::{
-    Block, EnumDef, Expr, ExprKind, Function, Ident, Item, PathStep, Pattern, Program, Stmt,
-    StmtKind, StructDef, Type, TypeExpr,
+    Block, EnumDef, Expr, ExprKind, Function, Ident, Item, Lambda, PathStep, Pattern, Program,
+    Span, Stmt, StmtKind, StructDef, Type, TypeExpr,
 };
 
 use crate::error::CheckError;
+use crate::returns::always_returns;
 
 enum Global<'a> {
     /// `index` is the position of the item in the program.
@@ -56,6 +57,9 @@ struct Resolver<'a> {
     loop_depth: usize,
     /// Generic parameter names of the function being checked.
     type_params: Vec<&'a str>,
+    /// Inside a function without a name: how many scopes are outside it.
+    /// Those variables can only be read.
+    captured_scopes: usize,
     errors: Vec<CheckError>,
 }
 
@@ -66,6 +70,7 @@ pub fn resolve(program: &Program) -> Vec<CheckError> {
         current_const: None,
         loop_depth: 0,
         type_params: Vec::new(),
+        captured_scopes: 0,
         errors: Vec::new(),
     };
 
@@ -294,6 +299,14 @@ impl<'a> Resolver<'a> {
                 }
             }
             TypeExpr::Array(elem) | TypeExpr::Optional(elem) => self.check_type(elem),
+            TypeExpr::Function { params, ret } => {
+                for param in params {
+                    self.check_type(param);
+                }
+                if let Some(ret) = ret {
+                    self.check_type(ret);
+                }
+            }
             TypeExpr::Tuple(items) => {
                 for item in items {
                     self.check_type(item);
@@ -466,8 +479,45 @@ impl<'a> Resolver<'a> {
         self.scopes.pop();
     }
 
+    fn lambda(&mut self, l: &'a Lambda, span: Span) {
+        // Copies of generic functions do not reach inside a body like this.
+        let type_params = std::mem::take(&mut self.type_params);
+        for param in &l.params {
+            self.check_type(&param.ty);
+        }
+        if let Some(ret) = &l.ret {
+            self.check_type(ret);
+            if !always_returns(&l.body) {
+                self.errors.push(CheckError::new(
+                    "this function may finish without returning a value".to_owned(),
+                    span,
+                ));
+            }
+        }
+
+        let captured = std::mem::replace(&mut self.captured_scopes, self.scopes.len());
+        let loops = std::mem::replace(&mut self.loop_depth, 0);
+        self.scopes.push(HashMap::new());
+        for param in &l.params {
+            self.declare_local(&param.name);
+        }
+        self.block(&l.body);
+        self.scopes.pop();
+        self.loop_depth = loops;
+        self.captured_scopes = captured;
+        self.type_params = type_params;
+    }
+
     fn assign_target(&mut self, name: &Ident) {
         let n = name.name.as_str();
+        let scope = self.scopes.iter().rposition(|s| s.contains_key(n));
+        if scope.is_some_and(|index| index < self.captured_scopes) {
+            self.error(
+                format!("cannot change `{n}`: a function only reads what it captures"),
+                name,
+            );
+            return;
+        }
         let local = self.scopes.iter().rev().find_map(|s| s.get(n).copied());
         match local {
             Some(true) => {
@@ -536,6 +586,7 @@ impl<'a> Resolver<'a> {
             }
             ExprKind::Some(value) => self.expr(value),
             ExprKind::None => {}
+            ExprKind::Lambda(l) => self.lambda(l, e.span),
             ExprKind::Array(items) | ExprKind::Tuple(items) => {
                 for item in items {
                     self.expr(item);
@@ -625,8 +676,9 @@ impl<'a> Resolver<'a> {
             Some(Global::Struct { .. }) => format!("`{n}` is a struct, not a value"),
             Some(Global::Enum { .. }) => format!("`{n}` is an enum, not a value"),
             _ if kmpl_builtins::lookup_const(n).is_some() => return,
+            Some(Global::Function { .. }) => return,
             _ if self.is_function(n) => {
-                format!("`{n}` is a function, call it with `{n}(...)`")
+                format!("the built-in `{n}` cannot be a value, wrap it in `fn(...) {{ ... }}`")
             }
             _ => format!("undefined variable `{n}`"),
         };
@@ -649,10 +701,10 @@ impl<'a> Resolver<'a> {
                 },
                 if given == 1 { "was" } else { "were" },
             )
-        } else if self.is_local(n)
-            || self.globals.contains_key(n)
-            || kmpl_builtins::lookup_const(n).is_some()
-        {
+        } else if self.is_local(n) || matches!(self.globals.get(n), Some(Global::Const { .. })) {
+            // It may hold a function, which only the types can tell.
+            return;
+        } else if self.globals.contains_key(n) || kmpl_builtins::lookup_const(n).is_some() {
             format!("`{n}` is not a function")
         } else {
             format!("undefined function `{n}`")
@@ -698,6 +750,9 @@ fn held_structs<'a>(ty: &'a TypeExpr, out: &mut Vec<&'a str>) {
             }
         }
         // These can be empty, so they end the chain.
-        TypeExpr::Known(_) | TypeExpr::Array(_) | TypeExpr::Optional(_) => {}
+        TypeExpr::Known(_)
+        | TypeExpr::Array(_)
+        | TypeExpr::Optional(_)
+        | TypeExpr::Function { .. } => {}
     }
 }

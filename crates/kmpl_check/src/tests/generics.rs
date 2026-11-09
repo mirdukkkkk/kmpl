@@ -1,6 +1,64 @@
 use kmpl_ast::{ExprKind, Item, StmtKind};
 
 use super::{assert_error, assert_ok, errors};
+
+#[test]
+fn function_types_must_match() {
+    assert_ok("fn g(x: int) -> real { return 1.0; } fn f() { let h: fn(int) -> real = g; }");
+    assert_error(
+        "fn g(x: int) -> real { return 1.0; } fn f() { let h: fn(int) -> int = g; }",
+        "mismatched types: expected `fn(int) -> int`, found `fn(int) -> real`",
+    );
+    assert_error(
+        "fn f(g: fn(int) -> int) { g(true); }",
+        "mismatched types: expected `int`, found `bool`",
+    );
+    assert_error(
+        "fn f(g: fn(int) -> int) { g(1, 2); }",
+        "`g` takes 1 arguments, but 2 were given",
+    );
+    assert_error("fn f(g: fn(int)) { let x = g(1); }", "`g` returns no value");
+    assert_error(
+        "fn f(g: fn(int), h: fn(int)) -> bool { return g == h; }",
+        "cannot apply `==` to functions",
+    );
+}
+
+#[test]
+fn functions_without_a_name_are_checked() {
+    assert_error(
+        "fn f() { let k = 1; let g = fn() { k = 2; }; }",
+        "cannot change `k`: a function only reads what it captures",
+    );
+    assert_error(
+        "fn f() { let g = fn() -> int { }; }",
+        "this function may finish without returning a value",
+    );
+    assert_error(
+        "fn f() { let g = fn() -> int { return true; }; }",
+        "mismatched types: expected `int`, found `bool`",
+    );
+    assert_error(
+        "fn f() { while true { let g = fn() { break; }; } }",
+        "`break` outside of a loop",
+    );
+    assert_error(
+        "fn g<T>(x: T) { let h = fn(y: T) { }; }",
+        "unknown type `T`",
+    );
+    assert_error(
+        "fn id<T>(x: T) -> T { return x; } fn f() { let g = id; }",
+        "the generic function `id` cannot be a value, wrap it in `fn(...) { ... }`",
+    );
+}
+
+#[test]
+fn constants_cannot_call_a_function_in_a_variable() {
+    assert_error(
+        "fn g(h: fn() -> int) -> int { return h(); } fn k() -> int { return 1; } const A: int = g(k);",
+        "a constant cannot call `g`: it calls a function held in a variable",
+    );
+}
 use crate::check;
 
 #[test]

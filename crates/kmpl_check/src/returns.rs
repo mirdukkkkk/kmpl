@@ -25,12 +25,12 @@ pub fn check_returns(program: &Program) -> Vec<CheckError> {
     errors
 }
 
-fn always_returns(block: &Block) -> bool {
+pub(crate) fn always_returns(block: &Block) -> bool {
     block.iter().any(stmt_always_returns)
 }
 
 fn stmt_always_returns(stmt: &Stmt) -> bool {
-    if stmt.is_panic() {
+    if stmt.never_returns() {
         return true;
     }
     match &stmt.kind {

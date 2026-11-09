@@ -173,9 +173,9 @@ fn imports_run_in_dependency_order() {
             ),
             (
                 "lib/a.kmpl",
-                "import b from \"./b\"; const G: real = b.B + 1.0; fn f() -> real { return G; }",
+                "import b from \"./b\"; pub const G: real = b.B + 1.0; pub fn f() -> real { return G; }",
             ),
-            ("lib/b.kmpl", "const B: real = 1.0;"),
+            ("lib/b.kmpl", "pub const B: real = 1.0;"),
         ],
     );
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
@@ -193,13 +193,13 @@ fn a_shared_import_is_loaded_once() {
             ),
             (
                 "a.kmpl",
-                "import c from \"./c\"; fn f() -> int { return c.X; }",
+                "import c from \"./c\"; pub fn f() -> int { return c.X; }",
             ),
             (
                 "b.kmpl",
-                "import c from \"./c\"; fn g() -> int { return c.X; }",
+                "import c from \"./c\"; pub fn g() -> int { return c.X; }",
             ),
-            ("c.kmpl", "const X: int = 21;"),
+            ("c.kmpl", "pub const X: int = 21;"),
         ],
     );
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
@@ -230,7 +230,10 @@ fn runtime_errors_name_the_imported_file() {
                 "main.kmpl",
                 "import a from \"./a\";\nfn main() { print(a.f(0)); }\n",
             ),
-            ("a.kmpl", "fn f(x: int) -> int {\n    return 1 / x;\n}\n"),
+            (
+                "a.kmpl",
+                "pub fn f(x: int) -> int {\n    return 1 / x;\n}\n",
+            ),
         ],
     );
     assert_eq!(out.status.code(), Some(1));
@@ -525,9 +528,9 @@ fn a_directory_is_found_through_mod_kmpl() {
             ),
             (
                 "lib/a/mod.kmpl",
-                "import b from \"./b\";\nfn f() -> int { return b.N; }\n",
+                "import b from \"./b\";\npub fn f() -> int { return b.N; }\n",
             ),
-            ("lib/a/b.kmpl", "const N: int = 7;\n"),
+            ("lib/a/b.kmpl", "pub const N: int = 7;\n"),
         ],
     );
     assert_eq!(stdout(&out), "7\n", "{}", stderr(&out));
@@ -560,8 +563,8 @@ fn an_explicit_extension_names_exactly_that_file() {
                 "main.kmpl",
                 "import a from \"./a.kmpl\";\nfn main() { print(a.N); }\n",
             ),
-            ("a.kmpl", "const N: int = 1;\n"),
-            ("a/mod.kmpl", "const N: int = 2;\n"),
+            ("a.kmpl", "pub const N: int = 1;\n"),
+            ("a/mod.kmpl", "pub const N: int = 2;\n"),
         ],
     );
     assert_eq!(stdout(&out), "1\n", "{}", stderr(&out));
@@ -577,8 +580,8 @@ fn a_module_outside_the_program_directory() {
                 "import shared from \"../shared\";\nimport here from \"./shared\";\n\
                  fn main() { print(shared.N + here.N); }\n",
             ),
-            ("shared.kmpl", "const N: int = 1;\n"),
-            ("app/shared.kmpl", "const N: int = 20;\n"),
+            ("shared.kmpl", "pub const N: int = 1;\n"),
+            ("app/shared.kmpl", "pub const N: int = 20;\n"),
         ],
     );
     assert_eq!(stdout(&out), "21\n", "{}", stderr(&out));
@@ -596,8 +599,8 @@ fn items_imported_by_name() {
             ),
             (
                 "lib.kmpl",
-                "const K: int = 4;\nstruct Point { x: int }\n\
-                 fn twice(n: int) -> int { return n * 2; }\n",
+                "pub const K: int = 4;\npub struct Point { x: int }\n\
+                 pub fn twice(n: int) -> int { return n * 2; }\n",
             ),
         ],
     );
@@ -828,6 +831,72 @@ fn stats_reports_what_it_cannot_do() {
 }
 
 #[test]
+fn exit_ends_the_program_with_its_code() {
+    let out = run(
+        "exit_code",
+        "fn stop() -> int { print(\"before\"); exit(3); }
+         fn main() { print(stop()); print(\"after\"); }",
+    );
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "before\n");
+    assert_eq!(stderr(&out), "");
+}
+
+#[test]
+fn exit_refuses_a_code_it_cannot_give() {
+    let out = run("exit_range", "fn main() { exit(256); }");
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).contains("`exit` takes a code from 0 to 255, got 256"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn eprint_goes_to_the_error_stream() {
+    let out = run(
+        "eprint",
+        "fn main() { print(1); eprint(\"problem\"); eprint([1, 2]); print(2); }",
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "1\n2\n");
+    assert_eq!(stderr(&out), "problem\n[1, 2]\n");
+}
+
+#[test]
+fn a_carriage_return_can_be_written() {
+    let out = run("cr", "fn main() { print(length(\"a\\r\")); }");
+    assert_eq!(stdout(&out), "2\n", "{}", stderr(&out));
+}
+
+#[test]
+fn arrays_through_functions() {
+    let out = run(
+        "std_array",
+        "import (map, filter, fold, any, all) from \"std:array\";
+         fn square(x: int) -> int { return x * x; }
+         fn main() {
+             let a = [1, 2, 3];
+             let k = 1;
+             print(a.map(square));
+             print(a.filter(fn(x: int) -> bool { return x > k; }));
+             print(a.fold(0, fn(s: int, x: int) -> int { return s + x; }));
+             print(a.any(fn(x: int) -> bool { return x == 3; }));
+             print(a.all(fn(x: int) -> bool { return x == 3; }));
+             print(a.map(fn(x: int) -> string { return string(x); }));
+             print([\"a\"].map(fn(s: string) -> [string] { return [s, s]; }));
+         }",
+    );
+    assert_eq!(
+        stdout(&out),
+        "[1, 4, 9]\n[2, 3]\n6\ntrue\nfalse\n[1, 2, 3]\n[[a, a]]\n",
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
 fn every_std_library_can_be_imported() {
     let out = run(
         "std_all",
@@ -887,7 +956,7 @@ fn an_unknown_library_lists_the_known_ones() {
     assert_eq!(out.status.code(), Some(1));
     assert!(
         stderr(&out).contains(
-            "there is no library `std:nope`, there are: bits, fs, io, linalg, random, stats, text, time"
+            "there is no library `std:nope`, there are: array, bits, fs, io, linalg, random, stats, text, time"
         ),
         "{}",
         stderr(&out)
@@ -925,7 +994,7 @@ fn a_plain_name_comes_from_kmpl_toml() {
                 "app/kmpl.toml",
                 "version = 1\n\n[dependencies]\nhelpers = \"./vendor/helpers\"\n",
             ),
-            ("app/vendor/helpers/mod.kmpl", "const N: int = 5;\n"),
+            ("app/vendor/helpers/mod.kmpl", "pub const N: int = 5;\n"),
         ],
     );
     assert_eq!(stdout(&out), "5\n", "{}", stderr(&out));
