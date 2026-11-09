@@ -421,10 +421,13 @@ fn arrays_in_signatures() {
 }
 
 #[test]
-fn len_takes_any_array() {
-    assert_ok("fn f(a: [real], m: [[int]]) { let n: int = len(a) + len(m) + len(m[0]); }");
+fn length_takes_any_array() {
+    assert_ok(
+        "fn f(a: [real], m: [[int]]) { let n: int = length(a) + length(m) + m[0].length(); }",
+    );
+    assert_ok("fn f(v: vec3) { let n: real = length(v); }");
     assert_error(
-        "fn f(x: real) { len(x); }",
+        "fn f(x: real) { length(x); }",
         "expected an array, found `real`",
     );
 }
@@ -706,12 +709,12 @@ fn strings_have_only_joining_and_equality() {
 
 #[test]
 fn string_built_ins() {
-    assert_ok(r#"fn f(s: string, a: [int]) { let n: int = len(s) + len(a) + len("x"); }"#);
+    assert_ok(r#"fn f(s: string, a: [int]) { let n: int = length(s) + length(a) + length("x"); }"#);
     assert_ok(
         r#"fn f() { let s: string = string(1) + string(1.5) + string(true) + string([1]) + string("x"); }"#,
     );
     assert_error(
-        "fn f(x: real) { len(x); }",
+        "fn f(x: real) { length(x); }",
         "expected an array, found `real`",
     );
 }

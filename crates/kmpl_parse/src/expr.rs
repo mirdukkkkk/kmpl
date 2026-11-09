@@ -164,6 +164,10 @@ fn postfix(ts: &mut TokenStream) -> PResult<Expr> {
             base = index_or_slice(ts, base)?;
         } else if ts.eat(&Token::Dot).is_some() {
             let name = ts.expect_ident()?;
+            if ts.eat(&Token::LParen).is_some() {
+                base = method_call(ts, base, name)?;
+                continue;
+            }
             let span = base.span.to(name.span);
             base = Expr {
                 kind: ExprKind::Field {
@@ -189,6 +193,17 @@ fn postfix(ts: &mut TokenStream) -> PResult<Expr> {
             base: Box::new(base),
             mask,
         },
+        span,
+    })
+}
+
+/// The rest of `base '.' name '(' args ')'`, which is `name(base, args)`.
+fn method_call(ts: &mut TokenStream, base: Expr, name: Ident) -> PResult<Expr> {
+    let (mut args, close) = call_args(ts)?;
+    let span = base.span.to(close);
+    args.insert(0, base);
+    Ok(Expr {
+        kind: ExprKind::Call { name, args },
         span,
     })
 }

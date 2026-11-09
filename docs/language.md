@@ -66,7 +66,7 @@ fn main() {
 A constant can call functions. It is an error if a call reaches a constant declared
 later, or something that depends on how the program is run, such as `args`.
 
-`bytes` holds raw data. `b[i]` and `for x in b` give `int`s, and slices, `len`,
+`bytes` holds raw data. `b[i]` and `for x in b` give `int`s, and slices, `length`,
 `push`, `concat` and `==` work as on arrays. `string(b)` decodes UTF-8 and stops the
 program if the data is not valid UTF-8, while `print(b)` shows the numbers:
 
@@ -191,7 +191,7 @@ let a = [1.0, 2.0, 3.0];
 let b = a;
 b[0] = 9.0;
 print(a[0]);  // 1.0
-print(len(a));  // 3
+print(length(a));  // 3
 print(a[1..]);  // [2.0, 3.0]
 print(a[..=1]);  // [1.0, 2.0]
 print([0; 2]);  // [0, 0]
@@ -240,14 +240,35 @@ fn main() {
 
 ## Strings
 
-`+` joins strings, and `==` and `!=` compare them. `len` counts characters. The
+`+` joins strings, and `==` and `!=` compare them. `length` counts characters. The
 escapes are `\n`, `\t`, `\"` and `\\`.
 
 ```kmpl
 let name = "мир";
 print("hello, " + name);  // hello, мир
-print(len(name));  // 3
+print(length(name));  // 3
 ```
+
+## Calling with a dot
+
+`x.f(y)` is the same as `f(x, y)`, for any function that can be called here by
+its plain name. It is handy in chains. `p.x` reads a field, `p.x()` calls `x`.
+
+```kmpl
+fn scaled(v: vec2, k: real) -> vec2 {
+    return v * k;
+}
+
+fn main() {
+    let v = vec2(3.0, 4.0);
+    print(v.scaled(2.0).length());  // 10.0
+    print(sqrt(v.length()));  // 2.23606797749979
+    print([1, 2, 3].length());  // 3
+}
+```
+
+`length` is the length of a vector as a `real`, and the number of elements of an
+array or `bytes` or of characters of a string as an `int`.
 
 ## Structs
 
@@ -306,7 +327,7 @@ fn width(s: Shape) -> real {
 }
 
 fn first(a: [int]) -> int? {
-    if len(a) == 0 {
+    if length(a) == 0 {
         return none;
     }
     return some(a[0]);
@@ -339,7 +360,7 @@ fn mean(a: [real]) -> real {
     for x in a {
         sum += x;
     }
-    return sum / real(len(a));
+    return sum / real(length(a));
 }
 ```
 
@@ -471,7 +492,7 @@ fn main() {
 | Complex | `re im arg conj` |
 | Conversion | `real int complex string bytes` |
 | Vectors | `vec2 vec3 vec4 dot length distance normalize cross` |
-| Arrays and strings | `len push concat` |
+| Arrays and strings | `length push concat` |
 | Output | `print` |
 
 These functions work on single values. `sqrt` of an array is an error, so use a

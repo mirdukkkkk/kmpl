@@ -364,8 +364,8 @@ fn array_literals_get_their_inferred_type() {
 #[test]
 fn array_fill_and_len() {
     assert_eq!(output("print([7; 3]);"), "[7, 7, 7]\n");
-    assert_eq!(output("let n = 0; print(len([1.0; n]));"), "0\n");
-    assert_eq!(output("print(len([[1], [2]]));"), "2\n");
+    assert_eq!(output("let n = 0; print(length([1.0; n]));"), "0\n");
+    assert_eq!(output("print(length([[1], [2]]));"), "2\n");
 }
 
 #[test]
@@ -860,9 +860,12 @@ fn strings_join_and_compare() {
 
 #[test]
 fn string_length_counts_characters() {
-    assert_eq!(output(r#"print(len("")); print(len("abc"));"#), "0\n3\n");
-    assert_eq!(output(r#"print(len("привет"));"#), "6\n");
-    assert_eq!(output(r#"print(len("a\n"));"#), "2\n");
+    assert_eq!(
+        output(r#"print(length("")); print(length("abc"));"#),
+        "0\n3\n"
+    );
+    assert_eq!(output(r#"print(length("привет"));"#), "6\n");
+    assert_eq!(output(r#"print(length("a\n"));"#), "2\n");
 }
 
 #[test]
@@ -960,7 +963,7 @@ fn nested_field_assignment() {
                    print(o.a.v);
                    print(o.list[0].v);
                    o.a = In { v: [] };
-                   print(len(o.a.v));
+                   print(length(o.a.v));
                }";
     assert_eq!(run(src).unwrap(), "[7]\n[2, 13]\n0\n");
 }
@@ -1033,7 +1036,7 @@ fn structs_in_if_headers_with_brackets() {
 
 #[test]
 fn args_are_strings() {
-    let src = "fn main() { print(_io_args()); print(len(_io_args())); }";
+    let src = "fn main() { print(_io_args()); print(length(_io_args())); }";
     assert_eq!(run_with(src, &["a", "b c"], b"").unwrap(), "[a, b c]\n2\n");
     assert_eq!(run(src).unwrap(), "[]\n0\n");
 }
@@ -1237,6 +1240,21 @@ fn panic_stops_the_program_where_it_is() {
                fn main() { print(f()); print(\"after\"); }";
     let (message, _) = run(src).unwrap_err();
     assert_eq!(message, "it broke");
+}
+
+#[test]
+fn length_of_everything() {
+    assert_eq!(
+        output(
+            r#"print(length(vec2(3.0, 4.0)));
+               print(length([1, 2, 3]));
+               print(length("привет"));
+               print(length(bytes("ж")));
+               print(vec3(0.0, 3.0, 4.0).length() + 0.5);
+               print([[1], [2]].length() + 1);"#
+        ),
+        "5.0\n3\n6\n2\n5.5\n3\n"
+    );
 }
 
 #[test]
@@ -1482,7 +1500,7 @@ fn reading_an_array_does_not_make_the_next_write_copy_it() {
     let src = "fn main() {
                    let n = 200000;
                    let a = [0; n];
-                   for i in 0..n { a[i] = len(a); }
+                   for i in 0..n { a[i] = length(a); }
                    print(a[n - 1]);
                }";
     assert_eq!(run(src).unwrap(), "200000\n");
@@ -1493,7 +1511,7 @@ fn a_loop_of_pushes_does_not_copy() {
     let src = "fn main() {
                    let a: [int] = [];
                    for i in 0..200000 { a = push(a, i); }
-                   print(len(a));
+                   print(length(a));
                    print(a[199999]);
                }";
     assert_eq!(run(src).unwrap(), "200000\n199999\n");
@@ -1572,7 +1590,7 @@ fn writing_a_flat_parameter_does_not_change_the_callers_array() {
 #[test]
 fn flat_arrays_keep_their_form_when_empty() {
     assert_eq!(
-        output("let a: [real] = []; a = push(a, 1.5); print(a); print(len(a));"),
+        output("let a: [real] = []; a = push(a, 1.5); print(a); print(length(a));"),
         "[1.5]\n1\n"
     );
     assert_eq!(
@@ -1718,7 +1736,7 @@ fn bitwise_precedence_follows_rust() {
 fn bytes_read_and_write_like_a_small_array() {
     assert_eq!(
         output(
-            "let b = bytes(\"AB\"); print(b); print(len(b)); print(b[1]); b[0] = 97; print(string(b));"
+            "let b = bytes(\"AB\"); print(b); print(length(b)); print(b[1]); b[0] = 97; print(string(b));"
         ),
         "[65, 66]\n2\n66\naB\n"
     );
@@ -1743,7 +1761,7 @@ fn bytes_slices_push_concat_and_value_semantics() {
 #[test]
 fn bytes_of_a_string_count_bytes_not_characters() {
     assert_eq!(
-        output("print(len(bytes(\"ж\"))); print(len(\"ж\"));"),
+        output("print(length(bytes(\"ж\"))); print(length(\"ж\"));"),
         "2\n1\n"
     );
 }

@@ -275,7 +275,9 @@ fn dots() {
     assert_eq!(body("f().x;"), "[(. (call f []) x)]");
     assert_eq!(body("a[0].x[1];"), "[(index (. (index a 0) x) 1)]");
     assert_eq!(body_error("a.;"), "expected identifier, found `;`");
-    assert_eq!(body_error("a.b.c(1);"), "expected `;`, found `(`");
+    assert_eq!(body("a.b.c(1);"), "[(call c [(. a b) 1])]");
+    assert_eq!(body("f().g();"), "[(call g [(call f [])])]");
+    assert_eq!(body("a[0].g();"), "[(call g [(index a 0)])]");
 }
 
 #[test]

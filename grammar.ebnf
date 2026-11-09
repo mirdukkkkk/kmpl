@@ -60,7 +60,8 @@ shift       ::= add (('<<' | '>>') add)*
 add         ::= mul (('+' | '-') mul)*
 mul         ::= unary (('*' | '/' | '%') unary)*
 unary       ::= ('!' | '-' | '~') unary | postfix
-postfix     ::= primary ('[' (expr | slice) ']' | '.' IDENT)* (':' swizzle)?
+(* 'x.f(a)' is the call 'f(x, a)' *)
+postfix     ::= primary ('[' (expr | slice) ']' | '.' IDENT ('(' (expr (',' expr)* ','?)? ')')?)* (':' swizzle)?
 slice       ::= expr? '..' expr? | expr? '..=' expr
 primary     ::= INT | REAL | IMAG | STRING | 'true' | 'false' | 'none' | IDENT | call | structlit | variant_val | some | array | tuple | '(' expr ')'
 variant_val ::= name '::' IDENT ('(' (expr (',' expr)* ','?)? ')')?

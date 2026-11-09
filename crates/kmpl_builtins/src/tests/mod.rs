@@ -142,6 +142,8 @@ fn signatures_match_implementations() {
                 RetType::T => Some(t),
                 RetType::Magnitude if t == Type::Complex => Some(Type::Real),
                 RetType::Magnitude => Some(t),
+                // Given an array here.
+                RetType::Length => Some(Type::Int),
                 RetType::ArrayOfElem
                 | RetType::ArrayOf(_)
                 | RetType::Pair(..)

@@ -940,6 +940,8 @@ impl<'a> Infer<'a> {
         let elem = self.u.new_var(TypeSet::ANY);
         // `push` and `concat` also work on `bytes` and then give `bytes`.
         let mut on_bytes = false;
+        // `length` of a vector is a `real`.
+        let mut on_vector = false;
 
         for (arg, param) in args.iter().zip(builtin.params) {
             let arg_ty = self.expr(arg);
@@ -949,7 +951,8 @@ impl<'a> Infer<'a> {
                 ParamType::Any => {}
                 ParamType::Collection => {
                     let string = self.u.set(arg_ty) == TypeSet::single(Type::Str);
-                    if !string && !self.is_bytes(arg_ty) {
+                    on_vector = self.u.set(arg_ty).is_subset(TypeSet::VECTOR);
+                    if !string && !on_vector && !self.is_bytes(arg_ty) {
                         self.array_elem(arg_ty, arg.span);
                     }
                 }
@@ -976,6 +979,8 @@ impl<'a> Infer<'a> {
                 let elem = self.known(ty);
                 Some(self.u.new_array(elem))
             }
+            RetType::Length if on_vector => Some(self.known(Type::Real)),
+            RetType::Length => Some(self.known(Type::Int)),
             RetType::Optional(ty) => {
                 let inner = self.known(ty);
                 Some(self.u.new_optional(inner))

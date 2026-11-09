@@ -20,8 +20,8 @@
 use std::collections::{HashMap, HashSet};
 
 use kmpl_ast::{
-    Block, Expr, ExprKind, Function, Ident, ImportNames, Item, PathStep, Pattern, Program, Stmt,
-    StmtKind, Type, TypeExpr,
+    Block, Expr, ExprKind, Function, Ident, ImportNames, Item, PathStep, Pattern, Program, Span,
+    Stmt, StmtKind, Type, TypeExpr,
 };
 
 use crate::error::CheckError;
@@ -307,6 +307,36 @@ impl Linker<'_> {
         }
     }
 
+    /// The parser reads `a.f(x)` as a call into the module `a`. If `a` is a
+    /// value instead, this makes it the call `f(a, x)`.
+    fn value_before_dot(&self, name: &mut Ident, args: &mut Vec<Expr>) {
+        let Some((head, member)) = name.name.split_once('.') else {
+            return;
+        };
+        let is_value = !self.is_module(head)
+            && (self.is_local(head)
+                || self.own.contains(head)
+                || self.items.contains_key(head)
+                || kmpl_builtins::lookup_const(head).is_some());
+        if !is_value {
+            return;
+        }
+
+        let span = Span::new(name.span.start, name.span.start + head.len());
+        let value = Ident {
+            name: head.to_owned(),
+            span,
+        };
+        args.insert(
+            0,
+            Expr {
+                kind: ExprKind::Var(value),
+                span,
+            },
+        );
+        name.name = member.to_owned();
+    }
+
     /// `name` without a module: an item of this file or an imported one.
     fn plain_item(&mut self, name: &mut Ident) {
         if self.own.contains(&name.name) {
@@ -483,6 +513,7 @@ impl Linker<'_> {
                 self.expr(rhs);
             }
             ExprKind::Call { name, args } => {
+                self.value_before_dot(name, args);
                 self.item_name(name);
                 for arg in args {
                     self.expr(arg);

@@ -70,7 +70,8 @@ pub enum ParamType {
     T,
     /// Any type. Used by `print`.
     Any,
-    /// An array of any element type, or a string. Used by `len`.
+    /// An array of any element type, a string, `bytes` or a vector. Used
+    /// by `length`.
     Collection,
     /// The element type `E`: any type, arrays included. All `E` positions
     /// in one call are the same type. Used by `push`.
@@ -97,6 +98,8 @@ pub enum RetType {
     Pair(Type, Type),
     /// `T?` of this type.
     Optional(Type),
+    /// `real` for a vector, `int` for what is counted. Used by `length`.
+    Length,
 }
 
 const REAL: ParamType = ParamType::Exact(Type::Real);
@@ -343,13 +346,6 @@ static BUILTINS: &[Builtin] = &[
         func: |a, _| ok(Value::Real(math::dot(&a[0], &a[1]))),
     },
     Builtin {
-        name: "length",
-        generic: VECTOR,
-        params: &[ParamType::T],
-        ret: RetType::Exact(Type::Real),
-        func: |a, _| ok(Value::Real(math::dot(&a[0], &a[0]).sqrt())),
-    },
-    Builtin {
         name: "distance",
         generic: REAL_OR_VECTOR,
         params: &[ParamType::T, ParamType::T],
@@ -391,13 +387,16 @@ static BUILTINS: &[Builtin] = &[
     },
     // ----- arrays -----
     Builtin {
-        name: "len",
+        name: "length",
         generic: &[],
         params: &[ParamType::Collection],
-        ret: RetType::Exact(Type::Int),
+        ret: RetType::Length,
         func: |a, _| match &a[0] {
-            // Characters, not bytes: `len("привет")` is 6.
+            // Characters, not bytes: `length("привет")` is 6.
             Value::Str(text) => ok(Value::Int(text.chars().count() as i64)),
+            vector @ (Value::Vec2(_) | Value::Vec3(_) | Value::Vec4(_)) => {
+                ok(Value::Real(math::dot(vector, vector).sqrt()))
+            }
             array => ok(Value::Int(array.array_len() as i64)),
         },
     },
