@@ -700,6 +700,24 @@ fn optionals_read_well_with_a_dot() {
 }
 
 #[test]
+fn text_through_the_library_and_a_dot() {
+    let out = run(
+        "text_dot",
+        "import (split, join, is_digit, trim) from \"std:text\";
+         fn main() {
+             let s = \" a,b \";
+             print(s.trim().split(\",\").join(\"+\"));
+             let digits = 0;
+             for c in \"a1b22\" { if c.is_digit() { digits += 1; } }
+             print(digits);
+             let c = s.chars();
+             print(c[1]);
+         }",
+    );
+    assert_eq!(stdout(&out), "a+b\n3\na\n", "{}", stderr(&out));
+}
+
+#[test]
 fn every_std_library_can_be_imported() {
     let out = run(
         "std_all",

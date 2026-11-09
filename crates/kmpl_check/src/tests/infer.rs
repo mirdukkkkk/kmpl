@@ -693,17 +693,16 @@ fn strings_have_only_joining_and_equality() {
         r#"fn f(a: string) { a * 2; }"#,
         "cannot apply `*` to `string` and `int`, `real` or `complex`",
     );
+    assert_ok(r#"fn f(a: string) -> bool { return a < a; }"#);
+    assert_ok(r#"fn f(a: string) { let c: string = a[0]; let p: string = a[1..]; }"#);
+    assert_ok(r#"fn f(a: string) { for c in a { let s: string = c; } }"#);
     assert_error(
-        r#"fn f(a: string) { a < a; }"#,
-        "cannot apply `<` to `string`",
-    );
-    assert_error(
-        r#"fn f(a: string) { a[0]; }"#,
+        r#"fn f(a: string) { a[0] = "x"; }"#,
         "expected an array, found `string`",
     );
     assert_error(
-        r#"fn f(a: string) { for c in a { } }"#,
-        "expected an array, found `string`",
+        r#"fn f(a: string) { a[true]; }"#,
+        "mismatched types: expected `int`, found `bool`",
     );
 }
 

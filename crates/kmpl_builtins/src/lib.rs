@@ -462,6 +462,22 @@ static BUILTINS: &[Builtin] = &[
         },
     },
     // ----- strings -----
+    // Each character as its own string, so that a program can jump around
+    // in a text without walking it from the start every time.
+    Builtin {
+        name: "chars",
+        generic: &[],
+        params: &[ParamType::Exact(Type::Str)],
+        ret: RetType::ArrayOf(Type::Str),
+        func: |a, _| {
+            let items = a[0]
+                .as_str()
+                .chars()
+                .map(|c| Value::Str(c.to_string().into()))
+                .collect();
+            ok(Value::Array(Arc::new(items)))
+        },
+    },
     Builtin {
         name: "string",
         generic: &[],

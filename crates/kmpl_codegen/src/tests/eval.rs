@@ -1341,6 +1341,122 @@ fn unwrapping() {
 }
 
 #[test]
+fn characters_of_a_string() {
+    let out = output(
+        r#"let s = "привет";
+           print(s[0]);
+           print(s[5]);
+           print(s[1..3]);
+           print(s[..2]);
+           print(s[4..]);
+           print(s[1..=2]);
+           print(s[2..2] == "");
+           print(chars("aж"));
+           for c in "aж" { print(c); }
+           print(length(chars(s)));"#,
+    );
+    assert_eq!(out, "п\nт\nри\nпр\nет\nри\ntrue\n[a, ж]\na\nж\n6\n");
+}
+
+#[test]
+fn walking_a_long_string_is_not_quadratic() {
+    let src = r#"fn main() {
+                     let s = "";
+                     for i in 0..1000 { s += "абвгдежзий"; }
+                     for j in 0..2 { s += s; }
+                     let n = 0;
+                     for c in s { if c == "а" { n += 1; } }
+                     print(n);
+                 }"#;
+    assert_eq!(run(src).unwrap(), "4000\n");
+}
+
+#[test]
+fn a_position_outside_a_string_is_an_error() {
+    let message = |body: &str| run(&format!("fn main() {{ {body} }}")).unwrap_err().0;
+    assert!(
+        message(r#"print("ab"[2]);"#).contains("out of bounds"),
+        "{}",
+        message(r#"print("ab"[2]);"#)
+    );
+    assert!(message(r#"print("ab"[-1]);"#).contains("-1"));
+    assert!(!message(r#"print("ab"[1..5]);"#).is_empty());
+}
+
+#[test]
+fn strings_compare_by_character_codes() {
+    let out = output(
+        r#"print("a" < "b");
+           print("b" <= "a");
+           print("я" > "z");
+           print("ab" >= "ab");
+           print("Z" < "a");
+           print("abc" < "abd");
+           print("ab" < "abc");"#,
+    );
+    assert_eq!(out, "true\nfalse\ntrue\ntrue\ntrue\ntrue\ntrue\n");
+}
+
+#[test]
+fn text_functions() {
+    let out = output(
+        r#"print(_text_split("a,b,,c", ","));
+           print(_text_join(["a", "b"], "-"));
+           print(_text_trim("  a b \n") + "|");
+           print(_text_starts_with("abc", "ab"));
+           print(_text_ends_with("abc", "ab"));
+           print(_text_contains("abc", "bc"));
+           print(_text_find("привет", "вет"));
+           print(_text_find("abc", "x"));
+           print(_text_replace("aXbXc", "X", "--"));
+           print(_text_repeat("ab", 3));
+           print(_text_repeat("ab", 0) == "");
+           print(_text_to_upper("aбc"));
+           print(_text_to_lower("AБC"));
+           print(_text_is_digit("12"));
+           print(_text_is_digit("1a"));
+           print(_text_is_digit(""));
+           print(_text_is_letter("aж"));
+           print(_text_is_space(" \n"));
+           print(_text_code("A"));
+           print(_text_code("ж"));
+           print(_text_from_code(1078));
+           print(_text_from_code(-1));
+           print(_text_from_code(55296));"#,
+    );
+    assert_eq!(
+        out,
+        "[a, b, , c]\na-b\na b|\ntrue\nfalse\ntrue\nsome(3)\nnone\na--b--c\nababab\ntrue\n\
+         AБC\naбc\ntrue\nfalse\nfalse\ntrue\ntrue\n65\n1078\nsome(ж)\nnone\nnone\n"
+    );
+}
+
+#[test]
+fn text_functions_refuse_what_makes_no_sense() {
+    let message = |body: &str| run(&format!("fn main() {{ {body} }}")).unwrap_err().0;
+    assert_eq!(
+        message(r#"print(_text_split("a", ""));"#),
+        "`split` needs a separator that is not empty"
+    );
+    assert_eq!(
+        message(r#"print(_text_replace("a", "", "b"));"#),
+        "`replace` needs something to look for"
+    );
+    assert_eq!(
+        message(r#"print(_text_code("ab"));"#),
+        "`code` needs exactly one character, got \"ab\""
+    );
+    assert_eq!(
+        message(r#"print(_text_repeat("a", -1));"#),
+        "cannot repeat a text -1 times"
+    );
+    assert_eq!(
+        message(r#"print(_text_repeat("ab", 9223372036854775807));"#),
+        "repeating this text 9223372036854775807 times is too long"
+    );
+}
+
+#[test]
 fn array_writes_in_a_loop_do_not_copy() {
     // Quadratic copying would make this take far too long to finish.
     let src = "fn main() {

@@ -49,6 +49,8 @@ impl TypeSet {
     pub const FLOAT: TypeSet = TypeSet::of(&[Type::Real, Type::Complex]);
     /// Types that `<`, `<=`, `>`, `>=` work on.
     pub const ORDERED: TypeSet = TypeSet::of(&[Type::Int, Type::Real]);
+    /// Types that `<`, `<=`, `>`, `>=` work on, strings among them.
+    pub const COMPARABLE: TypeSet = TypeSet(TypeSet::ORDERED.0 | TypeSet::bit(Type::Str));
     pub const VECTOR: TypeSet = TypeSet::of(&[Type::Vec2, Type::Vec3, Type::Vec4]);
     /// Types that `+`, `-` and unary `-` work on.
     pub const LINEAR: TypeSet = TypeSet(TypeSet::NUMBER.0 | TypeSet::VECTOR.0);

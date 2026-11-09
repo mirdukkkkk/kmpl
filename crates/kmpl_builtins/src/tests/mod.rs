@@ -96,7 +96,8 @@ fn signatures_match_implementations() {
 
         for &t in choices {
             // Stopping the program is all it does.
-            if b.name == "panic" {
+            // Their sample arguments would not make sense.
+            if ["panic", "_text_code", "_text_join"].contains(&b.name) {
                 continue;
             }
             let args: Vec<Value> = b

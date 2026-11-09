@@ -247,7 +247,16 @@ escapes are `\n`, `\t`, `\"` and `\\`.
 let name = "мир";
 print("hello, " + name);  // hello, мир
 print(length(name));  // 3
+print(name[0]);  // м
+print(name[1..]);  // ир
+print("a" < "b");  // true
 ```
+
+A character is a string of one. Positions count characters, and a string cannot be
+changed through them. `<`, `<=`, `>` and `>=` compare by character codes, so they
+know nothing about alphabets. `for c in s` goes through a text once. `s[i]` starts
+from the beginning every time, so to jump around in a long text use `chars(s)`,
+which gives an array of its characters.
 
 ## Calling with a dot
 
@@ -468,7 +477,7 @@ Libraries that come with `kmpl` are imported from `std:`:
 |---|---|
 | `std:fs` | `read read_text write write_text` |
 | `std:io` | `args read_line` |
-| `std:text` | `parse_int parse_real` |
+| `std:text` | `parse_int parse_real split join trim starts_with ends_with contains find replace repeat to_upper to_lower is_digit is_letter is_space code from_code` |
 | `std:bits` | `shr_logical` |
 
 Functions in `std:fs` also return the text of an error, empty if all went well:
@@ -518,7 +527,7 @@ fn main() {
 | Complex | `re im arg conj` |
 | Conversion | `real int complex string bytes` |
 | Vectors | `vec2 vec3 vec4 dot length distance normalize cross` |
-| Arrays and strings | `length push concat` |
+| Arrays and strings | `length push concat chars` |
 | Output | `print` |
 
 These functions work on single values. `sqrt` of an array is an error, so use a

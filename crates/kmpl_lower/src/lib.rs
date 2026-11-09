@@ -420,7 +420,14 @@ impl<'c, 'p> Builder<'c, 'p> {
                 self.for_loop(var, body, range, None, stmt.span);
             }
             StmtKind::ForEach { var, array, body } => {
-                let elements = self.expr(array);
+                let mut elements = self.expr(array);
+                // Once through the text, instead of from its start each time.
+                if self.reg_type(elements) == Ty::Prim(Type::Str) {
+                    let id = self.ctx.builtin_id("chars");
+                    let args = vec![elements];
+                    let ty = Ty::Array(Box::new(Ty::Prim(Type::Str)));
+                    elements = self.value(Op::Builtin { id, args }, ty, array.span);
+                }
                 let zero = self.value(Op::Const(Constant::Int(0)), INT, stmt.span);
                 let one = self.value(Op::Const(Constant::Int(1)), INT, stmt.span);
                 let len = self.value(Op::ArrayLen(elements), INT, stmt.span);
@@ -1183,6 +1190,7 @@ fn element_type(ty: Ty) -> Ty {
     match ty {
         Ty::Array(element) => *element,
         Ty::Prim(Type::Bytes) => INT,
+        Ty::Prim(Type::Str) => Ty::Prim(Type::Str),
         other => panic!("indexing {other:?}, the checker should have rejected it"),
     }
 }

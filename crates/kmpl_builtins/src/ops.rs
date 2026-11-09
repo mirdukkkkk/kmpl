@@ -60,6 +60,11 @@ pub fn binary(op: BinOp, l: Value, r: Value) -> Result<Value, String> {
         (_, _, Array(b)) => map_array(b, |x| binary(op, l.clone(), x.clone()))?,
 
         (BinOp::Add, Str(a), Str(b)) => Str(format!("{a}{b}").into()),
+        // UTF-8 bytes sort like the characters' codes.
+        (BinOp::Lt, Str(a), Str(b)) => Bool(a < b),
+        (BinOp::Le, Str(a), Str(b)) => Bool(a <= b),
+        (BinOp::Gt, Str(a), Str(b)) => Bool(a > b),
+        (BinOp::Ge, Str(a), Str(b)) => Bool(a >= b),
         (_, Int(a), Int(b)) => int_op(op, *a, *b)?,
         (_, Real(a), Real(b)) => real_op(op, *a, *b).unwrap_or_else(|| bug(op, &l, &r)),
         (_, Complex { re: a, im: b }, Complex { re: c, im: d }) => {

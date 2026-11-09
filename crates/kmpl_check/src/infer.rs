@@ -347,7 +347,7 @@ impl<'a> Infer<'a> {
             }
             StmtKind::ForEach { var, array, body } => {
                 let array_ty = self.expr(array);
-                let var_ty = self.array_elem(array_ty, array.span);
+                let var_ty = self.read_elem(array_ty, array.span);
                 self.for_body(var, var_ty, body);
             }
             StmtKind::Match { value, arms } => self.match_stmt(value, arms),
@@ -659,7 +659,7 @@ impl<'a> Infer<'a> {
             ExprKind::Index { base, index } => {
                 let base_ty = self.expr(base);
                 self.index_type(index);
-                self.array_elem(base_ty, base.span)
+                self.read_elem(base_ty, base.span)
             }
             ExprKind::Slice {
                 base, start, end, ..
@@ -668,7 +668,7 @@ impl<'a> Infer<'a> {
                 for bound in [start, end].into_iter().flatten() {
                     self.index_type(bound);
                 }
-                self.array_elem(base_ty, base.span);
+                self.read_elem(base_ty, base.span);
                 base_ty
             }
         }
@@ -737,6 +737,15 @@ impl<'a> Infer<'a> {
         self.expect(ty, Type::Int, e.span);
     }
 
+    /// What reading from `ty` gives. Like `array_elem`, and a string can be
+    /// read too, but not written to: a character is a string of one.
+    fn read_elem(&mut self, ty: TyVar, span: Span) -> TyVar {
+        if self.u.set(ty) == TypeSet::single(Type::Str) {
+            return self.known(Type::Str);
+        }
+        self.array_elem(ty, span)
+    }
+
     /// The element type of `ty`, which must be an array.
     fn array_elem(&mut self, ty: TyVar, span: Span) -> TyVar {
         // Bytes read and write as `int`s from 0 to 255.
@@ -797,7 +806,7 @@ impl<'a> Infer<'a> {
             }
             BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
                 self.unify(r, l, rhs_span);
-                self.restrict(l, TypeSet::ORDERED, sym, span);
+                self.restrict(l, TypeSet::COMPARABLE, sym, span);
                 self.known(Type::Bool)
             }
             BinOp::Eq | BinOp::Ne => {
