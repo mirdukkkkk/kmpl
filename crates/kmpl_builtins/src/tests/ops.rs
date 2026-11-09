@@ -1,5 +1,5 @@
-use kmpl_ast::{BinOp, UnOp};
 use crate::Value::{self, Bool, Complex, Int, Real, Vec2, Vec3, Vec4};
+use kmpl_ast::{BinOp, UnOp};
 
 use crate::ops::{binary, swizzle, unary};
 

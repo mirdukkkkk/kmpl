@@ -15,3 +15,4 @@ kmpl_check.workspace = true
 kmpl_lower.workspace = true
 kmpl_ir.workspace = true
 kmpl_vm.workspace = true
+kmpl_codegen.workspace = true

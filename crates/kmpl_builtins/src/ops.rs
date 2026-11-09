@@ -15,8 +15,8 @@
 
 use std::sync::Arc;
 
-use kmpl_ast::{BinOp, UnOp};
 use crate::Value;
+use kmpl_ast::{BinOp, UnOp};
 
 pub fn unary(op: UnOp, v: Value) -> Result<Value, String> {
     let result = match (op, &v) {
