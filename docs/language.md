@@ -313,6 +313,22 @@ Everything in a module is public. A file must import a module itself to use it,
 even if a module it imports already does. Only the `main` of the file you run is
 used.
 
+## Dependencies
+
+A plain name after `from` is looked up in `kmpl.toml`, which is searched for from
+the file you run upward. The version says which format the file uses:
+
+```toml
+version = 1
+
+[dependencies]
+helpers = "../helpers"
+```
+
+```text
+import helpers from "helpers";
+```
+
 ## Libraries
 
 Libraries that come with `kmpl` are imported from `std:`:

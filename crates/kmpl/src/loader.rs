@@ -5,7 +5,8 @@
 //! first file (`a.b`), so a file imported from several places is read once.
 //! Modules are listed after the ones they import.
 //!
-//! `"std:fs"` is a library that is part of `kmpl` itself.
+//! `"std:fs"` is a library that is part of `kmpl` itself. A plain name like
+//! `"pb"` is looked up in `kmpl.toml`.
 
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -15,6 +16,7 @@ use kmpl_ast::Import;
 use kmpl_check::{Module, ModuleImport};
 
 use crate::diagnostics::{self, Sources};
+use crate::manifest::{self, Manifest};
 
 /// The `std:` libraries, by name.
 const LIBRARIES: [(&str, &str); 4] = [
@@ -36,6 +38,7 @@ pub fn load(path: &str, sources: &mut Sources) -> Result<Vec<Module>, String> {
         stack: Vec::new(),
         loaded: HashSet::new(),
         modules: Vec::new(),
+        manifest: None,
     };
     let first = Found {
         id: loader.module_id(file),
@@ -66,6 +69,8 @@ struct Loader<'s> {
     stack: Vec<String>,
     loaded: HashSet<String>,
     modules: Vec<Module>,
+    /// Read the first time a plain name is imported.
+    manifest: Option<Option<Manifest>>,
 }
 
 impl Loader<'_> {
@@ -106,7 +111,7 @@ impl Loader<'_> {
     }
 
     /// Works out which module an import refers to and reads it.
-    fn find(&self, import: &Import, dir: Option<&Path>) -> Result<Found, String> {
+    fn find(&mut self, import: &Import, dir: Option<&Path>) -> Result<Found, String> {
         let source = import.source.as_str();
         if let Some(name) = source.strip_prefix("std:") {
             return self.find_library(name, import);
@@ -117,10 +122,45 @@ impl Loader<'_> {
             };
             return self.find_local(&dir.join(source), import);
         }
-        Err(self.error(
-            &format!("`{source}` is not a module path, start a relative path with `./`"),
-            import,
-        ))
+        if source.contains("://") {
+            return Err(self.error("importing from a link is not supported yet", import));
+        }
+        if source.starts_with('/') || source.contains('/') {
+            return Err(self.error(
+                &format!("`{source}` is not a module path, start a relative path with `./`"),
+                import,
+            ));
+        }
+        self.find_dependency(import)
+    }
+
+    /// A plain name: what `kmpl.toml` says it is.
+    fn find_dependency(&mut self, import: &Import) -> Result<Found, String> {
+        let name = &import.source;
+        if self.manifest.is_none() {
+            let found = manifest::find(&self.root).map_err(|e| self.error(&e, import))?;
+            self.manifest = Some(found);
+        }
+        let Some(Some(project)) = &self.manifest else {
+            return Err(self.error(
+                &format!("`{name}` needs a `{}` that lists it", manifest::FILE_NAME),
+                import,
+            ));
+        };
+        let Some(value) = project.dependencies.get(name) else {
+            return Err(self.error(
+                &format!(
+                    "`{name}` is not listed in `{}` under `[dependencies]`",
+                    project.dir.join(manifest::FILE_NAME).display()
+                ),
+                import,
+            ));
+        };
+        if value.contains("://") {
+            return Err(self.error("importing from a link is not supported yet", import));
+        }
+        let path = project.dir.join(value);
+        self.find_local(&path, import)
     }
 
     fn find_library(&self, name: &str, import: &Import) -> Result<Found, String> {

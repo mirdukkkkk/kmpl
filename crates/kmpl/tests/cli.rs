@@ -686,3 +686,56 @@ fn moved_functions_need_an_import() {
     assert_eq!(out.status.code(), Some(1));
     assert!(stderr(&out).contains("args"), "{}", stderr(&out));
 }
+
+#[test]
+fn a_plain_name_comes_from_kmpl_toml() {
+    let out = run_project(
+        "manifest",
+        &[
+            (
+                "app/src/main.kmpl",
+                "import helpers from \"helpers\";\nfn main() { print(helpers.N); }\n",
+            ),
+            (
+                "app/kmpl.toml",
+                "version = 1\n\n[dependencies]\nhelpers = \"./vendor/helpers\"\n",
+            ),
+            ("app/vendor/helpers/mod.kmpl", "const N: int = 5;\n"),
+        ],
+    );
+    assert_eq!(stdout(&out), "5\n", "{}", stderr(&out));
+}
+
+#[test]
+fn a_plain_name_needs_to_be_listed() {
+    let out = run_project(
+        "manifest_missing",
+        &[
+            ("main.kmpl", "import a from \"a\";\nfn main() { }\n"),
+            ("kmpl.toml", "version = 1\n"),
+        ],
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).contains("`a` is not listed in"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn a_bad_kmpl_toml_is_reported_with_its_line() {
+    let out = run_project(
+        "manifest_bad",
+        &[
+            ("main.kmpl", "import a from \"a\";\nfn main() { }\n"),
+            ("kmpl.toml", "[dependencies]\na = \"./a\"\n"),
+        ],
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).contains("`version = 1` is required"),
+        "{}",
+        stderr(&out)
+    );
+}

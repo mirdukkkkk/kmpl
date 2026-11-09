@@ -1,5 +1,6 @@
 mod diagnostics;
 mod loader;
+mod manifest;
 
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
