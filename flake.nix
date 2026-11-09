@@ -25,14 +25,17 @@
     {
       devShells = forAll (pkgs: {
         default = pkgs.mkShell {
-          packages = with pkgs; [
-            cargo
-            rustc
-            clippy
-            rustfmt
-            rust-analyzer
-            (llvm pkgs).dev
-          ] ++ llvmLibs pkgs;
+          packages =
+            with pkgs;
+            [
+              cargo
+              rustc
+              clippy
+              rustfmt
+              rust-analyzer
+              (llvm pkgs).dev
+            ]
+            ++ llvmLibs pkgs;
           RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
           LLVM_SYS_231_PREFIX = "${(llvm pkgs).dev}";
         };
@@ -41,7 +44,7 @@
       packages = forAll (pkgs: {
         default = pkgs.rustPlatform.buildRustPackage {
           pname = "kmpl";
-          version = "0.2.0";
+          version = "0.3.0";
           src = ./.;
           cargoLock.lockFile = ./Cargo.lock;
           buildNoDefaultFeatures = true;

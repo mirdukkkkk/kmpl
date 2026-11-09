@@ -36,7 +36,7 @@ fn main() {
 
 ## Status
 
-kmpl is a hobby project at version 0.2, and the language can still change.
+kmpl is a hobby project at version 0.3, and the language can still change.
 Programs are compiled through an optimized SSA intermediate representation and
 LLVM to native code for Linux on x86-64 or ARM64. `kmpl file` compiles and runs a
 program, `kmpl build file` keeps the executable. Modules can come from files, from
@@ -80,7 +80,8 @@ compiler stage and `--llvm-ir` prints the LLVM IR. `kmpl --help` lists the optio
 [`docs/language.md`](docs/language.md) is a short tour of the whole language.
 [`examples/`](examples) has working programs. Good ones to start with are
 [`structs`](examples/structs.kmpl), [`matrices`](examples/matrices.kmpl),
-[`generics`](examples/generics.kmpl), [`modules`](examples/modules.kmpl) and
+[`generics`](examples/generics.kmpl), [`enums`](examples/enums.kmpl),
+[`linalg`](examples/linalg.kmpl), [`modules`](examples/modules.kmpl) and
 [`sum`](examples/sum.kmpl), which reads arguments and standard input.
 
 ## Development

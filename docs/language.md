@@ -621,6 +621,8 @@ fn main() {
 | Conversion | `real int complex string bytes format` |
 | Vectors | `vec2 vec3 vec4 dot length distance normalize cross` |
 | Arrays and strings | `length push concat chars` |
+| Optionals | `unwrap unwrap_or` |
+| Errors | `panic` |
 | Output | `print` |
 
 These functions work on single values. `sqrt` of an array is an error, so use a

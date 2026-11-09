@@ -255,7 +255,7 @@ dependencies = [
 
 [[package]]
 name = "kmpl"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "kmpl_ast",
  "kmpl_check",
@@ -270,18 +270,18 @@ dependencies = [
 
 [[package]]
 name = "kmpl_ast"
-version = "0.2.0"
+version = "0.3.0"
 
 [[package]]
 name = "kmpl_builtins"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "kmpl_ast",
 ]
 
 [[package]]
 name = "kmpl_check"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "kmpl_ast",
  "kmpl_builtins",
@@ -291,7 +291,7 @@ dependencies = [
 
 [[package]]
 name = "kmpl_codegen"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "inkwell",
  "kmpl_ast",
@@ -305,14 +305,14 @@ dependencies = [
 
 [[package]]
 name = "kmpl_ir"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "kmpl_ast",
 ]
 
 [[package]]
 name = "kmpl_lexer"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "kmpl_ast",
  "logos",
@@ -320,7 +320,7 @@ dependencies = [
 
 [[package]]
 name = "kmpl_lower"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "kmpl_ast",
  "kmpl_builtins",
@@ -332,7 +332,7 @@ dependencies = [
 
 [[package]]
 name = "kmpl_parse"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "kmpl_ast",
  "kmpl_lexer",
@@ -340,7 +340,7 @@ dependencies = [
 
 [[package]]
 name = "kmpl_rt"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "kmpl_builtins",
 ]
