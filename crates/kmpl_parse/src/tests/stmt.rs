@@ -3,6 +3,15 @@ use kmpl_ast::{Item, Span};
 use super::{body, body_error, parse_program};
 
 #[test]
+fn the_smallest_int() {
+    assert_eq!(body("-9223372036854775808;"), "[-9223372036854775808]");
+    assert_eq!(body("- 9223372036854775808;"), "[-9223372036854775808]");
+    let too_large = "integer literal `9223372036854775808` is too large for `int`";
+    assert_eq!(body_error("9223372036854775808;"), too_large);
+    assert_eq!(body_error("1 + 9223372036854775808;"), too_large);
+}
+
+#[test]
 fn type_arguments_may_end_in_one_token() {
     assert_eq!(body("let x: A<int> = 1;"), "[(let x A<int> 1)]");
     assert_eq!(body("let x: A<B<int>> = 1;"), "[(let x A<B<int>> 1)]");

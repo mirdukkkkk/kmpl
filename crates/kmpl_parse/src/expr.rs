@@ -4,7 +4,7 @@
 use kmpl_ast::{BinOp, Expr, ExprKind, Ident, Span, UnOp};
 use kmpl_lexer::Token;
 
-use crate::error::PResult;
+use crate::error::{PResult, ParseError};
 use crate::token_stream::TokenStream;
 
 pub fn expr(ts: &mut TokenStream) -> PResult<Expr> {
@@ -134,6 +134,16 @@ fn left_assoc(
 }
 
 fn unary(ts: &mut TokenStream) -> PResult<Expr> {
+    // The smallest `int` is the one number whose digits alone do not fit.
+    if ts.peek() == Some(&Token::Minus) && ts.peek_nth(1) == Some(&Token::MinIntDigits) {
+        let (_, minus) = ts.next().expect("peeked");
+        let (_, digits) = ts.next().expect("peeked");
+        return Ok(Expr {
+            kind: ExprKind::Int(i64::MIN),
+            span: minus.to(digits),
+        });
+    }
+
     let op = match ts.peek() {
         Some(Token::Bang) => UnOp::Not,
         Some(Token::Minus) => UnOp::Neg,
@@ -263,6 +273,12 @@ fn primary(ts: &mut TokenStream) -> PResult<Expr> {
         Some(Token::True) => ExprKind::Bool(true),
         Some(Token::False) => ExprKind::Bool(false),
         Some(Token::Str(text)) => ExprKind::Str(text.clone()),
+        Some(Token::MinIntDigits) => {
+            return Err(ParseError::new(
+                "integer literal `9223372036854775808` is too large for `int`",
+                start,
+            ));
+        }
         Some(Token::KwNone) => ExprKind::None,
         Some(Token::KwSome) => return some(ts),
         Some(Token::Ident(_)) => return var_or_call(ts),

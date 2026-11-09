@@ -280,8 +280,10 @@ fn number_edge_cases() {
 #[test]
 fn int_limits() {
     assert_eq!(tokens("9223372036854775807"), vec![Token::Int(i64::MAX)]);
-    // One past i64::MAX does not parse, so it is a lex error.
-    assert!(lex("9223372036854775808").is_err());
+    // One past i64::MAX is valid only after a minus, which the parser sees.
+    assert_eq!(tokens("9223372036854775808"), vec![Token::MinIntDigits]);
+    // Two past it is an error at once.
+    assert!(lex("9223372036854775809").is_err());
 }
 
 #[test]
