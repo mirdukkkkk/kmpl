@@ -70,6 +70,7 @@ fn load_with(
         cache,
         fetch,
         remote: None,
+        first_is_generated: false,
     };
     let first = Found {
         id: loader.module_id(file),
@@ -83,6 +84,46 @@ fn load_with(
         remote.save()?;
     }
     Ok(loader.modules)
+}
+
+/// Finds the dependencies `names` of `project` and everything they import,
+/// recording in `remote` what was downloaded. It goes through a small
+/// generated file that imports them, so they are found exactly as a program
+/// would find them. The caller decides whether to save the result.
+pub fn fetch_dependencies<'f>(
+    project: Manifest,
+    names: &[String],
+    remote: Remote<'f>,
+    fetch: Fetch<'f>,
+) -> Result<Remote<'f>, String> {
+    let mut sources = Sources::default();
+    let mut loader = Loader {
+        root: normalize(&project.dir),
+        sources: &mut sources,
+        stack: Vec::new(),
+        loaded: HashSet::new(),
+        modules: Vec::new(),
+        manifest: Some(Some(project)),
+        options: LoadOptions::default(),
+        cache: None,
+        fetch,
+        remote: Some(remote),
+        first_is_generated: true,
+    };
+    let text: String = names
+        .iter()
+        .enumerate()
+        .map(|(index, name)| format!("import d{index} from \"{name}\";\n"))
+        .collect();
+    let first = Found {
+        id: "kmpl".to_owned(),
+        path: "kmpl".to_owned(),
+        text,
+        dir: None,
+        link: None,
+    };
+    loader.module(first, true)?;
+    Ok(loader.remote.expect("given above"))
 }
 
 /// A module that was located, and not necessarily loaded yet.
@@ -113,6 +154,8 @@ struct Loader<'s, 'f> {
     fetch: Fetch<'f>,
     /// Opened the first time a link is imported.
     remote: Option<Remote<'f>>,
+    /// The first file has no text worth showing in an error.
+    first_is_generated: bool,
 }
 
 impl<'f> Loader<'_, 'f> {
@@ -280,6 +323,9 @@ impl<'f> Loader<'_, 'f> {
     }
 
     fn error(&self, message: &str, import: &Import) -> String {
+        if self.first_is_generated && self.stack.len() == 1 {
+            return message.to_owned();
+        }
         self.sources.render(message, import.source_span)
     }
 

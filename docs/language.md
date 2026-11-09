@@ -343,8 +343,28 @@ pb = "https://github.com/user/pb/v1.2.0"
 Any other `https://` link ending in `.kmpl` is that file; otherwise `/mod.kmpl` is
 added. `kmpl.lock`, next to `kmpl.toml` or else next to the program, records the commit behind every GitHub link
 and the sha256 of every downloaded file. Commit it to your repository: a moved tag
-or a new push to a branch changes nothing until you delete its line, and a file
+or a new push to a branch changes nothing until you run `kmpl update`, and a file
 that differs from its hash stops the build. `--locked` refuses to add anything new.
+
+`kmpl add` checks that a module and everything it imports exist, then writes both
+files for you, and creates `kmpl.toml` if there is none. A GitHub link takes the
+name of its repository unless you give one; anything else needs a name:
+
+```text
+kmpl add https://github.com/user/pb/v1.2.0
+kmpl add https://github.com/user/pb/v1.2.0 protobuf
+kmpl add ../helpers helpers
+```
+
+`kmpl update pb` finds again what the link of `pb` points to; `kmpl update` does
+this for every link in `kmpl.lock`. A commit in a link never moves.
+`kmpl update pb v2.0.0` also moves the GitHub link in `kmpl.toml` to that tag,
+branch or commit. `--dry-run` shows what would change and writes nothing.
+
+`kmpl vendor` copies every file of `kmpl.lock` into `vendor/` next to it, named by
+its hash. Commit that directory, and `--locked` builds need no network, as in a
+Nix sandbox. A link written directly in an `import` is in `kmpl.lock` only after
+the program has been run once. Run `kmpl vendor` again after `kmpl update`.
 
 ## Libraries
 

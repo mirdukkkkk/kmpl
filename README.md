@@ -67,6 +67,9 @@ With Nix: `nix run . -- examples/demo.kmpl`.
 ```text
 kmpl [--ast | --ir | --llvm-ir] [-v | -vv] [--no-opt] [--locked] <file> [args...]
 kmpl build [-v | -vv] [--no-opt] [--locked] <file> [-o <output>]
+kmpl add <link or path> [name]
+kmpl update [name [version]] [--dry-run]
+kmpl vendor
 ```
 
 Everything after the file is passed to the program. `-v` shows the time of each

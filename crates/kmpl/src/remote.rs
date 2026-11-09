@@ -12,7 +12,8 @@
 //! ```
 //!
 //! Files are cached by their hash, so a project that is locked needs no
-//! network once they have been downloaded.
+//! network once they have been downloaded. `kmpl vendor` keeps them with the
+//! project, for a build where there is no network and no cache.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -23,6 +24,15 @@ use sha2::{Digest, Sha256};
 pub type Fetch<'f> = &'f dyn Fn(&str) -> Result<Option<Vec<u8>>, String>;
 
 pub const LOCK_FILE: &str = "kmpl.lock";
+
+/// The copies of downloaded files that a project keeps itself.
+pub const VENDOR_DIR: &str = "vendor";
+
+/// Where the files of a GitHub commit are.
+const GITHUB_FILES: &str = "https://raw.githubusercontent.com/";
+
+/// A snapshot of `kmpl.lock`.
+pub struct Pins(Lock);
 
 /// The real network.
 pub fn http_get(url: &str) -> Result<Option<Vec<u8>>, String> {
@@ -53,7 +63,7 @@ fn sha256(bytes: &[u8]) -> String {
         .collect()
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 struct Lock {
     /// A GitHub link -> the commit it means.
     commits: BTreeMap<String, String>,
@@ -105,6 +115,25 @@ pub fn is_link(source: &str) -> bool {
     source.starts_with("https://")
 }
 
+/// The name of the repository of a GitHub link to a tag, branch or commit.
+pub fn repository_name(link: &str) -> Result<Option<&str>, String> {
+    Ok(github_parts(link)?.map(|parts| parts.repo))
+}
+
+/// A GitHub link with another tag, branch or commit. `None` for other links.
+pub fn with_reference(link: &str, reference: &str) -> Result<Option<String>, String> {
+    Ok(github_parts(link)?.map(|parts| {
+        let base = format!(
+            "https://github.com/{}/{}/{reference}",
+            parts.owner, parts.repo
+        );
+        match parts.path {
+            "" => base,
+            path => format!("{base}/{path}"),
+        }
+    }))
+}
+
 pub struct Remote<'f> {
     fetch: Fetch<'f>,
     lock: Lock,
@@ -113,6 +142,8 @@ pub struct Remote<'f> {
     /// Nothing may be added to the lock file.
     locked: bool,
     cache: Option<PathBuf>,
+    /// The directory `vendor` next to the lock file.
+    vendor: PathBuf,
 }
 
 impl<'f> Remote<'f> {
@@ -127,10 +158,12 @@ impl<'f> Remote<'f> {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Lock::default(),
             Err(e) => return Err(format!("cannot read `{}`: {e}", lock_path.display())),
         };
+        let vendor = lock_path.with_file_name(VENDOR_DIR);
         Ok(Remote {
             fetch,
             lock,
             lock_path,
+            vendor,
             changed: false,
             locked,
             cache,
@@ -162,7 +195,7 @@ impl<'f> Remote<'f> {
                 let commit = self.commit(link, &parts)?;
                 let path = with_default_file(parts.path);
                 Ok(format!(
-                    "https://raw.githubusercontent.com/{}/{}/{commit}/{path}",
+                    "{GITHUB_FILES}{}/{}/{commit}/{path}",
                     parts.owner, parts.repo
                 ))
             }
@@ -173,11 +206,7 @@ impl<'f> Remote<'f> {
 
     /// The commit a GitHub link is locked to, finding it if it is new.
     fn commit(&mut self, link: &str, parts: &GitHubLink) -> Result<String, String> {
-        // Everything under one tag or branch shares one commit.
-        let key = format!(
-            "https://github.com/{}/{}/{}",
-            parts.owner, parts.repo, parts.reference
-        );
+        let key = commit_key(parts);
         if let Some(commit) = self.lock.commits.get(&key) {
             return Ok(commit.clone());
         }
@@ -211,7 +240,7 @@ impl<'f> Remote<'f> {
         let expected = self.lock.hashes.get(url).cloned();
 
         if let Some(hash) = &expected
-            && let Some(bytes) = self.cached(hash)
+            && let Some(bytes) = self.stored(hash)
         {
             return text_of(url, bytes);
         }
@@ -239,10 +268,136 @@ impl<'f> Remote<'f> {
         text_of(url, bytes)
     }
 
-    /// A file from the cache, only if it really has this hash.
-    fn cached(&self, hash: &str) -> Option<Vec<u8>> {
-        let bytes = std::fs::read(self.cache.as_ref()?.join(hash)).ok()?;
-        (sha256(&bytes) == hash).then_some(bytes)
+    /// Forgets what is pinned so that it is found again: for one link, or
+    /// for everything in `kmpl.lock`. The new state is only in memory until
+    /// `save`, so a failure halfway leaves the file as it was.
+    pub fn refresh(&mut self, link: Option<&str>) -> Result<(), String> {
+        let keys: Vec<String> = match link {
+            None => {
+                self.lock
+                    .hashes
+                    .retain(|url, _| url.starts_with(GITHUB_FILES));
+                self.lock.commits.keys().cloned().collect()
+            }
+            Some(link) => match github_parts(link)? {
+                Some(parts) => vec![commit_key(&parts)],
+                None => {
+                    let file = self.file_url(link)?;
+                    let dir = &file[..=file.rfind('/').expect("a link has slashes")];
+                    self.lock.hashes.retain(|url, _| !url.starts_with(dir));
+                    Vec::new()
+                }
+            },
+        };
+        self.changed = true;
+
+        for key in keys {
+            let Some(parts) = github_parts(&key)? else {
+                return Err(format!("{LOCK_FILE}: `{key}` is not a GitHub link"));
+            };
+            if is_commit(parts.reference) {
+                continue;
+            }
+            let commit = self.find_commit(&key, &parts)?;
+            let Some(old) = self.lock.commits.insert(key.clone(), commit.clone()) else {
+                continue;
+            };
+            self.forget_files(&parts, &old);
+        }
+        Ok(())
+    }
+
+    /// Forgets the tag or branch of `link`, unless one of `others` needs it.
+    pub fn forget(&mut self, link: &str, others: &[&str]) -> Result<(), String> {
+        let Some(parts) = github_parts(link)? else {
+            return Ok(());
+        };
+        let key = commit_key(&parts);
+        for other in others {
+            if github_parts(other)?.is_some_and(|parts| commit_key(&parts) == key) {
+                return Ok(());
+            }
+        }
+        if let Some(old) = self.lock.commits.remove(&key) {
+            self.changed = true;
+            self.forget_files(&parts, &old);
+        }
+        Ok(())
+    }
+
+    /// Drops the hashes of a commit that no tag or branch means any more.
+    fn forget_files(&mut self, parts: &GitHubLink, old: &str) {
+        let repository = format!("https://github.com/{}/{}/", parts.owner, parts.repo);
+        let still_used = self
+            .lock
+            .commits
+            .iter()
+            .any(|(other, commit)| other.starts_with(&repository) && commit == old);
+        if !still_used {
+            let files = format!("{GITHUB_FILES}{}/{}/{old}/", parts.owner, parts.repo);
+            self.lock.hashes.retain(|url, _| !url.starts_with(&files));
+        }
+    }
+
+    /// What is pinned now, to compare with later by `changes_since`.
+    pub fn pins(&self) -> Pins {
+        Pins(self.lock.clone())
+    }
+
+    /// One line for every pin that is different from `before`.
+    pub fn changes_since(&self, before: &Pins) -> Vec<String> {
+        let mut lines = Vec::new();
+        for (key, commit) in &self.lock.commits {
+            match before.0.commits.get(key) {
+                Some(old) if old != commit => {
+                    lines.push(format!("{key}: {} -> {}", short(old), short(commit)));
+                }
+                _ => {}
+            }
+        }
+        for (url, hash) in &self.lock.hashes {
+            if before.0.hashes.get(url).is_some_and(|old| old != hash) {
+                lines.push(format!("{url}: the file changed"));
+            }
+        }
+        lines
+    }
+
+    /// A file from `vendor` or the cache, only if it really has this hash.
+    fn stored(&self, hash: &str) -> Option<Vec<u8>> {
+        let places = std::iter::once(&self.vendor).chain(self.cache.iter());
+        places
+            .filter_map(|dir| std::fs::read(dir.join(hash)).ok())
+            .find(|bytes| sha256(bytes) == hash)
+    }
+
+    /// Makes `vendor` hold exactly the files of `kmpl.lock`, under their
+    /// hashes, and returns how many there are. Other names there are not ours
+    /// and stay.
+    pub fn fill_vendor(&mut self) -> Result<usize, String> {
+        let cannot = |e: std::io::Error| format!("cannot write `{VENDOR_DIR}`: {e}");
+        let files: Vec<(String, String)> = self
+            .lock
+            .hashes
+            .iter()
+            .map(|(url, hash)| (url.clone(), hash.clone()))
+            .collect();
+
+        std::fs::create_dir_all(&self.vendor).map_err(cannot)?;
+        for (url, hash) in &files {
+            let text = self.read(url)?;
+            std::fs::write(self.vendor.join(hash), text).map_err(cannot)?;
+        }
+
+        for entry in std::fs::read_dir(&self.vendor).map_err(cannot)? {
+            let path = entry.map_err(cannot)?.path();
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
+            let is_hash = name.len() == 64 && name.bytes().all(|b| b.is_ascii_hexdigit());
+            if is_hash && !files.iter().any(|(_, hash)| *hash == name) {
+                std::fs::remove_file(&path).map_err(cannot)?;
+            }
+        }
+        Ok(files.len())
     }
 
     /// Without a cache the file is downloaded again next time, nothing worse.
@@ -307,6 +462,18 @@ fn with_default_file(path: &str) -> String {
     } else {
         format!("{}/mod.kmpl", path.trim_end_matches('/'))
     }
+}
+
+/// Everything under one tag or branch shares one commit.
+fn commit_key(parts: &GitHubLink) -> String {
+    format!(
+        "https://github.com/{}/{}/{}",
+        parts.owner, parts.repo, parts.reference
+    )
+}
+
+fn short(commit: &str) -> &str {
+    commit.get(..7).unwrap_or(commit)
 }
 
 fn is_commit(reference: &str) -> bool {
