@@ -146,6 +146,14 @@ fn lower_constants<'p>(ctx: &mut Context<'p>, program: &'p Program) -> Function 
     b.finish()
 }
 
+/// The numbers a `for` loop counts through.
+struct Range {
+    start: Reg,
+    end: Reg,
+    step: Reg,
+    inclusive: bool,
+}
+
 /// A loop being lowered, for `break` and `continue`.
 struct Loop {
     /// Where `continue` goes.
@@ -384,26 +392,36 @@ impl<'c, 'p> Builder<'c, 'p> {
                     }
                     None => self.value(Op::Const(Constant::Int(1)), INT, stmt.span),
                 };
-                self.for_loop(var, body, start, end, by, *inclusive, None, stmt.span);
+                let range = Range {
+                    start,
+                    end,
+                    step: by,
+                    inclusive: *inclusive,
+                };
+                self.for_loop(var, body, range, None, stmt.span);
             }
             StmtKind::ForEach { var, array, body } => {
                 let elements = self.expr(array);
                 let zero = self.value(Op::Const(Constant::Int(0)), INT, stmt.span);
                 let one = self.value(Op::Const(Constant::Int(1)), INT, stmt.span);
                 let len = self.value(Op::ArrayLen(elements), INT, stmt.span);
-                self.for_loop(var, body, zero, len, one, false, Some(elements), stmt.span);
+                let range = Range {
+                    start: zero,
+                    end: len,
+                    step: one,
+                    inclusive: false,
+                };
+                self.for_loop(var, body, range, Some(elements), stmt.span);
             }
-            StmtKind::Break => {
+            StmtKind::Break | StmtKind::Continue => {
                 let target = self.loops.last().expect("checked by resolve");
-                let (exit, assigned) = (target.exit, target.assigned.clone());
+                let block = match stmt.kind {
+                    StmtKind::Break => target.exit,
+                    _ => target.next,
+                };
+                let assigned = target.assigned.clone();
                 let args = self.registers_of(&assigned);
-                self.jump(exit, args);
-            }
-            StmtKind::Continue => {
-                let target = self.loops.last().expect("checked by resolve");
-                let (next, assigned) = (target.next, target.assigned.clone());
-                let args = self.registers_of(&assigned);
-                self.jump(next, args);
+                self.jump(block, args);
             }
             StmtKind::Return(value) => {
                 let value = value.as_ref().map(|value| self.expr(value));
@@ -650,18 +668,20 @@ impl<'c, 'p> Builder<'c, 'p> {
 
     /// A `for` over `start..end`, or over `elements` when given: then the
     /// loop variable is the element, not the counter.
-    #[allow(clippy::too_many_arguments)]
     fn for_loop(
         &mut self,
         var: &'p Ident,
         body: &'p ast::Block,
-        start: Reg,
-        end: Reg,
-        step: Reg,
-        inclusive: bool,
+        range: Range,
         elements: Option<Reg>,
         span: Span,
     ) {
+        let Range {
+            start,
+            end,
+            step,
+            inclusive,
+        } = range;
         let assigned = self.assigned_in(body);
         let counter = self.new_reg(INT);
 

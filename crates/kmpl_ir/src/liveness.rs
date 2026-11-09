@@ -61,8 +61,8 @@ fn annotate_function(f: &mut Function) {
 /// the jump into the block, so they are not live before it.
 fn live_out(f: &Function, live_in: &[HashSet<Reg>], b: usize) -> HashSet<Reg> {
     let mut live = HashSet::new();
-    for next in f.blocks[b].term.successors() {
-        live.extend(live_in[next.0 as usize].iter().copied());
+    for next in f.blocks[b].term.targets() {
+        live.extend(live_in[next.block.0 as usize].iter().copied());
     }
     live
 }

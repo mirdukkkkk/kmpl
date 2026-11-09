@@ -3,10 +3,10 @@
 //! The checker has already verified operand types, so a type combination
 //! not handled here is a checker bug and panics. Errors that depend on
 //! the values (integer division by zero, overflow) are returned as
-//! messages; `eval` attaches the span.
+//! messages; the VM attaches the span.
 //!
-//! `&&` and `||` are not here: they skip the right side, so `eval`
-//! handles them.
+//! `&&` and `||` are not here: they skip the right side, so they are
+//! lowered to branches.
 //!
 //! Arrays: `+`, `-` and unary `-` work element by element, an array with a
 //! non-array applies the operator to every element, and `*` on two arrays

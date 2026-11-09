@@ -164,8 +164,8 @@ fn every_error_is_reported() {
     assert_eq!(
         link_errors(vec![module("", &[], "fn main() { a.x; b.y; }")]),
         [
-            "unknown module `a`, add `import a;`",
-            "unknown module `b`, add `import b;`"
+            "`a` is not a variable or an imported module",
+            "`b` is not a variable or an imported module"
         ]
     );
 }
@@ -178,7 +178,7 @@ fn imports_are_not_transitive() {
             module("b", &[("c", "c")], ""),
             module("", &[("b", "b")], "fn main() { print(c.X); }"),
         ]),
-        ["unknown module `c`, add `import c;`"]
+        ["`c` is not a variable or an imported module"]
     );
 }
 
@@ -374,5 +374,13 @@ fn module_items_cannot_be_assigned() {
             module("", &[("a", "a")], "fn main() { a.X[0] = 2; }"),
         ]),
         ["cannot assign to constant `a.X`"]
+    );
+}
+
+#[test]
+fn a_call_or_type_from_an_unknown_module_suggests_an_import() {
+    assert_eq!(
+        link_errors(vec![module("", &[], "fn main() { a.f(); }")]),
+        ["unknown module `a`, add `import a;`"]
     );
 }

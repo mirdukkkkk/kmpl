@@ -197,6 +197,20 @@ pub enum Terminator {
     Unreachable,
 }
 
+impl Function {
+    /// For each block, the blocks that jump to it. A block that branches to
+    /// the same place both ways appears twice.
+    pub fn predecessors(&self) -> Vec<Vec<usize>> {
+        let mut predecessors = vec![Vec::new(); self.blocks.len()];
+        for (index, block) in self.blocks.iter().enumerate() {
+            for target in block.term.targets() {
+                predecessors[target.block.0 as usize].push(index);
+            }
+        }
+        predecessors
+    }
+}
+
 impl Op {
     /// Calls `f` with every register this operation reads.
     pub fn for_each_use(&self, mut f: impl FnMut(Reg)) {
@@ -383,17 +397,6 @@ impl Terminator {
             }
             Terminator::Return(value) => value.iter().copied().for_each(f),
             Terminator::Unreachable => {}
-        }
-    }
-
-    /// The blocks control can go to next.
-    pub fn successors(&self) -> Vec<BlockId> {
-        match self {
-            Terminator::Jump(target) => vec![target.block],
-            Terminator::Branch {
-                then, otherwise, ..
-            } => vec![then.block, otherwise.block],
-            Terminator::Return(_) | Terminator::Unreachable => Vec::new(),
         }
     }
 }

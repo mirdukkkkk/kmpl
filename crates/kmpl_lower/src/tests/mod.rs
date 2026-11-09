@@ -405,7 +405,9 @@ fn registers_have_no_gaps_after_optimizing() {
 
 /// Index of the block a loop's header jump comes back to, with its text.
 fn block_of(text: &str, needle: &str) -> usize {
-    let at = text.find(needle).unwrap_or_else(|| panic!("no {needle} in\n{text}"));
+    let at = text
+        .find(needle)
+        .unwrap_or_else(|| panic!("no {needle} in\n{text}"));
     text[..at].matches("\nb").count()
 }
 

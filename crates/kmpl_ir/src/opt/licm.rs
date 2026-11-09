@@ -36,12 +36,7 @@ pub fn hoist(f: &mut Function) -> bool {
 /// Which blocks dominate each block: every path to it goes through them.
 fn dominators(f: &Function) -> Vec<Vec<bool>> {
     let n = f.blocks.len();
-    let mut predecessors = vec![Vec::new(); n];
-    for (index, block) in f.blocks.iter().enumerate() {
-        for target in block.term.targets() {
-            predecessors[target.block.0 as usize].push(index);
-        }
-    }
+    let predecessors = f.predecessors();
 
     let mut dom = vec![vec![true; n]; n];
     dom[0] = vec![false; n];
@@ -71,12 +66,7 @@ fn dominators(f: &Function) -> Vec<Vec<bool>> {
 /// with the same header are one loop (`continue` makes several back edges).
 fn find_loops(f: &Function) -> Vec<Loop> {
     let dom = dominators(f);
-    let mut predecessors = vec![Vec::new(); f.blocks.len()];
-    for (index, block) in f.blocks.iter().enumerate() {
-        for target in block.term.targets() {
-            predecessors[target.block.0 as usize].push(index);
-        }
-    }
+    let predecessors = f.predecessors();
 
     let mut bodies: HashMap<usize, HashSet<usize>> = HashMap::new();
     for (tail, block) in f.blocks.iter().enumerate() {
@@ -86,7 +76,9 @@ fn find_loops(f: &Function) -> Vec<Loop> {
                 continue;
             }
 
-            let body = bodies.entry(header).or_insert_with(|| HashSet::from([header]));
+            let body = bodies
+                .entry(header)
+                .or_insert_with(|| HashSet::from([header]));
             let mut stack = vec![tail];
             while let Some(b) = stack.pop() {
                 if body.insert(b) {
@@ -176,7 +168,8 @@ fn hoist_from(f: &mut Function, found: &Loop, preheader: usize) -> bool {
             while position < f.blocks[b].insts.len() {
                 let inst = &f.blocks[b].insts[position];
                 let mut invariant = true;
-                inst.op.for_each_use(|reg| invariant &= !defined_inside.contains(&reg));
+                inst.op
+                    .for_each_use(|reg| invariant &= !defined_inside.contains(&reg));
 
                 let movable = invariant
                     && is_pure(&inst.op, f)

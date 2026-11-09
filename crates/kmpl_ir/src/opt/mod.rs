@@ -13,7 +13,7 @@ mod fold;
 mod licm;
 mod range;
 
-use crate::{Function, Module};
+use crate::{Function, Module, Reg};
 
 /// Rounds of the passes that enable each other, at most.
 const MAX_ROUNDS: usize = 16;
@@ -39,4 +39,16 @@ fn optimize_function(f: &mut Function) {
         cfg::simplify(f);
     }
     compact::compact(f);
+}
+
+/// Removes a parameter of a block, and the matching argument of every jump.
+fn remove_block_param(f: &mut Function, block: usize, position: usize) -> Reg {
+    for source in &mut f.blocks {
+        for target in source.term.targets_mut() {
+            if target.block.0 as usize == block {
+                target.args.remove(position);
+            }
+        }
+    }
+    f.blocks[block].params.remove(position)
 }

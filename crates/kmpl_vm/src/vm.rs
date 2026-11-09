@@ -77,9 +77,9 @@ pub fn run(module: &Module, io: Io) -> std::result::Result<(), RuntimeError> {
 /// Only arrays, strings, tuples and structs hold anything to release.
 /// Dropping the rest from the free lists saves work on every instruction.
 fn without_needless_frees(module: &Module) -> Module {
-    fn holds_memory(function: &Function, reg: Reg) -> bool {
+    fn holds_memory(types: &[Ty], reg: Reg) -> bool {
         !matches!(
-            function.types[reg.0 as usize],
+            types[reg.0 as usize],
             Ty::Prim(
                 Type::Int
                     | Type::Real
@@ -94,14 +94,11 @@ fn without_needless_frees(module: &Module) -> Module {
 
     let mut module = module.clone();
     for function in &mut module.functions {
-        let types_only = Function {
-            blocks: Vec::new(),
-            ..function.clone()
-        };
+        let types = &function.types;
         for block in &mut function.blocks {
-            block.term_frees.retain(|r| holds_memory(&types_only, *r));
+            block.term_frees.retain(|reg| holds_memory(types, *reg));
             for inst in &mut block.insts {
-                inst.frees.retain(|r| holds_memory(&types_only, *r));
+                inst.frees.retain(|reg| holds_memory(types, *reg));
             }
         }
     }

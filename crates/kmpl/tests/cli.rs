@@ -303,7 +303,10 @@ fn link_errors_are_reported_with_the_file() {
     );
     assert_eq!(out.status.code(), Some(1));
     let err = stderr(&out);
-    assert!(err.contains("unknown module `a`, add `import a;`"), "{err}");
+    assert!(
+        err.contains("`a` is not a variable or an imported module"),
+        "{err}"
+    );
     assert!(err.contains("main.kmpl:1:19"), "{err}");
 }
 

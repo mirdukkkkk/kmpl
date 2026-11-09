@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 
+use super::remove_block_param;
 use crate::{BlockId, Constant, Function, Op, Reg, Terminator};
 
 /// Returns whether anything changed.
@@ -93,7 +94,7 @@ fn remove_unreachable(f: &mut Function) -> bool {
 }
 
 /// Replaces every use of `from` with `to`.
-pub(super) fn replace_reg(f: &mut Function, from: Reg, to: Reg) {
+fn replace_reg(f: &mut Function, from: Reg, to: Reg) {
     let mut replace = |reg: &mut Reg| {
         if *reg == from {
             *reg = to;
@@ -111,14 +112,7 @@ pub(super) fn replace_reg(f: &mut Function, from: Reg, to: Reg) {
 fn remove_trivial_params(f: &mut Function) -> bool {
     let mut changed = false;
     while let Some((block, position, value)) = find_trivial_param(f) {
-        let param = f.blocks[block].params.remove(position);
-        for source in &mut f.blocks {
-            for target in source.term.targets_mut() {
-                if target.block.0 as usize == block {
-                    target.args.remove(position);
-                }
-            }
-        }
+        let param = remove_block_param(f, block, position);
         replace_reg(f, param, value);
         changed = true;
     }
@@ -191,12 +185,7 @@ fn merge_chains(f: &mut Function) -> bool {
 }
 
 fn find_chain(f: &Function) -> Option<(usize, usize)> {
-    let mut predecessors = vec![0; f.blocks.len()];
-    for block in &f.blocks {
-        for target in block.term.targets() {
-            predecessors[target.block.0 as usize] += 1;
-        }
-    }
+    let predecessors = f.predecessors();
 
     f.blocks.iter().enumerate().find_map(|(index, block)| {
         let Terminator::Jump(target) = &block.term else {
@@ -205,7 +194,7 @@ fn find_chain(f: &Function) -> Option<(usize, usize)> {
         let next = target.block.0 as usize;
         let joinable = next != index
             && next != 0
-            && predecessors[next] == 1
+            && predecessors[next].len() == 1
             && f.blocks[next].params.is_empty();
         joinable.then_some((index, next))
     })

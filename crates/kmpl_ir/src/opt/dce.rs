@@ -4,6 +4,7 @@ use std::collections::HashSet;
 
 use kmpl_ast::{BinOp, Ty, Type, UnOp};
 
+use super::remove_block_param;
 use crate::{Function, Op, Reg, Terminator};
 
 /// Can `op` be dropped, or run when the program would not have run it?
@@ -64,14 +65,7 @@ pub fn eliminate(f: &mut Function) -> bool {
             .collect();
 
         for &position in dead.iter().rev() {
-            f.blocks[index].params.remove(position);
-            for source in &mut f.blocks {
-                for target in source.term.targets_mut() {
-                    if target.block.0 as usize == index {
-                        target.args.remove(position);
-                    }
-                }
-            }
+            remove_block_param(f, index, position);
             changed = true;
         }
     }
