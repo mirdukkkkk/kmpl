@@ -1,3 +1,5 @@
+use kmpl_ast::ImportNames;
+
 use kmpl_ast::{Item, Span};
 
 use super::{parse_program, sexp_program};
@@ -111,24 +113,52 @@ fn generic_call_is_an_ordinary_call() {
 
 #[test]
 fn imports() {
-    let program = parse_program("import a.b; import c; fn main() { }").unwrap();
-    let paths: Vec<Vec<&str>> = program
-        .imports
+    let program =
+        parse_program(r#"import fs from "std:fs"; import (a, b as c,) from "./x"; fn main() { }"#)
+            .unwrap();
+
+    let [first, second] = &program.imports[..] else {
+        panic!("expected two imports");
+    };
+    assert_eq!(first.source, "std:fs");
+    assert!(matches!(&first.names, ImportNames::Module(name) if name.name == "fs"));
+
+    assert_eq!(second.source, "./x");
+    let ImportNames::Items(items) = &second.names else {
+        panic!("expected a list of names");
+    };
+    let names: Vec<(&str, &str)> = items
         .iter()
-        .map(|i| i.path.iter().map(|p| p.name.as_str()).collect())
+        .map(|i| (i.name.name.as_str(), i.alias.name.as_str()))
         .collect();
-    assert_eq!(paths, vec![vec!["a", "b"], vec!["c"]]);
-    assert_eq!(program.items.len(), 1);
+    assert_eq!(names, [("a", "a"), ("b", "c")]);
+}
+
+#[test]
+fn from_and_as_are_ordinary_names() {
+    super::body("let from = 1; let as = from;");
 }
 
 #[test]
 fn import_errors() {
     let error = |src: &str| parse_program(src).unwrap_err().message;
-    assert_eq!(error("import a"), "expected `;`, found end of file");
+    assert_eq!(error("import a"), "expected `from`, found end of file");
+    assert_eq!(error("import a.b;"), "expected `from`, found `.`");
     assert_eq!(error("import ;"), "expected identifier, found `;`");
-    assert_eq!(error("import a.;"), "expected identifier, found `;`");
     assert_eq!(
-        error("fn f() { } import a;"),
+        error("import a from b;"),
+        "expected a string, found identifier `b`"
+    );
+    assert_eq!(
+        error(r#"import a from "x""#),
+        "expected `;`, found end of file"
+    );
+    assert_eq!(
+        error(r#"import () from "x";"#),
+        "expected identifier, found `)`"
+    );
+    assert_eq!(
+        error(r#"fn f() { } import a from "x";"#),
         "expected `const`, `fn` or `struct`, found `import`"
     );
 }

@@ -170,11 +170,11 @@ fn imports_run_in_dependency_order() {
         &[
             (
                 "main.kmpl",
-                "import lib.a; const H: real = a.G * 2.0; fn main() { print(a.f()); print(H); }",
+                "import a from \"./lib/a\"; const H: real = a.G * 2.0; fn main() { print(a.f()); print(H); }",
             ),
             (
                 "lib/a.kmpl",
-                "import b; const G: real = b.B + 1.0; fn f() -> real { return G; }",
+                "import b from \"./b\"; const G: real = b.B + 1.0; fn f() -> real { return G; }",
             ),
             ("lib/b.kmpl", "const B: real = 1.0;"),
         ],
@@ -190,10 +190,16 @@ fn a_shared_import_is_loaded_once() {
         &[
             (
                 "main.kmpl",
-                "import a; import b; fn main() { print(a.f() + b.g()); }",
+                "import a from \"./a\"; import b from \"./b\"; fn main() { print(a.f() + b.g()); }",
             ),
-            ("a.kmpl", "import c; fn f() -> int { return c.X; }"),
-            ("b.kmpl", "import c; fn g() -> int { return c.X; }"),
+            (
+                "a.kmpl",
+                "import c from \"./c\"; fn f() -> int { return c.X; }",
+            ),
+            (
+                "b.kmpl",
+                "import c from \"./c\"; fn g() -> int { return c.X; }",
+            ),
             ("c.kmpl", "const X: int = 21;"),
         ],
     );
@@ -206,7 +212,7 @@ fn check_errors_name_the_imported_file() {
     let out = run_project(
         "check_error_file",
         &[
-            ("main.kmpl", "import a;\nfn main() { }\n"),
+            ("main.kmpl", "import a from \"./a\";\nfn main() { }\n"),
             ("a.kmpl", "\nfn f() -> int { return true; }\n"),
         ],
     );
@@ -221,7 +227,10 @@ fn runtime_errors_name_the_imported_file() {
     let out = run_project(
         "runtime_error_file",
         &[
-            ("main.kmpl", "import a;\nfn main() { print(a.f(0)); }\n"),
+            (
+                "main.kmpl",
+                "import a from \"./a\";\nfn main() { print(a.f(0)); }\n",
+            ),
             ("a.kmpl", "fn f(x: int) -> int {\n    return 1 / x;\n}\n"),
         ],
     );
@@ -236,7 +245,7 @@ fn parse_and_lex_errors_in_imports() {
     let out = run_project(
         "parse_error_import",
         &[
-            ("main.kmpl", "import a;\nfn main() { }\n"),
+            ("main.kmpl", "import a from \"./a\";\nfn main() { }\n"),
             ("a.kmpl", "\nfn (\n"),
         ],
     );
@@ -246,7 +255,7 @@ fn parse_and_lex_errors_in_imports() {
     let out = run_project(
         "lex_error_import",
         &[
-            ("main.kmpl", "import a;\nfn main() { }\n"),
+            ("main.kmpl", "import a from \"./a\";\nfn main() { }\n"),
             ("a.kmpl", "\n$\n"),
         ],
     );
@@ -260,11 +269,14 @@ fn parse_and_lex_errors_in_imports() {
 fn missing_module() {
     let out = run_project(
         "missing_module",
-        &[("main.kmpl", "import lib.nope;\nfn main() { }\n")],
+        &[(
+            "main.kmpl",
+            "import nope from \"./lib/nope\";\nfn main() { }\n",
+        )],
     );
     assert_eq!(out.status.code(), Some(1));
     let err = stderr(&out);
-    assert!(err.contains("cannot read module `lib.nope`"), "{err}");
+    assert!(err.contains("cannot find module `./lib/nope`"), "{err}");
     assert!(err.contains("main.kmpl:1:1"), "{err}");
 }
 
@@ -273,9 +285,9 @@ fn import_cycles() {
     let out = run_project(
         "import_cycle",
         &[
-            ("main.kmpl", "import a;\nfn main() { }\n"),
-            ("a.kmpl", "import b;\n"),
-            ("b.kmpl", "import a;\n"),
+            ("main.kmpl", "import a from \"./a\";\nfn main() { }\n"),
+            ("a.kmpl", "import b from \"./b\";\n"),
+            ("b.kmpl", "import a from \"./a\";\n"),
         ],
     );
     assert_eq!(out.status.code(), Some(1));
@@ -286,8 +298,8 @@ fn import_cycles() {
     let out = run_project(
         "import_self_cycle",
         &[
-            ("main.kmpl", "import a;\nfn main() { }\n"),
-            ("a.kmpl", "import main;\n"),
+            ("main.kmpl", "import a from \"./a\";\nfn main() { }\n"),
+            ("a.kmpl", "import main from \"./main\";\n"),
         ],
     );
     assert_eq!(out.status.code(), Some(1));
@@ -490,4 +502,108 @@ fn deeply_nested_data_is_freed_printed_and_compared() {
     );
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
     assert_eq!(stdout(&out), "true\ntrue\n");
+}
+
+#[test]
+fn a_directory_is_found_through_mod_kmpl() {
+    let out = run_project(
+        "mod_kmpl",
+        &[
+            (
+                "main.kmpl",
+                "import a from \"./lib/a\";\nfn main() { print(a.f()); }\n",
+            ),
+            (
+                "lib/a/mod.kmpl",
+                "import b from \"./b\";\nfn f() -> int { return b.N; }\n",
+            ),
+            ("lib/a/b.kmpl", "const N: int = 7;\n"),
+        ],
+    );
+    assert_eq!(stdout(&out), "7\n", "{}", stderr(&out));
+}
+
+#[test]
+fn a_file_and_a_directory_of_one_name_are_ambiguous() {
+    let out = run_project(
+        "ambiguous_module",
+        &[
+            ("main.kmpl", "import a from \"./a\";\nfn main() { }\n"),
+            ("a.kmpl", ""),
+            ("a/mod.kmpl", ""),
+        ],
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).contains("module `./a` is ambiguous"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn an_explicit_extension_names_exactly_that_file() {
+    let out = run_project(
+        "explicit_file",
+        &[
+            (
+                "main.kmpl",
+                "import a from \"./a.kmpl\";\nfn main() { print(a.N); }\n",
+            ),
+            ("a.kmpl", "const N: int = 1;\n"),
+            ("a/mod.kmpl", "const N: int = 2;\n"),
+        ],
+    );
+    assert_eq!(stdout(&out), "1\n", "{}", stderr(&out));
+}
+
+#[test]
+fn a_module_outside_the_program_directory() {
+    let out = run_project(
+        "outside",
+        &[
+            (
+                "app/main.kmpl",
+                "import shared from \"../shared\";\nimport here from \"./shared\";\n\
+                 fn main() { print(shared.N + here.N); }\n",
+            ),
+            ("shared.kmpl", "const N: int = 1;\n"),
+            ("app/shared.kmpl", "const N: int = 20;\n"),
+        ],
+    );
+    assert_eq!(stdout(&out), "21\n", "{}", stderr(&out));
+}
+
+#[test]
+fn items_imported_by_name() {
+    let out = run_project(
+        "import_items",
+        &[
+            (
+                "main.kmpl",
+                "import (twice, K as FACTOR, Point) from \"./lib\";\n\
+                 fn main() { let p = Point { x: FACTOR }; print(twice(p.x)); print(p); }\n",
+            ),
+            (
+                "lib.kmpl",
+                "const K: int = 4;\nstruct Point { x: int }\n\
+                 fn twice(n: int) -> int { return n * 2; }\n",
+            ),
+        ],
+    );
+    assert_eq!(stdout(&out), "8\nPoint { x: 4 }\n", "{}", stderr(&out));
+}
+
+#[test]
+fn a_module_path_must_be_relative() {
+    let out = run_project(
+        "bad_source",
+        &[("main.kmpl", "import a from \"/etc/a\";\nfn main() { }\n")],
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).contains("`/etc/a` is not a module path"),
+        "{}",
+        stderr(&out)
+    );
 }

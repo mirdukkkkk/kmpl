@@ -2,9 +2,10 @@
 
 program     ::= import* item*
 
-(* The path is relative to the importing file: 'import a.b;' reads a/b.kmpl.
-   The code then says 'b.name'. *)
-import      ::= 'import' IDENT ('.' IDENT)* ';'
+(* 'import x from "./a/b";' reads a/b.kmpl or a/b/mod.kmpl next to the importing
+   file, and the code says 'x.name'. 'from' and 'as' are ordinary identifiers. *)
+import      ::= 'import' (IDENT | '(' imported (',' imported)* ','? ')') 'from' STRING ';'
+imported    ::= IDENT ('as' IDENT)?
 
 (* items *)
 item        ::= const | function | struct

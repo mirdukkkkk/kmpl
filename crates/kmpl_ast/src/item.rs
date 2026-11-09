@@ -6,12 +6,29 @@ pub struct Program {
     pub items: Vec<Item>,
 }
 
-/// `import math.stats;`
+/// `import fs from "std:fs";` or `import (read, write as save) from "std:fs";`
 #[derive(Debug, Clone, PartialEq)]
 pub struct Import {
-    /// `math`, `stats`. At least one part.
-    pub path: Vec<Ident>,
+    pub names: ImportNames,
+    /// The text after `from`.
+    pub source: String,
+    pub source_span: Span,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ImportNames {
+    /// The whole module under this name: `fs.read`.
+    Module(Ident),
+    /// These items, used without a prefix.
+    Items(Vec<ImportedItem>),
+}
+
+/// `read`, or `read as load`. Without `as` both are the same name.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportedItem {
+    pub name: Ident,
+    pub alias: Ident,
 }
 
 #[derive(Debug, Clone, PartialEq)]

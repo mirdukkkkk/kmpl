@@ -1,5 +1,5 @@
 // An import is relative to this file: this reads `lib/numbers.kmpl`.
-import numbers;
+import numbers from "./numbers";
 
 const UNIT_AREA: real = PI * numbers.TWO / numbers.TWO;
 

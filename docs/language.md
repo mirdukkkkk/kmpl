@@ -278,8 +278,9 @@ array: `children: [Node]`.
 
 ## Modules
 
-`import a.b;` at the top of a file reads `a/b.kmpl` next to that file. The code
-then uses the last part of the path:
+`import` goes at the top of a file. `from` says where the module is, relative to
+that file: `"./lib/stats"` is `lib/stats.kmpl` or `lib/stats/mod.kmpl`, and there
+must be exactly one of them. With `.kmpl` at the end it is exactly that file.
 
 ```kmpl
 // lib/stats.kmpl
@@ -294,11 +295,18 @@ fn mean(a: [real]) -> real {
 
 ```kmpl
 // main.kmpl
-import lib.stats;
+import stats from "./lib/stats";
 
 fn main() {
     print(stats.mean([1.0, 2.0, 6.0]));  // 3.0
 }
+```
+
+To use items without the module's name, list them in brackets. `as` gives one
+another name, and a name that is already taken is an error:
+
+```kmpl
+import (mean, mean as average) from "./lib/stats";
 ```
 
 Everything in a module is public. A file must import a module itself to use it,
