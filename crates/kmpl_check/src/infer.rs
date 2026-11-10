@@ -17,8 +17,8 @@
 use std::collections::{HashMap, HashSet};
 
 use kmpl_ast::{
-    BinOp, Block, EnumDef, Expr, ExprKind, Function, Ident, Item, Lambda, MatchArm, PathStep,
-    Pattern, Program, Span, Stmt, StmtKind, StructDef, Ty, Type, TypeExpr, UnOp,
+    BinOp, Block, EnumDef, Expr, ExprKind, Function, Ident, Item, Lambda, MatchArm, Operator,
+    PathStep, Pattern, Program, Span, Stmt, StmtKind, StructDef, Ty, Type, TypeExpr, UnOp,
 };
 use kmpl_builtins::{ParamType, RetType};
 
@@ -38,6 +38,11 @@ struct GenericCall<'a> {
 struct Infer<'a> {
     u: Unifier,
     functions: HashMap<&'a str, &'a Function>,
+    /// Every `operator` of the program, wherever it is defined.
+    operators: Vec<&'a Function>,
+    /// Where an operator of the program is used: the item, the span of the
+    /// expression or of the assignment, and the function to call.
+    operator_calls: Vec<(usize, Span, &'a str)>,
     consts: HashMap<&'a str, &'a TypeExpr>,
     /// Name of a struct or enum -> id in `Unifier`.
     struct_ids: HashMap<&'a str, usize>,
@@ -79,6 +84,10 @@ pub struct Inference {
     /// The copy each call to a generic function uses, like `lerp<vec2>`,
     /// by item index and span of the call.
     pub call_targets: HashMap<(usize, Span), String>,
+    /// The function behind each use of an operator the program defines, by
+    /// item index and span of the expression, or of the whole assignment
+    /// for `a += b`.
+    pub operator_targets: HashMap<(usize, Span), String>,
     /// Calls to generic functions with arrays, structs and the like as type
     /// arguments, which have no copy made in advance.
     pub composite_calls: Vec<(String, Vec<Ty>)>,
@@ -93,6 +102,8 @@ pub fn infer(program: &Program, report_unknown: bool) -> Inference {
     let mut inf = Infer {
         u: Unifier::default(),
         functions: HashMap::new(),
+        operators: Vec::new(),
+        operator_calls: Vec::new(),
         consts: HashMap::new(),
         struct_ids: HashMap::new(),
         struct_defs: HashMap::new(),
@@ -118,6 +129,9 @@ pub fn infer(program: &Program, report_unknown: bool) -> Inference {
             }
             Item::Function(f) => {
                 inf.functions.insert(&f.name.name, f);
+                if f.operator.is_some() {
+                    inf.operators.push(f);
+                }
             }
             Item::Struct(s) => {
                 let id = inf.u.add_struct(&s.name.name);
@@ -163,10 +177,17 @@ pub fn infer(program: &Program, report_unknown: bool) -> Inference {
         .filter_map(|&(item, span, var)| Some(((item, span), inf.u.resolve(var)?)))
         .collect();
 
+    let operator_targets = inf
+        .operator_calls
+        .iter()
+        .map(|&(item, span, name)| ((item, span), name.to_owned()))
+        .collect();
+
     Inference {
         errors: inf.errors,
         literal_types,
         call_targets,
+        operator_targets,
         composite_calls,
         expr_types,
     }
@@ -325,7 +346,9 @@ impl<'a> Infer<'a> {
                 self.locals.push((name, var));
             }
             StmtKind::LetTuple { names, value } => self.let_tuple(names, value),
-            StmtKind::Assign { name, op, value } => {
+            StmtKind::Assign {
+                name, op, value, ..
+            } => {
                 let value_ty = self.expr(value);
                 // Constants and functions are rejected by `resolve`.
                 if let Some(var) = self.lookup(&name.name) {
@@ -337,6 +360,7 @@ impl<'a> Infer<'a> {
                 path,
                 op,
                 value,
+                ..
             } => {
                 let value_ty = self.expr(value);
                 // Constants and functions are rejected by `resolve`.
@@ -346,6 +370,11 @@ impl<'a> Infer<'a> {
                             PathStep::Index(index) => {
                                 self.index_type(index);
                                 self.array_elem(var, name.span)
+                            }
+                            PathStep::Cell(row, col) => {
+                                self.index_type(row);
+                                self.index_type(col);
+                                self.cell_type(var, name.span)
                             }
                             PathStep::Field(field) => self.field_type(var, field, name.span),
                         };
@@ -648,6 +677,12 @@ impl<'a> Infer<'a> {
             ExprKind::Lambda(l) => self.lambda(l),
             ExprKind::Unary { op, operand } => {
                 let ty = self.expr(operand);
+                if *op == UnOp::Neg
+                    && let Some(result) =
+                        self.user_operator(Operator::Neg, &[(ty, operand.span)], e.span)
+                {
+                    return result;
+                }
                 match op {
                     UnOp::Neg => self.restrict_inner(ty, TypeSet::LINEAR, "-", e.span),
                     UnOp::Not => self.expect(ty, Type::Bool, operand.span),
@@ -707,6 +742,12 @@ impl<'a> Infer<'a> {
                 let base_ty = self.expr(base);
                 self.index_type(index);
                 self.read_elem(base_ty, base.span)
+            }
+            ExprKind::Cell { base, row, col } => {
+                let base_ty = self.expr(base);
+                self.index_type(row);
+                self.index_type(col);
+                self.cell_type(base_ty, base.span)
             }
             ExprKind::Slice {
                 base, start, end, ..
@@ -878,6 +919,13 @@ impl<'a> Infer<'a> {
         if self.is_bytes(ty) {
             return self.known(Type::Int);
         }
+        if self.is_matrix(ty) {
+            self.error(
+                "a `matrix` takes a row and a column: `m[i, j]`".to_owned(),
+                span,
+            );
+            return self.u.new_var(TypeSet::ANY);
+        }
         let elem = self.u.new_var(TypeSet::ANY);
         let array = self.u.new_array(elem);
         if self.u.unify(ty, array).is_err() {
@@ -885,6 +933,24 @@ impl<'a> Infer<'a> {
             self.error(format!("expected an array, found {found}"), span);
         }
         elem
+    }
+
+    /// What `ty[row, col]` gives: `ty` must be a `matrix`.
+    fn cell_type(&mut self, ty: TyVar, span: Span) -> TyVar {
+        if self.u.element(ty).is_some() {
+            let found = self.u.describe(ty);
+            self.error(
+                format!("only a `matrix` takes a row and a column, found {found}: write `a[i][j]`"),
+                span,
+            );
+        } else {
+            self.expect(ty, Type::Matrix, span);
+        }
+        self.known(Type::Real)
+    }
+
+    fn is_matrix(&self, ty: TyVar) -> bool {
+        self.u.set(ty) == TypeSet::MATRIX
     }
 
     fn is_bytes(&self, ty: TyVar) -> bool {
@@ -913,6 +979,10 @@ impl<'a> Infer<'a> {
         span: Span,
     ) -> TyVar {
         let sym = op_symbol(op);
+        let operands = [(l, lhs_span), (r, rhs_span)];
+        if let Some(result) = self.user_operator(Operator::Binary(op), &operands, span) {
+            return result;
+        }
 
         match op {
             BinOp::Add | BinOp::Sub => {
@@ -955,6 +1025,126 @@ impl<'a> Infer<'a> {
         }
     }
 
+    /// The operators a program can define have no built-in meaning for a
+    /// struct or an enum. So when an operand is one, the answer is here: the
+    /// type of the value of the definition that fits, or an error. `span` is
+    /// what the use is recorded under.
+    fn user_operator(
+        &mut self,
+        operator: Operator,
+        operands: &[(TyVar, Span)],
+        span: Span,
+    ) -> Option<TyVar> {
+        let can_be_defined = match operator {
+            Operator::Neg => true,
+            Operator::Binary(op) => matches!(
+                op,
+                BinOp::Add
+                    | BinOp::Sub
+                    | BinOp::Mul
+                    | BinOp::Div
+                    | BinOp::Rem
+                    | BinOp::Lt
+                    | BinOp::Le
+                    | BinOp::Gt
+                    | BinOp::Ge
+            ),
+        };
+        let on_own_type = operands
+            .iter()
+            .any(|(operand, _)| self.u.struct_id(*operand).is_some());
+        if !can_be_defined || !on_own_type {
+            return None;
+        }
+
+        let mut fitting = self.fitting_operators(operator, operands, false);
+        if fitting.len() > 1 {
+            // `2 * v` with definitions for `int` and for `real`: the literal
+            // is an `int` unless something says otherwise, as everywhere.
+            fitting = self.fitting_operators(operator, operands, true);
+        }
+
+        let types: Vec<String> = operands
+            .iter()
+            .map(|(operand, _)| self.u.describe(*operand))
+            .collect();
+        let types = types.join(" and ");
+        match fitting.as_slice() {
+            [f] => {
+                for (param, (operand, operand_span)) in f.params.iter().zip(operands) {
+                    let expected = self.annotated(&param.ty);
+                    self.unify(*operand, expected, *operand_span);
+                }
+                self.operator_calls
+                    .push((self.item, span, f.name.name.as_str()));
+                let ret = f.ret.as_ref().expect("the parser requires a type");
+                return Some(self.annotated(ret));
+            }
+            [] => self.error(
+                format!("cannot apply `{}` to {types}", operator.symbol()),
+                span,
+            ),
+            _ => self.error(
+                format!(
+                    "several definitions of operator `{}` fit {types}, add a type annotation",
+                    operator.symbol()
+                ),
+                span,
+            ),
+        }
+        Some(self.u.new_var(TypeSet::ANY))
+    }
+
+    /// Gives every number still open in `var` its default type, also inside
+    /// `Pair<...>` and arrays: `Pair { a: 3, b: 4 }` is a `Pair<int>`.
+    fn settle_literals(&mut self, var: TyVar) {
+        if let Some(ty) = self.u.set(var).default_type() {
+            let _ = self.u.restrict(var, TypeSet::single(ty));
+        }
+        for inner in self.u.instance_args(var) {
+            self.settle_literals(inner);
+        }
+        if let Some(element) = self.u.element(var) {
+            self.settle_literals(element);
+        }
+    }
+
+    /// The definitions of `operator` whose parameters can be these operands.
+    /// With `defaults`, a number literal counts as the type it would get if
+    /// nothing else decided.
+    fn fitting_operators(
+        &mut self,
+        operator: Operator,
+        operands: &[(TyVar, Span)],
+        defaults: bool,
+    ) -> Vec<&'a Function> {
+        let defined: Vec<&'a Function> = self
+            .operators
+            .iter()
+            .copied()
+            .filter(|f| f.operator == Some(operator))
+            .collect();
+
+        let mut fitting = Vec::new();
+        for f in defined {
+            // Tried on a copy: a definition that does not fit must leave no
+            // trace in the types.
+            let saved = self.u.clone();
+            let fits = f.params.iter().zip(operands).all(|(param, (operand, _))| {
+                if defaults {
+                    self.settle_literals(*operand);
+                }
+                let expected = self.annotated(&param.ty);
+                self.u.unify(*operand, expected).is_ok()
+            });
+            self.u = saved;
+            if fits {
+                fitting.push(f);
+            }
+        }
+        fitting
+    }
+
     /// `+`, `-` and unary `-` work on the types in `allowed` and on arrays
     /// of them, at any depth.
     fn restrict_inner(&mut self, var: TyVar, allowed: TypeSet, op: &str, span: Span) {
@@ -973,6 +1163,12 @@ impl<'a> Infer<'a> {
     fn mul_div(&mut self, op: BinOp, l: TyVar, r: TyVar, rhs_span: Span, span: Span) -> TyVar {
         match (self.u.element(l), self.u.element(r)) {
             (None, None) => self.scalar_mul_div(op, l, r, rhs_span, span),
+            // `matrix * [real]` is a `[real]`, the other way round is nothing.
+            (None, Some(elem)) if op == BinOp::Mul && self.is_matrix(l) => {
+                self.expect(elem, Type::Real, rhs_span);
+                r
+            }
+            (Some(_), None) if self.is_matrix(r) => self.bad_operands(op, l, r, span),
             (Some(elem), None) => {
                 let result = self.mul_div(op, elem, r, rhs_span, span);
                 self.u.new_array(result)
@@ -1022,7 +1218,7 @@ impl<'a> Infer<'a> {
     }
 
     /// `number * number`, `vec * real`, `real * vec`, `number / number`,
-    /// `vec / real`.
+    /// `vec / real`. A `matrix` scales like a vector, and two multiply.
     fn scalar_mul_div(
         &mut self,
         op: BinOp,
@@ -1034,10 +1230,14 @@ impl<'a> Infer<'a> {
         let sym = op_symbol(op);
         let (ls, rs) = (self.u.set(l), self.u.set(r));
         let is_number = |s: TypeSet| s.is_subset(TypeSet::NUMBER);
-        let is_vector = |s: TypeSet| s.is_subset(TypeSet::VECTOR);
+        // Scaled by a `real`, like a vector.
+        let is_vector = |s: TypeSet| s.is_subset(TypeSet::VECTOR) || s == TypeSet::MATRIX;
 
         if is_number(ls) && is_number(rs) {
             self.unify(r, l, rhs_span);
+            return l;
+        }
+        if op == BinOp::Mul && ls == TypeSet::MATRIX && rs == TypeSet::MATRIX {
             return l;
         }
         if is_vector(ls) && is_number(rs) {
@@ -1120,8 +1320,8 @@ impl<'a> Infer<'a> {
                     let expected = self.reals();
                     self.unify(arg_ty, expected, arg.span);
                 }
-                ParamType::Matrix => {
-                    let expected = self.matrix();
+                ParamType::Rows => {
+                    let expected = self.rows();
                     self.unify(arg_ty, expected, arg.span);
                 }
                 ParamType::ArrayOfElem if on_bytes || self.is_bytes(arg_ty) => {
@@ -1149,11 +1349,7 @@ impl<'a> Infer<'a> {
             RetType::Length if on_vector => Some(self.known(Type::Real)),
             RetType::Length => Some(self.known(Type::Int)),
             RetType::Elem => Some(elem),
-            RetType::Matrix => Some(self.matrix()),
-            RetType::OptionalMatrix => {
-                let inner = self.matrix();
-                Some(self.u.new_optional(inner))
-            }
+            RetType::Rows => Some(self.rows()),
             RetType::OptionalReals => {
                 let inner = self.reals();
                 Some(self.u.new_optional(inner))
@@ -1187,7 +1383,7 @@ impl<'a> Infer<'a> {
     }
 
     /// `[[real]]`
-    fn matrix(&mut self) -> TyVar {
+    fn rows(&mut self) -> TyVar {
         let row = self.reals();
         self.u.new_array(row)
     }

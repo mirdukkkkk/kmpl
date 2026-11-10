@@ -10,6 +10,15 @@ pub struct ArrayView {
     pub len: u64,
 }
 
+/// The size of a `matrix`, whose numbers are an `ArrayView` of
+/// `rows * cols`, row after row.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct MatrixShape {
+    pub rows: u64,
+    pub cols: u64,
+}
+
 /// One value crossing between generated code and the runtime.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]

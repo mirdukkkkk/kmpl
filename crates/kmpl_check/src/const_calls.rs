@@ -3,11 +3,12 @@
 //! Constants are computed in order before `main`, so a call from one of them
 //! must not reach a constant that has no value yet, or anything that depends
 //! on how the program is run. Everything a call can reach is followed here.
-//! Runs after `resolve`, so every name exists.
+//! Runs after `resolve`, so every name exists, and once more after
+//! inference, when the operators a program defines have become calls.
 
 use std::collections::{HashMap, HashSet};
 
-use kmpl_ast::{Block, Expr, ExprKind, Function, Ident, Item, PathStep, Program, Stmt, StmtKind};
+use kmpl_ast::{Block, Expr, ExprKind, Function, Ident, Item, Program, Stmt, StmtKind};
 
 use crate::error::CheckError;
 
@@ -69,8 +70,17 @@ impl<'a> Walk<'a> {
         }
         self.found = true;
         let direct = self.direct.expect("reported from a call");
+        // The name of an operator's function is not something to show.
+        let operator = self
+            .functions
+            .get(direct.name.as_str())
+            .and_then(|f| f.operator);
+        let what = match operator {
+            Some(operator) => format!("use this `{}`", operator.symbol()),
+            None => format!("call `{}`", direct.name),
+        };
         self.errors.push(CheckError::new(
-            format!("a constant cannot call `{}`: {reason}", direct.name),
+            format!("a constant cannot {what}: {reason}"),
             direct.span,
         ));
     }
@@ -152,11 +162,21 @@ impl<'a> Walk<'a> {
                     self.declare(&name.name);
                 }
             }
-            StmtKind::Assign { value, .. } => self.expr(value),
-            StmtKind::PathAssign { path, value, .. } => {
+            StmtKind::Assign { value, via, .. } => {
+                self.expr(value);
+                if let Some(operator) = via {
+                    self.call(operator);
+                }
+            }
+            StmtKind::PathAssign {
+                path, value, via, ..
+            } => {
+                if let Some(operator) = via {
+                    self.call(operator);
+                }
                 self.expr(value);
                 for step in path {
-                    if let PathStep::Index(index) = step {
+                    for index in step.indices() {
                         self.expr(index);
                     }
                 }
@@ -276,6 +296,11 @@ impl<'a> Walk<'a> {
             ExprKind::Index { base, index } => {
                 self.expr(base);
                 self.expr(index);
+            }
+            ExprKind::Cell { base, row, col } => {
+                self.expr(base);
+                self.expr(row);
+                self.expr(col);
             }
             ExprKind::Slice {
                 base, start, end, ..

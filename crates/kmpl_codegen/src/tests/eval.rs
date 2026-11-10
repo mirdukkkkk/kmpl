@@ -1,4 +1,4 @@
-use super::{output, run, run_with, runtime_error};
+use super::{output, run, run_mode, run_with, runtime_error};
 
 #[test]
 fn print_values() {
@@ -2369,4 +2369,786 @@ fn a_function_failing_for_a_constant_is_a_runtime_error() {
         runtime_error("fn f(z: int) -> int { return 1 / z; } const A: int = f(0); fn main() { }"),
         "division by zero"
     );
+}
+
+#[test]
+fn matrix_is_zero_at_first() {
+    assert_eq!(
+        output("let m = matrix(2, 3); print(m); print(m[1, 2]); print(rows(m)); print(cols(m));"),
+        "[[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]\n0.0\n2\n3\n"
+    );
+}
+
+#[test]
+fn matrix_cells_are_written_in_nested_loops() {
+    assert_eq!(
+        output(
+            "let m = matrix(3, 3);
+             for i in 0..3 { for j in 0..3 { m[i, j] = real(i * 3 + j); } }
+             for i in 0..3 { m[i, i] += 10; }
+             let sum = 0.0;
+             for i in 0..rows(m) { for j in 0..cols(m) { sum += m[i, j]; } }
+             print(m);
+             print(sum);"
+        ),
+        "[[10.0, 1.0, 2.0], [3.0, 14.0, 5.0], [6.0, 7.0, 18.0]]\n66.0\n"
+    );
+}
+
+#[test]
+fn matrix_compound_assignment_on_cells() {
+    assert_eq!(
+        output(
+            "let m = to_matrix([[1.0, 2.0], [3.0, 4.0]]);
+             m[0, 0] += 1; m[0, 1] -= 1; m[1, 0] *= 2; m[1, 1] /= 4;
+             print(m);"
+        ),
+        "[[2.0, 1.0], [6.0, 1.0]]\n"
+    );
+}
+
+#[test]
+fn matrix_index_expressions_run_once_in_order() {
+    assert_eq!(
+        output(
+            "let m = matrix(2, 2);
+             let n = 0;
+             m[n, n] = 5; n = 1; m[n, n - 1] += 7;
+             print(m);"
+        ),
+        "[[5.0, 0.0], [7.0, 0.0]]\n"
+    );
+}
+
+#[test]
+fn matrix_has_value_semantics() {
+    assert_eq!(
+        output(
+            "let a = matrix(1, 2);
+             let b = a;
+             b[0, 0] = 1.0;
+             a[0, 1] = 2.0;
+             print(a); print(b);"
+        ),
+        "[[0.0, 2.0]]\n[[1.0, 0.0]]\n"
+    );
+}
+
+#[test]
+fn matrix_passed_to_a_function_is_copied() {
+    let src = "fn fill(m: matrix) -> matrix { m[0, 0] = 9.0; return m; }
+               fn make() -> matrix { let m = matrix(2, 2); m[1, 1] = 4.0; return m; }
+               fn main() {
+                   let a = make();
+                   let b = fill(a);
+                   print(a); print(b);
+                   let c = fill(make());
+                   print(c);
+               }";
+    assert_eq!(
+        run(src).unwrap(),
+        "[[0.0, 0.0], [0.0, 4.0]]\n[[9.0, 0.0], [0.0, 4.0]]\n[[9.0, 0.0], [0.0, 4.0]]\n"
+    );
+}
+
+#[test]
+fn matrix_in_a_struct_field() {
+    let src = "struct S { m: matrix, k: int }
+               fn main() {
+                   let s = S { m: matrix(2, 2), k: 1 };
+                   let t = s;
+                   s.m[0, 1] = 3.0;
+                   s.m[1, 0] += 2.0;
+                   t.m[0, 0] = 1.0;
+                   print(s.m); print(t.m);
+                   print(s.m[0, 1] + s.m[1, 0]);
+                   print(rows(s.m));
+               }";
+    assert_eq!(
+        run(src).unwrap(),
+        "[[0.0, 3.0], [2.0, 0.0]]\n[[1.0, 0.0], [0.0, 0.0]]\n5.0\n2\n"
+    );
+}
+
+#[test]
+fn matrix_in_an_array() {
+    let src = "fn main() {
+                   let list = [matrix(1, 1), matrix(2, 2)];
+                   let copy = list;
+                   list[1][1, 1] = 5.0;
+                   list[0][0, 0] += 1.5;
+                   copy[0][0, 0] = -1.0;
+                   print(list); print(copy);
+                   let m = list[1];
+                   m[0, 0] = 8.0;
+                   print(list[1][0, 0]); print(m[0, 0]);
+               }";
+    assert_eq!(
+        run(src).unwrap(),
+        "[[[1.5]], [[0.0, 0.0], [0.0, 5.0]]]\n[[[-1.0]], [[0.0, 0.0], [0.0, 0.0]]]\n0.0\n8.0\n"
+    );
+}
+
+#[test]
+fn matrix_as_a_constant() {
+    let src = "const M: matrix = to_matrix([[1.0, 2.0], [3.0, 4.0]]);
+               fn main() {
+                   print(M); print(M[1, 0]);
+                   let m = M;
+                   m[1, 0] = 0.0;
+                   print(m); print(M);
+               }";
+    assert_eq!(
+        run(src).unwrap(),
+        "[[1.0, 2.0], [3.0, 4.0]]\n3.0\n[[1.0, 2.0], [0.0, 4.0]]\n[[1.0, 2.0], [3.0, 4.0]]\n"
+    );
+}
+
+#[test]
+fn matrix_operators() {
+    let src = "fn main() {
+                   let a = to_matrix([[1.0, 2.0], [3.0, 4.0]]);
+                   let b = to_matrix([[0.5, 0.0], [1.0, 2.0]]);
+                   print(a + b); print(a - b); print(-a);
+                   print(a * b);
+                   print(a * [1.0, 1.0]);
+                   print(a * 2.0); print(2.0 * a); print(a * 2); print(a / 2.0); print(3 * a);
+                   print(a == a); print(a == b); print(a != b);
+                   print(a == to_matrix([[1.0, 2.0], [3.0, 5.0]]));
+                   print(matrix(0, 2) == matrix(2, 0));
+               }";
+    assert_eq!(
+        run(src).unwrap(),
+        "[[1.5, 2.0], [4.0, 6.0]]\n[[0.5, 2.0], [2.0, 2.0]]\n[[-1.0, -2.0], [-3.0, -4.0]]\n\
+         [[2.5, 4.0], [5.5, 8.0]]\n[3.0, 7.0]\n\
+         [[2.0, 4.0], [6.0, 8.0]]\n[[2.0, 4.0], [6.0, 8.0]]\n[[2.0, 4.0], [6.0, 8.0]]\n[[0.5, 1.0], [1.5, 2.0]]\n[[3.0, 6.0], [9.0, 12.0]]\n\
+         true\nfalse\ntrue\nfalse\nfalse\n"
+    );
+}
+
+#[test]
+fn matrix_product_of_non_square_shapes() {
+    let src = "fn main() {
+                   let a = to_matrix([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+                   let b = to_matrix([[1.0], [0.0], [2.0]]);
+                   print(a * b);
+                   print(a * [1.0, 0.0, 1.0]);
+                   print(rows(b * to_matrix([[1.0, 2.0]])));
+               }";
+    assert_eq!(run(src).unwrap(), "[[7.0], [16.0]]\n[4.0, 10.0]\n3\n");
+}
+
+#[test]
+fn matrix_operator_errors() {
+    let fails = |body: &str| runtime_error(&format!("fn main() {{ {body} }}"));
+    assert_eq!(
+        fails("print(matrix(1, 2) + matrix(2, 1));"),
+        "matrices have different shapes: 1x2 and 2x1"
+    );
+    assert_eq!(
+        fails("print(matrix(1, 2) - matrix(2, 1));"),
+        "matrices have different shapes: 1x2 and 2x1"
+    );
+    assert_eq!(
+        fails("print(matrix(2, 3) * matrix(2, 3));"),
+        "cannot multiply a 2x3 matrix by a 2x3 matrix"
+    );
+    assert_eq!(
+        fails("print(matrix(2, 3) * [1.0]);"),
+        "cannot multiply a 2x3 matrix by a vector of length 1"
+    );
+}
+
+#[test]
+fn matrix_size_errors() {
+    assert_eq!(
+        runtime_error("fn main() { let n = -1; print(matrix(n, 2)); }"),
+        "a matrix cannot have -1 rows"
+    );
+    assert_eq!(
+        runtime_error("fn main() { let n = -2; print(matrix(2, n)); }"),
+        "a matrix cannot have -2 columns"
+    );
+}
+
+#[test]
+fn matrix_cell_out_of_bounds() {
+    let fails = |body: &str| runtime_error(&format!("fn main() {{ {body} }}"));
+    let m = "let m = matrix(3, 4); let i = 5; let j = -1;";
+    assert_eq!(
+        fails(&format!("{m} print(m[i, 0]);")),
+        "row 5 is out of bounds for a matrix with 3 rows"
+    );
+    assert_eq!(
+        fails(&format!("{m} print(m[3, 0]);")),
+        "row 3 is out of bounds for a matrix with 3 rows"
+    );
+    assert_eq!(
+        fails(&format!("{m} print(m[j, 0]);")),
+        "row -1 is out of bounds for a matrix with 3 rows"
+    );
+    assert_eq!(
+        fails(&format!("{m} print(m[0, i]);")),
+        "column 5 is out of bounds for a matrix with 4 columns"
+    );
+    assert_eq!(
+        fails(&format!("{m} print(m[0, j]);")),
+        "column -1 is out of bounds for a matrix with 4 columns"
+    );
+    assert_eq!(
+        fails(&format!("{m} m[i, 0] = 1.0;")),
+        "row 5 is out of bounds for a matrix with 3 rows"
+    );
+    assert_eq!(
+        fails(&format!("{m} m[0, j] += 1.0;")),
+        "column -1 is out of bounds for a matrix with 4 columns"
+    );
+}
+
+#[test]
+fn matrix_cell_out_of_bounds_through_a_field_and_an_array() {
+    let fails = |src: &str| runtime_error(src);
+    let s = "struct S { m: matrix }";
+    assert_eq!(
+        fails(&format!(
+            "{s} fn main() {{ let s = S {{ m: matrix(3, 4) }}; let i = 5; print(s.m[i, 0]); }}"
+        )),
+        "row 5 is out of bounds for a matrix with 3 rows"
+    );
+    assert_eq!(
+        fails(&format!(
+            "{s} fn main() {{ let s = S {{ m: matrix(3, 4) }}; let j = -3; s.m[0, j] = 1.0; }}"
+        )),
+        "column -3 is out of bounds for a matrix with 4 columns"
+    );
+    assert_eq!(
+        fails("fn main() { let l = [matrix(2, 2)]; let i = 2; l[0][i, 0] += 1.0; }"),
+        "row 2 is out of bounds for a matrix with 2 rows"
+    );
+    assert_eq!(
+        fails("fn main() { let l = [matrix(2, 2)]; let j = 2; print(l[0][0, j]); }"),
+        "column 2 is out of bounds for a matrix with 2 columns"
+    );
+}
+
+#[test]
+fn matrix_cell_error_points_at_the_bad_index() {
+    let check = |src: &str, expected: &str| {
+        for optimize in [true, false] {
+            let (error, _) = run_mode(src, &[], b"", optimize).unwrap_err();
+            assert_eq!(&src[error.span.start..error.span.end], expected, "{src}");
+        }
+    };
+    check(
+        "fn main() { let m = matrix(2, 2); let i = 4; print(m[i + 1, 0]); }",
+        "i + 1",
+    );
+    check(
+        "fn main() { let m = matrix(2, 2); let j = 4; print(m[0, j * 2]); }",
+        "j * 2",
+    );
+    check(
+        "fn main() { let m = matrix(2, 2); let j = 4; m[0, j] = 1.0; }",
+        "j",
+    );
+    check(
+        "struct S { m: matrix } fn main() { let s = S { m: matrix(2, 2) }; let i = 4; print(s.m[i, 0]); }",
+        "i",
+    );
+}
+
+#[test]
+fn matrix_rows_and_cols_of_empty_shapes() {
+    assert_eq!(
+        output(
+            "let a = matrix(0, 3); let b = matrix(2, 0); let c = matrix(0, 0);
+             print(rows(a)); print(cols(a)); print(rows(b)); print(cols(b));
+             print(a); print(b); print(c);
+             print(to_rows(a).length()); print(to_rows(b).length());"
+        ),
+        "0\n3\n2\n0\n[]\n[[], []]\n[]\n0\n2\n"
+    );
+}
+
+#[test]
+fn matrix_empty_cell_access_is_out_of_bounds() {
+    assert_eq!(
+        runtime_error("fn main() { print(matrix(0, 3)[0, 0]); }"),
+        "row 0 is out of bounds for a matrix with 0 rows"
+    );
+    assert_eq!(
+        runtime_error("fn main() { print(matrix(2, 0)[0, 0]); }"),
+        "column 0 is out of bounds for a matrix with 0 columns"
+    );
+}
+
+#[test]
+fn matrix_round_trip_through_rows() {
+    let src = "fn main() {
+                   let rows = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+                   let m = to_matrix(rows);
+                   print(rows(m)); print(cols(m));
+                   let back = to_rows(m);
+                   print(back == rows);
+                   back[0][0] = 100.0;
+                   print(m[0, 0]);
+                   print(to_matrix(back)[0, 0]);
+                   print(to_matrix([[1, 2], [3, 4]]));
+                   print(rows(to_matrix(to_rows(matrix(0, 0)))));
+               }";
+    assert_eq!(
+        run(src).unwrap(),
+        "2\n3\ntrue\n1.0\n100.0\n[[1.0, 2.0], [3.0, 4.0]]\n0\n"
+    );
+}
+
+#[test]
+fn matrix_printed_like_the_nested_array() {
+    assert_eq!(
+        output(
+            "let rows = [[1.5, 2.0], [3.0, -4.0]];
+             print(to_matrix(rows)); print(rows); print(string(to_matrix(rows)) == string(rows));"
+        ),
+        "[[1.5, 2.0], [3.0, -4.0]]\n[[1.5, 2.0], [3.0, -4.0]]\ntrue\n"
+    );
+}
+
+#[test]
+fn matrix_to_matrix_rejects_uneven_rows() {
+    assert_eq!(
+        runtime_error("fn main() { print(to_matrix([[1.0], [1.0, 2.0]])); }"),
+        "the rows of this matrix have different lengths"
+    );
+}
+
+#[test]
+fn matrix_product_loop_matches_the_operator() {
+    let src = "fn product(a: matrix, b: matrix) -> matrix {
+                   let c = matrix(rows(a), cols(b));
+                   for i in 0..rows(a) {
+                       for j in 0..cols(b) {
+                           let s = 0.0;
+                           for k in 0..cols(a) { s += a[i, k] * b[k, j]; }
+                           c[i, j] = s;
+                       }
+                   }
+                   return c;
+               }
+               fn main() {
+                   let n = 7;
+                   let a = matrix(n, n + 1);
+                   let b = matrix(n + 1, n - 2);
+                   for i in 0..rows(a) { for j in 0..cols(a) { a[i, j] = real(i * 3 - j) / 4.0; } }
+                   for i in 0..rows(b) { for j in 0..cols(b) { b[i, j] = real(i + j * j) / 8.0; } }
+                   print(product(a, b) == a * b);
+                   print(rows(a * b)); print(cols(a * b));
+               }";
+    assert_eq!(run(src).unwrap(), "true\n7\n5\n");
+}
+
+#[test]
+fn matrix_through_if_joins() {
+    let src = "fn pick(c: bool) -> matrix {
+                   let m = matrix(1, 1);
+                   if c { m = matrix(2, 3); m[1, 2] = 6.0; } else { m[0, 0] = 1.0; }
+                   return m;
+               }
+               fn main() {
+                   let a = pick(true); let b = pick(false);
+                   print(a); print(b);
+                   print(rows(a) + rows(b)); print(cols(a) + cols(b));
+                   let m = matrix(1, 1);
+                   if rows(a) > 1 { m = a; m[0, 0] = 2.0; }
+                   print(m); print(a);
+                   let late;
+                   if true { late = matrix(2, 2); } else { late = matrix(1, 1); }
+                   late[1, 1] = 3.0;
+                   print(late);
+               }";
+    assert_eq!(
+        run(src).unwrap(),
+        "[[0.0, 0.0, 0.0], [0.0, 0.0, 6.0]]\n[[1.0]]\n3\n4\n\
+         [[2.0, 0.0, 0.0], [0.0, 0.0, 6.0]]\n[[0.0, 0.0, 0.0], [0.0, 0.0, 6.0]]\n[[0.0, 0.0], [0.0, 3.0]]\n"
+    );
+}
+
+#[test]
+fn matrix_changed_shape_in_a_while_loop() {
+    let src = "fn main() {
+                   let m = matrix(1, 1);
+                   m[0, 0] = 1.0;
+                   let k = 0;
+                   while k < 3 {
+                       let n = matrix(rows(m) + 1, cols(m) + 1);
+                       for i in 0..rows(m) { for j in 0..cols(m) { n[i, j] = m[i, j]; } }
+                       n[rows(m), cols(m)] = real(k + 2);
+                       m = n;
+                       m[0, 0] += 10;
+                       k += 1;
+                   }
+                   print(m); print(rows(m)); print(cols(m));
+               }";
+    assert_eq!(
+        run(src).unwrap(),
+        "[[31.0, 0.0, 0.0, 0.0], [0.0, 2.0, 0.0, 0.0], [0.0, 0.0, 3.0, 0.0], [0.0, 0.0, 0.0, 4.0]]\n4\n4\n"
+    );
+}
+
+#[test]
+fn matrix_written_in_a_loop_after_a_copy() {
+    let src = "fn main() {
+                   let a = matrix(2, 2);
+                   let keep = a;
+                   let i = 0;
+                   while i < 4 { a[i / 2, i - i / 2 * 2] = real(i); i += 1; }
+                   print(a); print(keep);
+               }";
+    assert_eq!(
+        run(src).unwrap(),
+        "[[0.0, 1.0], [2.0, 3.0]]\n[[0.0, 0.0], [0.0, 0.0]]\n"
+    );
+}
+
+#[test]
+fn matrix_in_a_generic_function() {
+    let src = "fn first<T>(a: T, b: T) -> T { return a; }
+               fn main() {
+                   let m = first(matrix(1, 2), matrix(2, 1));
+                   m[0, 1] = 1.0;
+                   print(m);
+               }";
+    assert_eq!(run(src).unwrap(), "[[0.0, 1.0]]\n");
+}
+
+#[test]
+fn matrices_in_an_array_add_up() {
+    let src = "fn main() {
+                   let a = [to_matrix([[1.0]]), to_matrix([[2.0, 3.0]])];
+                   print(a + a);
+               }";
+    assert_eq!(run(src).unwrap(), "[[[2.0]], [[4.0, 6.0]]]\n");
+}
+
+const MOD: &str = "struct M { n: int }
+    operator +(a: M, b: M) -> M { return M { n: a.n + b.n }; }
+    operator -(a: M, b: M) -> M { return M { n: a.n - b.n }; }
+    operator -(a: M) -> M { return M { n: -a.n }; }
+    operator *(a: M, b: M) -> M { return M { n: a.n * b.n }; }
+    operator /(a: M, b: M) -> M { return M { n: a.n / b.n }; }
+    operator %(a: M, b: M) -> M { return M { n: a.n % b.n }; }
+    operator <(a: M, b: M) -> bool { return a.n < b.n; }
+    operator <=(a: M, b: M) -> bool { return a.n <= b.n; }
+    operator >(a: M, b: M) -> bool { return a.n > b.n; }
+    operator >=(a: M, b: M) -> bool { return a.n >= b.n; }
+    ";
+
+fn with_mod(body: &str) -> String {
+    format!("{MOD}fn main() {{ {body} }}")
+}
+
+#[test]
+fn all_binary_operators_and_unary_minus_run_the_definition() {
+    let body = "let a = M { n: 17 }; let b = M { n: 5 };
+        print((a + b).n); print((a - b).n); print((a * b).n);
+        print((a / b).n); print((a % b).n); print((-a).n);
+        print(a < b); print(a <= b); print(a > b); print(a >= b);
+        print(a <= a); print(a >= a); print(a < a);";
+    assert_eq!(
+        run(&with_mod(body)).unwrap(),
+        "22\n12\n85\n3\n2\n-17\nfalse\nfalse\ntrue\ntrue\ntrue\ntrue\nfalse\n"
+    );
+}
+
+#[test]
+fn operators_keep_the_usual_precedence() {
+    let body = "let a = M { n: 17 }; let b = M { n: 5 }; let c = M { n: 2 };
+        print((a + b * c).n); print((a - b - c).n); print((a / b * c).n);
+        print((-a + b).n); print((a * c % b).n); print(a + b < a * c);
+        print(-a < b && b < a);";
+    assert_eq!(
+        run(&with_mod(body)).unwrap(),
+        "27\n10\n6\n-12\n4\ntrue\ntrue\n"
+    );
+}
+
+#[test]
+fn operators_on_literals_and_built_in_numbers_still_work() {
+    let body = "print(1 + 2 * 3); print(7 % 4); print(-2.5 + 1.0); print(vec2(1, 2) + vec2(1, 1));
+        let a = M { n: 1 }; print((a + a).n + 10);";
+    assert_eq!(
+        run(&with_mod(body)).unwrap(),
+        "7\n3\n-1.5\n(2.0, 3.0)\n12\n"
+    );
+}
+
+#[test]
+fn dual_numbers_differentiate() {
+    let src = "struct Dual { v: real, d: real }
+        operator +(a: Dual, b: Dual) -> Dual { return Dual { v: a.v + b.v, d: a.d + b.d }; }
+        operator -(a: Dual, b: Dual) -> Dual { return Dual { v: a.v - b.v, d: a.d - b.d }; }
+        operator -(a: Dual) -> Dual { return Dual { v: -a.v, d: -a.d }; }
+        operator *(a: Dual, b: Dual) -> Dual {
+            return Dual { v: a.v * b.v, d: a.d * b.v + a.v * b.d };
+        }
+        operator /(a: Dual, b: Dual) -> Dual {
+            return Dual { v: a.v / b.v, d: (a.d * b.v - a.v * b.d) / (b.v * b.v) };
+        }
+        operator *(k: real, a: Dual) -> Dual { return Dual { v: k, d: 0.0 } * a; }
+        operator /(k: real, a: Dual) -> Dual { return Dual { v: k, d: 0.0 } / a; }
+        operator +(a: Dual, k: real) -> Dual { return Dual { v: a.v + k, d: a.d }; }
+        fn f(x: Dual) -> Dual { return x * x * x + 2.0 * x - 1.0 / x; }
+        fn g(x: Dual) -> Dual { return -(x + 1.0) / x; }
+        fn main() {
+            let x = Dual { v: 2.0, d: 1.0 };
+            print(f(x));
+            print(g(x));
+            let acc = Dual { v: 0.0, d: 0.0 };
+            for i in 1..=3 { acc += x * Dual { v: real(i), d: 0.0 }; }
+            print(acc);
+        }";
+    // f' = 3x^2 + 2 + 1/x^2 = 14.25; g = -1 - 1/x, g' = 1/x^2 = 0.25.
+    assert_eq!(
+        run(src).unwrap(),
+        "Dual { v: 11.5, d: 14.25 }\nDual { v: -1.5, d: 0.25 }\nDual { v: 12.0, d: 6.0 }\n"
+    );
+}
+
+#[test]
+fn compound_assignment_on_variables_fields_and_elements() {
+    let src = "struct C { n: int }
+        operator +(a: C, b: C) -> C { return C { n: a.n + b.n }; }
+        operator *(a: C, k: int) -> C { return C { n: a.n * k }; }
+        operator -(a: C, b: C) -> C { return C { n: a.n - b.n }; }
+        struct H { c: C, list: [C] }
+        fn main() {
+            let a = C { n: 1 };
+            a += C { n: 2 }; print(a.n);
+            a *= 4; print(a.n);
+            a -= C { n: 2 }; print(a.n);
+            let h = H { c: C { n: 10 }, list: [C { n: 1 }, C { n: 2 }, C { n: 3 }] };
+            h.c += C { n: 5 }; print(h.c.n);
+            h.list[1] += C { n: 100 }; print(h.list[1].n);
+            h.list[2] *= 3; print(h.list[2].n);
+            h.list[0].n += 7; print(h.list[0].n);
+            let copy = h;
+            h.list[0] += a;
+            print(copy.list[0].n); print(h.list[0].n);
+        }";
+    assert_eq!(run(src).unwrap(), "3\n12\n10\n15\n102\n9\n8\n8\n18\n");
+}
+
+#[test]
+fn indices_of_a_compound_assignment_run_once() {
+    let src = "struct C { n: int }
+        operator +(a: C, b: C) -> C { return C { n: a.n + b.n }; }
+        operator *(a: C, k: int) -> C { return C { n: a.n * k }; }
+        struct H { list: [C] }
+        fn idx(n: int) -> int { print(n); return n; }
+        fn val(n: int) -> C { print(n); return C { n: n }; }
+        fn main() {
+            let list = [C { n: 1 }, C { n: 2 }, C { n: 3 }];
+            list[idx(1)] += val(50);
+            print(list[1].n);
+            list[idx(2)] *= 3;
+            print(list[2].n);
+            let h = H { list: list };
+            h.list[idx(0)] += C { n: 1 };
+            print(h.list[0].n);
+            let grid = [list, list];
+            grid[idx(1)][idx(0)] += val(7);
+            print(grid[1][0].n);
+            print(grid[0][0].n);
+        }";
+    // The value runs first, then the indices, once each.
+    assert_eq!(run(src).unwrap(), "50\n1\n52\n2\n9\n0\n2\n7\n1\n0\n8\n1\n");
+}
+
+#[test]
+fn operators_in_loops_and_with_other_return_types() {
+    let src = "struct V { x: real, y: real }
+        operator +(a: V, b: V) -> V { return V { x: a.x + b.x, y: a.y + b.y }; }
+        operator *(a: V, b: V) -> real { return a.x * b.x + a.y * b.y; }
+        operator *(k: real, a: V) -> V { return V { x: k * a.x, y: k * a.y }; }
+        operator <(a: V, b: V) -> bool { return a * a < b * b; }
+        fn main() {
+            let p = V { x: 0.0, y: 0.0 };
+            let step = V { x: 1.0, y: 2.0 };
+            let i = 0;
+            while p < (V { x: 10.0, y: 10.0 }) {
+                p += 0.5 * step;
+                i += 1;
+            }
+            print(i); print(p); print(p * step);
+            let total = 0.0;
+            for k in 0..4 { total += (step * step) * real(k); }
+            print(total);
+        }";
+    assert_eq!(run(src).unwrap(), "13\nV { x: 6.5, y: 13.0 }\n32.5\n30.0\n");
+}
+
+#[test]
+fn fractions_with_mixed_operands_in_both_orders() {
+    let src = "struct Frac { n: int, d: int }
+        fn gcd(a: int, b: int) -> int { if b == 0 { return a; } return gcd(b, a % b); }
+        fn make(n: int, d: int) -> Frac {
+            let g = gcd(abs(n), d);
+            return Frac { n: n / g, d: d / g };
+        }
+        operator +(a: Frac, b: Frac) -> Frac { return make(a.n * b.d + b.n * a.d, a.d * b.d); }
+        operator -(a: Frac) -> Frac { return Frac { n: -a.n, d: a.d }; }
+        operator -(a: Frac, b: Frac) -> Frac { return a + -b; }
+        operator *(a: Frac, b: Frac) -> Frac { return make(a.n * b.n, a.d * b.d); }
+        operator *(k: int, a: Frac) -> Frac { return make(k * a.n, a.d); }
+        operator *(a: Frac, k: int) -> Frac { return k * a; }
+        operator /(a: Frac, b: Frac) -> Frac { return make(a.n * b.d, a.d * b.n); }
+        operator <(a: Frac, b: Frac) -> bool { return a.n * b.d < b.n * a.d; }
+        operator >(a: Frac, b: Frac) -> bool { return b < a; }
+        operator <(a: Frac, k: int) -> bool { return a.n < k * a.d; }
+        operator %(a: Frac, k: int) -> int { return a.n % k; }
+        fn main() {
+            let half = Frac { n: 1, d: 2 };
+            let third = Frac { n: 1, d: 3 };
+            print(half + third);
+            print(half - third);
+            print(-half);
+            print(half * third);
+            print(half / third);
+            print(3 * half);
+            print(half * 4);
+            print(half < third); print(half > third);
+            print(half < 1); print(half < 0);
+            print(Frac { n: 7, d: 2 } % 3);
+            print(2 * half + third * 3);
+            let s = Frac { n: 0, d: 1 };
+            for i in 1..=4 { s += Frac { n: 1, d: i }; }
+            print(s);
+        }";
+    // 1 + 1/2 + 1/3 + 1/4 = 25/12
+    assert_eq!(
+        run(src).unwrap(),
+        "Frac { n: 5, d: 6 }\nFrac { n: 1, d: 6 }\nFrac { n: -1, d: 2 }\nFrac { n: 1, d: 6 }\nFrac { n: 3, d: 2 }\nFrac { n: 3, d: 2 }\nFrac { n: 2, d: 1 }\nfalse\ntrue\ntrue\nfalse\n1\nFrac { n: 2, d: 1 }\nFrac { n: 25, d: 12 }\n"
+    );
+}
+
+#[test]
+fn operators_on_enums_and_recursion_through_operators() {
+    let src = "enum N { Z, S(N) }
+        operator +(a: N, b: N) -> N {
+            match b { N::Z => { return a; } N::S(p) => { return N::S(a + p); } }
+        }
+        operator *(a: N, b: N) -> N {
+            match b { N::Z => { return N::Z; } N::S(p) => { return a * p + a; } }
+        }
+        operator <(a: N, b: N) -> bool {
+            match a {
+                N::Z => { match b { N::Z => { return false; } N::S(q) => { return true; } } }
+                N::S(p) => { match b { N::Z => { return false; } N::S(q) => { return p < q; } } }
+            }
+        }
+        fn make(n: int) -> N { if n == 0 { return N::Z; } return N::S(make(n - 1)); }
+        fn count(a: N) -> int { match a { N::Z => { return 0; } N::S(p) => { return 1 + count(p); } } }
+        fn main() {
+            let a = make(3);
+            let b = make(4);
+            print(count(a + b)); print(count(a * b));
+            print(a < b); print(b < a); print(a < a);
+            a += b; print(count(a));
+        }";
+    assert_eq!(run(src).unwrap(), "7\n12\ntrue\nfalse\nfalse\n7\n");
+}
+
+#[test]
+fn operators_on_generic_structs() {
+    let src = "struct Pair<T> { a: T, b: T }
+        operator +(p: Pair<real>, q: Pair<real>) -> Pair<real> {
+            return Pair { a: p.a + q.a, b: p.b + q.b };
+        }
+        operator +(p: Pair<int>, q: Pair<int>) -> Pair<int> {
+            return Pair { a: p.a * q.a, b: p.b * q.b };
+        }
+        fn main() {
+            let r = Pair { a: 1.5, b: 2.0 };
+            let i: Pair<int> = Pair { a: 3, b: 4 };
+            print(r + r); print(i + i);
+        }";
+    assert_eq!(
+        run(src).unwrap(),
+        "Pair { a: 3.0, b: 4.0 }\nPair { a: 9, b: 16 }\n"
+    );
+}
+
+#[test]
+fn operators_in_constants_run_before_main() {
+    let src = "struct C { n: int }
+        operator +(a: C, b: C) -> C { return C { n: a.n + b.n }; }
+        operator *(a: C, k: int) -> C { return C { n: a.n * k }; }
+        operator -(a: C) -> C { return C { n: -a.n }; }
+        const A: C = C { n: 2 };
+        const B: C = A + A * 3;
+        const D: C = -B + A;
+        fn main() { print(A); print(B); print(D); }";
+    assert_eq!(run(src).unwrap(), "C { n: 2 }\nC { n: 8 }\nC { n: -6 }\n");
+}
+
+#[test]
+fn a_runtime_error_in_an_operator_points_into_its_body() {
+    let src = "struct M { n: int }
+        operator /(a: M, b: M) -> M { return M { n: a.n / b.n }; }
+        fn main() {
+            let a = M { n: 1 };
+            print(1);
+            let b = a / M { n: 0 };
+            print(2);
+        }";
+    let (error, printed) = run_mode(src, &[], b"", true).unwrap_err();
+    assert_eq!(error.message, "division by zero");
+    assert_eq!(&src[error.span.start..error.span.end], "a.n / b.n");
+    assert_eq!(printed, "1\n");
+    let (plain, _) = run_mode(src, &[], b"", false).unwrap_err();
+    assert_eq!(plain, error);
+}
+
+#[test]
+fn a_runtime_error_in_a_compound_assignment_operator() {
+    let src = "struct M { n: int }
+        operator %(a: M, b: M) -> M { return M { n: a.n % b.n }; }
+        fn main() {
+            let list = [M { n: 5 }];
+            list[0] %= M { n: 0 };
+        }";
+    let (error, _) = run_mode(src, &[], b"", true).unwrap_err();
+    assert_eq!(&src[error.span.start..error.span.end], "a.n % b.n");
+    assert_eq!(run(src).unwrap_err().0, error.message);
+}
+
+#[test]
+fn an_operator_may_be_used_before_it_is_defined() {
+    let src = "fn main() { let a = C { n: 2 }; print((a + a).n); }
+        struct C { n: int }
+        operator +(a: C, b: C) -> C { return C { n: a.n + b.n }; }";
+    assert_eq!(run(src).unwrap(), "4\n");
+}
+
+#[test]
+fn operator_is_still_an_ordinary_name() {
+    let src = "fn operator(x: int) -> int { return x + 1; }
+        fn main() { let operator = operator(1); print(operator); }";
+    assert_eq!(run(src).unwrap(), "2\n");
+}
+
+#[test]
+fn comparison_operators_in_conditions_and_loops() {
+    let body = "let a = M { n: 0 }; let one = M { n: 1 }; let limit = M { n: 5 };
+        while a < limit { a = a + one; if a >= (M { n: 3 }) { continue; } print(a.n); }
+        if a <= limit && !(a > limit) { print(99); }";
+    assert_eq!(run(&with_mod(body)).unwrap(), "1\n2\n99\n");
+}
+
+#[test]
+fn literals_inside_a_generic_struct_take_their_default() {
+    let src = "struct Pair<T> { a: T, b: T }
+        operator +(p: Pair<real>, q: Pair<real>) -> Pair<real> { return p; }
+        operator +(p: Pair<int>, q: Pair<int>) -> Pair<int> { return Pair { a: p.a * q.a, b: p.b * q.b }; }
+        fn main() { let i = Pair { a: 3, b: 4 }; print(i + i); }";
+    assert_eq!(run(src).unwrap(), "Pair { a: 9, b: 16 }\n");
 }

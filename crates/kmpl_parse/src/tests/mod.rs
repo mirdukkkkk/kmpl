@@ -80,6 +80,16 @@ fn sexp_item(item: &Item) -> String {
                 .map(|p| format!("({} {})", p.name.name, sexp_ty(&p.ty)))
                 .collect();
             let ret = f.ret.as_ref().map_or("_".to_owned(), sexp_ty);
+            if let Some(op) = f.operator {
+                return format!(
+                    "(operator {} {} [{}] {} {})",
+                    op.symbol(),
+                    f.name.name,
+                    params.join(" "),
+                    ret,
+                    sexp_block(&f.body)
+                );
+            }
             format!(
                 "(fn {}{} [{}] {} {})",
                 f.name.name,
@@ -119,7 +129,9 @@ fn sexp_stmt(s: &Stmt) -> String {
             let names: Vec<&str> = names.iter().map(|n| n.name.as_str()).collect();
             format!("(let-tuple [{}] {})", names.join(" "), sexp(value))
         }
-        StmtKind::Assign { name, op, value } => {
+        StmtKind::Assign {
+            name, op, value, ..
+        } => {
             format!("({}= {} {})", assign_prefix(*op), name.name, sexp(value))
         }
         StmtKind::If {
@@ -158,11 +170,13 @@ fn sexp_stmt(s: &Stmt) -> String {
             path,
             op,
             value,
+            ..
         } => {
             let steps: Vec<String> = path
                 .iter()
                 .map(|step| match step {
                     PathStep::Index(index) => sexp(index),
+                    PathStep::Cell(row, col) => format!("{},{}", sexp(row), sexp(col)),
                     PathStep::Field(field) => format!(".{}", field.name),
                 })
                 .collect();
@@ -301,6 +315,9 @@ fn sexp(e: &Expr) -> String {
         }
         ExprKind::ArrayFill { value, len } => format!("(fill {} {})", sexp(value), sexp(len)),
         ExprKind::Index { base, index } => format!("(index {} {})", sexp(base), sexp(index)),
+        ExprKind::Cell { base, row, col } => {
+            format!("(cell {} {} {})", sexp(base), sexp(row), sexp(col))
+        }
         ExprKind::Slice {
             base,
             start,

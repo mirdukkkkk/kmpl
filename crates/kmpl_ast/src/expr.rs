@@ -37,6 +37,8 @@ pub enum ExprKind {
     ArrayFill { value: Box<Expr>, len: Box<Expr> },
     /// `base[index]`
     Index { base: Box<Expr>, index: Box<Expr> },
+    /// `base[row, col]`: one number of a `matrix`.
+    Cell { base: Box<Expr>, row: Box<Expr>, col: Box<Expr> },
     /// `base.name`
     Field { base: Box<Expr>, name: Ident },
     /// `Point { x: 1.0, y: 2.0 }`, fields in the order they are written.
@@ -65,7 +67,7 @@ pub enum UnOp {
     BitNot,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BinOp {
     Add, Sub, Mul, Div, Rem,
     Eq, Ne, Lt, Le, Gt, Ge,

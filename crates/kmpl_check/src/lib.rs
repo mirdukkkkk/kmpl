@@ -42,7 +42,8 @@ impl TypeInfo {
 /// On success `program` is rewritten for execution:
 /// - number literals have their inferred types (`1` used as `real` is `1.0`);
 /// - every generic function is replaced by its copies (`lerp<real>`,
-///   `lerp<vec2>`, ...), and calls name the copy they use.
+///   `lerp<vec2>`, ...), and calls name the copy they use;
+/// - an operator the program defines is a call to its function.
 pub fn check(program: &mut Program) -> Result<TypeInfo, Vec<CheckError>> {
     // Checks that do not depend on types run on the program as written.
     let mut errors = resolve::resolve(program);
@@ -89,6 +90,11 @@ pub fn check(program: &mut Program) -> Result<TypeInfo, Vec<CheckError>> {
     }
 
     literals::rewrite(program, &inference);
+    // Only now is it known which operators are calls to functions.
+    let errors = const_calls::check_const_calls(program);
+    if !errors.is_empty() {
+        return Err(errors);
+    }
 
     // Removing the generic originals moves later items, so the recorded
     // item indices have to follow.

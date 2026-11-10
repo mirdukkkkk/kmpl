@@ -1,4 +1,4 @@
-use crate::{Block, Expr, Ident, Span, Type, TypeExpr};
+use crate::{BinOp, Block, Expr, Ident, Span, Type, TypeExpr};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
@@ -79,9 +79,39 @@ pub struct Const {
     pub value: Expr,
 }
 
+/// What `operator +(a: A, b: B) -> C { ... }` defines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Operator {
+    /// One of `+ - * / %` and `< <= > >=`, with two parameters.
+    Binary(BinOp),
+    /// `-` with one parameter.
+    Neg,
+}
+
+impl Operator {
+    /// As written in the source.
+    pub fn symbol(self) -> &'static str {
+        match self {
+            Operator::Binary(BinOp::Add) => "+",
+            Operator::Binary(BinOp::Mul) => "*",
+            Operator::Binary(BinOp::Div) => "/",
+            Operator::Binary(BinOp::Rem) => "%",
+            Operator::Binary(BinOp::Lt) => "<",
+            Operator::Binary(BinOp::Le) => "<=",
+            Operator::Binary(BinOp::Gt) => ">",
+            Operator::Binary(BinOp::Ge) => ">=",
+            // The parser makes no other operator.
+            Operator::Binary(_) | Operator::Neg => "-",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
+    /// An operator has a name no program can write, unique in its file.
     pub name: Ident,
+    /// Set for `operator +(...)`, which is otherwise an ordinary function.
+    pub operator: Option<Operator>,
     /// `<T: float | vector, U>`. Empty for an ordinary function.
     pub generics: Vec<Generic>,
     pub params: Vec<Param>,

@@ -20,11 +20,12 @@
 use std::collections::{HashMap, HashSet};
 
 use kmpl_ast::{
-    Block, EnumDef, Expr, ExprKind, Function, Ident, Item, Lambda, PathStep, Pattern, Program,
+    Block, EnumDef, Expr, ExprKind, Function, Ident, Item, Lambda, Operator, Pattern, Program,
     Span, Stmt, StmtKind, StructDef, Type, TypeExpr,
 };
 
 use crate::error::CheckError;
+use crate::generics::type_text;
 use crate::returns::always_returns;
 
 enum Global<'a> {
@@ -90,6 +91,7 @@ pub fn resolve(program: &Program) -> Vec<CheckError> {
         }
     }
     r.recursive_structs(program);
+    r.operators(program);
 
     r.errors
 }
@@ -255,6 +257,43 @@ impl<'a> Resolver<'a> {
         self.type_params.clear();
     }
 
+    /// An operator needs a type of the program among its parameters, so the
+    /// built-in operators keep their meaning, and each one is defined once
+    /// for the same types.
+    fn operators(&mut self, program: &'a Program) {
+        let mut defined: HashSet<(Operator, Vec<String>)> = HashSet::new();
+        for item in &program.items {
+            let Item::Function(f) = item else { continue };
+            let Some(operator) = f.operator else { continue };
+
+            let own = |ty: &TypeExpr| match ty {
+                TypeExpr::Param(name) => self.takes_arguments(&name.name).is_some(),
+                TypeExpr::Applied { .. } => true,
+                _ => false,
+            };
+            if !f.params.iter().any(|param| own(&param.ty)) {
+                self.error(
+                    format!(
+                        "operator `{}` needs a struct or an enum among its parameters",
+                        operator.symbol()
+                    ),
+                    &f.name,
+                );
+            }
+
+            let types = f.params.iter().map(|param| type_text(&param.ty)).collect();
+            if !defined.insert((operator, types)) {
+                self.error(
+                    format!(
+                        "operator `{}` is already defined for these types",
+                        operator.symbol()
+                    ),
+                    &f.name,
+                );
+            }
+        }
+    }
+
     /// How many type arguments the struct or enum `name` takes, if it is one.
     fn takes_arguments(&self, name: &str) -> Option<usize> {
         match self.globals.get(name) {
@@ -378,7 +417,7 @@ impl<'a> Resolver<'a> {
             } => {
                 self.expr(value);
                 for step in path {
-                    if let PathStep::Index(index) = step {
+                    for index in step.indices() {
                         self.expr(index);
                     }
                 }
@@ -599,6 +638,11 @@ impl<'a> Resolver<'a> {
             ExprKind::Index { base, index } => {
                 self.expr(base);
                 self.expr(index);
+            }
+            ExprKind::Cell { base, row, col } => {
+                self.expr(base);
+                self.expr(row);
+                self.expr(col);
             }
             ExprKind::Slice {
                 base, start, end, ..

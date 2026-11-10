@@ -4,14 +4,16 @@
 //!   `let x: real = 1;` stores `Real(1.0)`, `let z: complex = 2.0;` stores
 //!   `Complex { re: 2.0, im: 0.0 }`;
 //! - calls to generic functions are renamed to the copy they use
-//!   (`lerp(...)` becomes `lerp<vec2>(...)`).
+//!   (`lerp(...)` becomes `lerp<vec2>(...)`);
+//! - an operator the program defines becomes a call to its function, and
+//!   `a += b` with such an operator is told which function to call.
 //!
 //! Both are keyed by item index and span, because copies of a generic
 //! function share the spans of the original.
 
 use std::collections::HashMap;
 
-use kmpl_ast::{Block, Expr, ExprKind, Item, PathStep, Program, Span, StmtKind, Type};
+use kmpl_ast::{Block, Expr, ExprKind, Ident, Item, Program, Span, StmtKind, Type};
 
 use crate::infer::Inference;
 
@@ -19,6 +21,7 @@ struct Rewriter<'i> {
     item: usize,
     literal_types: &'i HashMap<(usize, Span), Type>,
     call_targets: &'i HashMap<(usize, Span), String>,
+    operator_targets: &'i HashMap<(usize, Span), String>,
 }
 
 pub fn rewrite(program: &mut Program, inference: &Inference) {
@@ -27,6 +30,7 @@ pub fn rewrite(program: &mut Program, inference: &Inference) {
             item: index,
             literal_types: &inference.literal_types,
             call_targets: &inference.call_targets,
+            operator_targets: &inference.operator_targets,
         };
         match item {
             Item::Const(c) => r.expr(&mut c.value),
@@ -37,20 +41,32 @@ pub fn rewrite(program: &mut Program, inference: &Inference) {
 }
 
 impl Rewriter<'_> {
+    /// The function of the operator used at `span`, if the program defines it.
+    fn operator(&self, span: Span) -> Option<Ident> {
+        let name = self.operator_targets.get(&(self.item, span))?.clone();
+        Some(Ident { name, span })
+    }
+
     fn block(&self, block: &mut Block) {
         for stmt in block {
+            let operator = self.operator(stmt.span);
             match &mut stmt.kind {
                 StmtKind::Let { init, .. } => {
                     if let Some(init) = init {
                         self.expr(init);
                     }
                 }
-                StmtKind::LetTuple { value, .. } | StmtKind::Assign { value, .. } => {
-                    self.expr(value)
+                StmtKind::LetTuple { value, .. } => self.expr(value),
+                StmtKind::Assign { value, via, .. } => {
+                    *via = operator;
+                    self.expr(value);
                 }
-                StmtKind::PathAssign { path, value, .. } => {
+                StmtKind::PathAssign {
+                    path, value, via, ..
+                } => {
+                    *via = operator;
                     for step in path {
-                        if let PathStep::Index(index) = step {
+                        for index in step.indices_mut() {
                             self.expr(index);
                         }
                     }
@@ -136,10 +152,27 @@ impl Rewriter<'_> {
             }
             ExprKind::Some(value) => self.expr(value),
             ExprKind::Lambda(l) => self.block(&mut l.body),
-            ExprKind::Unary { operand, .. } => self.expr(operand),
+            ExprKind::Unary { operand, .. } => {
+                self.expr(operand);
+                if let Some(name) = self.operator(e.span) {
+                    let operand = std::mem::replace(&mut **operand, placeholder(e.span));
+                    e.kind = ExprKind::Call {
+                        name,
+                        args: vec![operand],
+                    };
+                }
+            }
             ExprKind::Binary { lhs, rhs, .. } => {
                 self.expr(lhs);
                 self.expr(rhs);
+                if let Some(name) = self.operator(e.span) {
+                    let lhs = std::mem::replace(&mut **lhs, placeholder(e.span));
+                    let rhs = std::mem::replace(&mut **rhs, placeholder(e.span));
+                    e.kind = ExprKind::Call {
+                        name,
+                        args: vec![lhs, rhs],
+                    };
+                }
             }
             ExprKind::Call { name, args } => {
                 if let Some(target) = self.call_targets.get(&key) {
@@ -168,6 +201,11 @@ impl Rewriter<'_> {
                 self.expr(base);
                 self.expr(index);
             }
+            ExprKind::Cell { base, row, col } => {
+                self.expr(base);
+                self.expr(row);
+                self.expr(col);
+            }
             ExprKind::Slice {
                 base, start, end, ..
             } => {
@@ -177,5 +215,13 @@ impl Rewriter<'_> {
                 }
             }
         }
+    }
+}
+
+/// Left behind for a moment where an operand is moved out of its expression.
+fn placeholder(span: Span) -> Expr {
+    Expr {
+        kind: ExprKind::None,
+        span,
     }
 }

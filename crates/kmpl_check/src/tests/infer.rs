@@ -799,7 +799,7 @@ fn field_assignment_types() {
 fn structs_have_no_arithmetic() {
     assert_error(
         &with_point("fn f(p: P) { p + p; }"),
-        "cannot apply `+` to `P`",
+        "cannot apply `+` to `P` and `P`",
     );
     assert_error(&with_point("fn f(p: P) { -p; }"), "cannot apply `-` to `P`");
     assert_error(
@@ -808,7 +808,7 @@ fn structs_have_no_arithmetic() {
     );
     assert_error(
         &with_point("fn f(p: P) { p < p; }"),
-        "cannot apply `<` to `P`",
+        "cannot apply `<` to `P` and `P`",
     );
     assert_error(
         &with_point("fn f(p: P) { p[0]; }"),
@@ -950,4 +950,425 @@ fn match_and_panic_end_paths() {
         "fn f(x: int?) { let y: int; match x { some(v) => { y = v; } none => { } } print(y); }",
         "`y` is used before being assigned",
     );
+}
+
+#[test]
+fn matrix_cells_are_reals() {
+    assert_ok("fn f(m: matrix) { let x: real = m[0, 1]; }");
+    assert_ok("fn f(m: matrix) { m[0, 1] = 2; m[1, 1] += 3; }");
+    assert_ok("fn f(m: matrix, i: int, j: int) { let x: real = m[i + 1, j * 2]; }");
+    assert_error(
+        "fn f(m: matrix) { let x: int = m[0, 0]; }",
+        "mismatched types: expected `int`, found `real`",
+    );
+    assert_error(
+        "fn f(m: matrix) { m[0, 0] = true; }",
+        "mismatched types: expected `real`, found `bool`",
+    );
+    assert_error(
+        "fn f(m: matrix) { let x = m[0.5, 0]; }",
+        "mismatched types: expected `int`, found `real` or `complex`",
+    );
+    assert_error(
+        "fn f(m: matrix) { let x = m[0, 1.5]; }",
+        "mismatched types: expected `int`, found `real` or `complex`",
+    );
+}
+
+#[test]
+fn matrix_cells_in_paths() {
+    assert_ok(
+        "struct S { m: matrix }
+         fn f(s: S, list: [matrix], k: int) { s.m[0, 0] = 1.0; list[k][1, 1] += 2.0; let x = s.m[0, 1]; }",
+    );
+}
+
+#[test]
+fn a_matrix_takes_a_row_and_a_column() {
+    assert_error(
+        "fn f(m: matrix) { let r = m[0]; }",
+        "a `matrix` takes a row and a column: `m[i, j]`",
+    );
+    assert_error(
+        "fn f(m: matrix) { m[0] = 1.0; }",
+        "a `matrix` takes a row and a column: `m[i, j]`",
+    );
+}
+
+#[test]
+fn only_a_matrix_takes_two_indices() {
+    assert_error(
+        "fn f(a: [[real]]) { let x = a[0, 1]; }",
+        "only a `matrix` takes a row and a column, found `[[real]]`: write `a[i][j]`",
+    );
+    assert_error(
+        "fn f(a: [[real]]) { a[0, 1] = 1.0; }",
+        "only a `matrix` takes a row and a column, found `[[real]]`: write `a[i][j]`",
+    );
+}
+
+#[test]
+fn matrix_arithmetic() {
+    assert_ok("fn f(a: matrix, b: matrix) { let c: matrix = a + b - a; let d: matrix = -a; }");
+    assert_ok("fn f(a: matrix, b: matrix) { let c: matrix = a * b; }");
+    assert_ok("fn f(a: matrix, v: [real]) { let c: [real] = a * v; }");
+    assert_ok(
+        "fn f(a: matrix, k: real) { let b: matrix = a * k; let c: matrix = k * a; let d: matrix = a / k; }",
+    );
+    assert_ok(
+        "fn f(a: matrix) { let b: matrix = a * 2; let c: matrix = 2 * a; let d: matrix = a / 2; }",
+    );
+    assert_ok("fn f(a: matrix, b: matrix) { let p: bool = a == b; let q = a != b; }");
+    assert_ok("fn f(a: matrix) { a += a; a *= 2.0; a /= 2.0; }");
+}
+
+#[test]
+fn matrix_arithmetic_errors() {
+    assert_error(
+        "fn f(a: matrix, v: [real]) { let c = v * a; }",
+        "cannot apply `*` to `[real]` and `matrix`",
+    );
+    assert_error(
+        "fn f(a: matrix, b: matrix) { let c = a / b; }",
+        "cannot apply `/` to `matrix` and `matrix`",
+    );
+    assert_error(
+        "fn f(a: matrix) { let c = a + 1.0; }",
+        "mismatched types: expected `matrix`, found `real` or `complex`",
+    );
+    assert_error(
+        "fn f(a: matrix) { let c = a + 1; }",
+        "mismatched types: expected `matrix`, found `int`, `real` or `complex`",
+    );
+    assert_error(
+        "fn f(a: matrix, v: vec3) { let c = a * v; }",
+        "cannot apply `*` to `matrix` and `vec3`",
+    );
+    assert_error(
+        "fn f(a: matrix, k: int) { let c = a * k; }",
+        "mismatched types: expected `real`, found `int`",
+    );
+    assert_error(
+        "fn f(a: matrix, b: matrix) { let c = a < b; }",
+        "cannot apply `<` to `matrix`",
+    );
+}
+
+#[test]
+fn matrix_built_ins() {
+    assert_ok(
+        "fn f() {
+             let m: matrix = matrix(2, 3);
+             let r: int = rows(m); let c: int = cols(m);
+             let a: [[real]] = to_rows(m);
+             let n: matrix = to_matrix(a);
+             let k: matrix = to_matrix([[1, 2], [3, 4]]);
+         }",
+    );
+    assert_error(
+        "fn f() { let m = matrix(2.5, 1); }",
+        "mismatched types: expected `int`, found `real` or `complex`",
+    );
+    assert_error(
+        "fn f(a: [[int]]) { let m = to_matrix(a); }",
+        "mismatched types: expected `[[real]]`, found `[[int]]`",
+    );
+    assert_error(
+        "fn f(a: [real]) { let m = rows(a); }",
+        "mismatched types: expected `matrix`, found `[real]`",
+    );
+}
+
+#[test]
+fn matrices_in_signatures_structs_and_arrays() {
+    assert_ok("fn g(m: matrix) -> matrix { return m; } fn f(m: matrix) { let n: matrix = g(m); }");
+    assert_ok(
+        "struct S { m: matrix } fn f() { let s = S { m: matrix(1, 1) }; let x: real = s.m[0, 0]; }",
+    );
+    assert_ok("fn f(a: [matrix], b: [matrix]) { let c: [matrix] = a + b; let d: matrix = a[0]; }");
+    assert_ok(
+        "fn f() { let a = [matrix(1, 1), matrix(2, 2)]; let b: [matrix] = push(a, matrix(0, 0)); }",
+    );
+    assert_ok("fn f(m: matrix) -> matrix? { return some(m); }");
+}
+
+#[test]
+fn matrices_in_generics() {
+    assert_ok(
+        "fn id<T>(x: T) -> T { return x; }
+         fn f(m: matrix) { let n: matrix = id(m); let k: real = id(m)[0, 0]; }",
+    );
+}
+
+const VEC: &str = "struct V { x: real, y: real }
+    operator +(a: V, b: V) -> V { return V { x: a.x + b.x, y: a.y + b.y }; }
+    operator -(a: V, b: V) -> V { return V { x: a.x - b.x, y: a.y - b.y }; }
+    operator -(a: V) -> V { return V { x: -a.x, y: -a.y }; }
+    operator *(k: real, a: V) -> V { return V { x: k * a.x, y: k * a.y }; }
+    operator *(a: V, k: real) -> V { return k * a; }
+    operator *(a: V, b: V) -> real { return a.x * b.x + a.y * b.y; }
+    operator <(a: V, b: V) -> bool { return a.x < b.x; }
+    ";
+
+fn with_vec(src: &str) -> String {
+    format!("{VEC}{src}")
+}
+
+#[test]
+fn operators_give_the_type_of_their_definition() {
+    assert_ok(&with_vec("fn f(a: V, b: V) -> V { return a + b; }"));
+    assert_ok(&with_vec("fn f(a: V, b: V) -> V { return a - b; }"));
+    assert_ok(&with_vec("fn f(a: V) -> V { return -a; }"));
+    assert_ok(&with_vec("fn f(a: V, b: V) -> real { return a * b; }"));
+    assert_ok(&with_vec("fn f(a: V, b: V) -> bool { return a < b; }"));
+    assert_ok(&with_vec("fn f(a: V, b: V) -> V { return (a + b) * 2.0; }"));
+    assert_error(
+        &with_vec("fn f(a: V, b: V) -> V { return a * b; }"),
+        "mismatched types: expected `V`, found `real`",
+    );
+    assert_error(
+        &with_vec("fn f(a: V, b: V) -> real { return a + b; }"),
+        "mismatched types: expected `real`, found `V`",
+    );
+    assert_error(
+        &with_vec("fn f(a: V, b: V) { let x: int = a < b; }"),
+        "mismatched types: expected `int`, found `bool`",
+    );
+}
+
+#[test]
+fn mixed_type_operators_work_in_both_orders() {
+    assert_ok(&with_vec(
+        "fn f(a: V, k: real) -> V { let x = k * a; let y = a * k; return x + y; }",
+    ));
+    assert_ok(&with_vec("fn f(a: V) -> V { return 2.0 * a; }"));
+    // Only `V * real` and `real * V` exist, not `V + real`.
+    assert_error(
+        &with_vec("fn f(a: V, k: real) -> V { return a + k; }"),
+        "cannot apply `+` to `V` and `real`",
+    );
+    assert_error(
+        &with_vec("fn f(a: V, k: real) -> V { return k + a; }"),
+        "cannot apply `+` to `real` and `V`",
+    );
+    assert_error(
+        &with_vec("fn f(a: V, k: int) -> V { return k * a; }"),
+        "cannot apply `*` to `int` and `V`",
+    );
+}
+
+#[test]
+fn no_fitting_definition() {
+    assert_error(
+        &with_vec("fn f(a: V, b: V) -> bool { return a > b; }"),
+        "cannot apply `>` to `V` and `V`",
+    );
+    assert_error(
+        &with_vec("fn f(a: V, b: V) -> V { return a / b; }"),
+        "cannot apply `/` to `V` and `V`",
+    );
+    assert_error(
+        &with_vec("fn f(a: V, b: V) -> V { return a % b; }"),
+        "cannot apply `%` to `V` and `V`",
+    );
+    assert_error(
+        "struct W { x: real } fn f(a: W) -> W { return -a; }",
+        "cannot apply `-` to `W`",
+    );
+    assert_error(
+        &with_vec("struct W { x: real } fn f(a: V, b: W) -> V { return a + b; }"),
+        "cannot apply `+` to `V` and `W`",
+    );
+}
+
+#[test]
+fn one_error_for_a_missing_operator() {
+    let errors = errors(&with_vec(
+        "fn f(a: V, b: V) { let x = a / b; let y = x + 1.0; }",
+    ));
+    assert_eq!(errors.len(), 1, "{errors:?}");
+}
+
+#[test]
+fn equality_stays_structural_and_the_rest_cannot_be_defined() {
+    assert_ok(&with_vec(
+        "fn f(a: V, b: V) -> bool { return a == b || a != b; }",
+    ));
+    // A literal that could be a real or a complex.
+    assert_error(
+        &with_vec("fn f(a: V) -> V { return a + 1.0; }"),
+        "cannot apply `+` to `V` and `real` or `complex`",
+    );
+}
+
+#[test]
+fn a_number_literal_takes_its_default_among_definitions() {
+    let defs = "struct V { x: real }
+        operator *(k: int, a: V) -> int { return k; }
+        operator *(k: real, a: V) -> real { return a.x; }
+        operator *(k: complex, a: V) -> bool { return true; }
+        ";
+    // `2` is an `int`, `2.0` a `real`, `2.0i` a `complex`.
+    assert_ok(&format!("{defs}fn f(v: V) -> int {{ return 2 * v; }}"));
+    assert_ok(&format!("{defs}fn f(v: V) -> real {{ return 2.0 * v; }}"));
+    assert_ok(&format!("{defs}fn f(v: V) -> bool {{ return 2.0i * v; }}"));
+    assert_error(
+        &format!("{defs}fn f(v: V) -> real {{ return 2 * v; }}"),
+        "mismatched types: expected `real`, found `int`",
+    );
+    // With only the `real` definition an integer literal becomes a real.
+    assert_ok(
+        "struct V { x: real } operator *(k: real, a: V) -> real { return k; }
+         fn f(v: V) -> real { return 2 * v; }",
+    );
+}
+
+#[test]
+fn a_definition_that_cannot_fit_is_not_chosen_for_literals() {
+    assert_error(
+        "struct V { x: real } operator *(k: int, a: V) -> int { return k; }
+         fn f(v: V) -> int { return 2.0 * v; }",
+        "cannot apply `*` to `real` or `complex` and `V`",
+    );
+}
+
+#[test]
+fn an_open_operand_can_make_the_choice_ambiguous() {
+    let defs = "struct V { x: real }
+        operator *(a: V, k: int) -> int { return k; }
+        operator *(a: V, k: real) -> real { return a.x; }
+        ";
+    assert_error(
+        &format!("{defs}fn f(v: V) {{ let a = []; let r = v * a[0]; }}"),
+        "several definitions of operator `*` fit `V` and any type, add a type annotation",
+    );
+}
+
+#[test]
+fn comparison_operators_work_in_conditions() {
+    assert_ok(&with_vec(
+        "fn f(a: V, b: V) { if a < b { } while a < b { } let c = a < b && b < a; }",
+    ));
+    assert_ok(
+        "enum Level { Low, High }
+         operator <(a: Level, b: Level) -> bool { return true; }
+         operator >=(a: Level, b: Level) -> bool { return true; }
+         fn f(a: Level, b: Level) -> bool { return a < b || a >= b; }",
+    );
+}
+
+#[test]
+fn comparison_operators_may_give_other_types() {
+    assert_ok(
+        "struct V { x: real }
+         operator <(a: V, b: V) -> real { return a.x - b.x; }
+         fn f(a: V, b: V) -> real { return a < b; }",
+    );
+    assert_error(
+        "struct V { x: real }
+         operator <(a: V, b: V) -> real { return a.x - b.x; }
+         fn f(a: V, b: V) { if a < b { } }",
+        "mismatched types: expected `bool`, found `real`",
+    );
+}
+
+#[test]
+fn compound_assignment_uses_the_operator() {
+    assert_ok(&with_vec(
+        "struct H { v: V } fn f(a: V, b: V, h: H, list: [V]) {
+            a += b; a -= b; a *= 2.0;
+            h.v += b;
+            list[0] += b;
+            list[0].x += 1.0;
+            h.v.x *= 2.0;
+        }",
+    ));
+}
+
+#[test]
+fn compound_assignment_result_must_fit_the_target() {
+    assert_error(
+        &with_vec("fn f(a: V, b: V) { a *= b; }"),
+        "mismatched types: expected `V`, found `real`",
+    );
+    assert_error(
+        &with_vec("struct H { v: V } fn f(h: H, b: V) { h.v *= b; }"),
+        "mismatched types: expected `V`, found `real`",
+    );
+    assert_error(
+        &with_vec("fn f(list: [V], b: V) { list[0] *= b; }"),
+        "mismatched types: expected `V`, found `real`",
+    );
+    assert_error(
+        &with_vec("fn f(a: V) { a /= a; }"),
+        "cannot apply `/` to `V` and `V`",
+    );
+}
+
+#[test]
+fn operators_on_enums_and_generic_structs() {
+    assert_ok(
+        "enum Money { Euro(int), Free }
+         operator +(a: Money, b: Money) -> Money { return a; }
+         operator -(a: Money) -> Money { return a; }
+         fn f(a: Money, b: Money) -> Money { let c = a + b; c += a; return -c; }",
+    );
+    assert_ok(
+        "struct Pair<T> { a: T, b: T }
+         operator +(p: Pair<real>, q: Pair<real>) -> Pair<real> { return p; }
+         fn f(p: Pair<real>) -> Pair<real> { return p + p; }",
+    );
+    // A definition for `Pair<real>` does not cover `Pair<int>`.
+    assert_error(
+        "struct Pair<T> { a: T, b: T }
+         operator +(p: Pair<real>, q: Pair<real>) -> Pair<real> { return p; }
+         fn f(p: Pair<int>) -> Pair<int> { return p + p; }",
+        "cannot apply `+` to `Pair<int>` and `Pair<int>`",
+    );
+    assert_ok(
+        "struct Pair<T> { a: T, b: T }
+         operator +(p: Pair<real>, q: Pair<real>) -> Pair<real> { return p; }
+         operator +(p: Pair<int>, q: Pair<int>) -> Pair<int> { return p; }
+         fn f(p: Pair<int>, q: Pair<real>) { let a = p + p; let b = q + q; }",
+    );
+}
+
+#[test]
+fn an_operator_body_may_use_other_operators_and_itself() {
+    assert_ok(&with_vec(
+        "operator +(a: V, k: real) -> V { return a + V { x: k, y: k }; }
+         operator /(a: V, k: real) -> V { return (1.0 / k) * a; }
+         fn f(a: V) -> V { return a + 1.0; }",
+    ));
+    assert_ok(
+        "enum N { Z, S(N) }
+         operator +(a: N, b: N) -> N {
+             match b { N::Z => { return a; } N::S(p) => { return N::S(a + p); } }
+         }",
+    );
+}
+
+#[test]
+fn precedence_is_not_changed_by_operators() {
+    assert_ok(&with_vec(
+        "fn f(a: V, b: V) -> V { return a + 2.0 * b - -a; }",
+    ));
+    assert_error(
+        &with_vec("fn f(a: V, b: V) -> V { return a + b * b; }"),
+        "cannot apply `+` to `V` and `real`",
+    );
+}
+
+#[test]
+fn operators_in_constants() {
+    assert_ok(&with_vec(
+        "const A: V = V { x: 1.0, y: 2.0 }; const B: V = A + A * 2.0; const C: V = -B;",
+    ));
+}
+
+#[test]
+fn builtin_arithmetic_is_not_replaced() {
+    assert_ok(&with_vec(
+        "fn f() -> real { return 1.0 + 2.0 * 3.0; } fn g(a: vec2) -> vec2 { return a + a; }",
+    ));
 }

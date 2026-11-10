@@ -503,3 +503,129 @@ fn constants_cannot_depend_on_the_run() {
     assert_error("fn length() { }", "`length` is a built-in function");
     assert_ok("fn f() { let args = 1; print(args); }");
 }
+
+#[test]
+fn an_operator_needs_a_struct_or_an_enum() {
+    assert_error(
+        "operator +(a: int, b: int) -> int { return a; }",
+        "operator `+` needs a struct or an enum among its parameters",
+    );
+    assert_error(
+        "operator -(a: real) -> real { return a; }",
+        "operator `-` needs a struct or an enum among its parameters",
+    );
+    assert_error(
+        "struct V { x: real } operator *(a: [V], k: real) -> real { return k; }",
+        "operator `*` needs a struct or an enum among its parameters",
+    );
+    assert_error(
+        "struct V { x: real } operator *(a: V?, k: real) -> real { return k; }",
+        "operator `*` needs a struct or an enum among its parameters",
+    );
+    assert_ok("struct V { x: real } operator *(k: real, a: V) -> V { return a; }");
+    assert_ok("enum Ev { A, B } operator <(a: Ev, b: Ev) -> bool { return true; }");
+    assert_ok("struct P<T> { a: T } operator +(a: P<real>, b: P<real>) -> P<real> { return a; }");
+}
+
+#[test]
+fn an_operator_is_defined_once_for_its_types() {
+    let v = "struct V { x: real } ";
+    assert_error(
+        &format!(
+            "{v}operator +(a: V, b: V) -> V {{ return a; }} operator +(a: V, b: V) -> V {{ return b; }}"
+        ),
+        "operator `+` is already defined for these types",
+    );
+    assert_error(
+        &format!("{v}operator -(a: V) -> V {{ return a; }} operator -(a: V) -> V {{ return a; }}"),
+        "operator `-` is already defined for these types",
+    );
+    // The return type does not tell definitions apart.
+    assert_error(
+        &format!(
+            "{v}operator <(a: V, b: V) -> bool {{ return true; }} operator <(a: V, b: V) -> int {{ return 1; }}"
+        ),
+        "operator `<` is already defined for these types",
+    );
+    // Other types, other operators, and the unary form are different definitions.
+    assert_ok(&format!(
+        "{v}operator +(a: V, b: V) -> V {{ return a; }}
+         operator +(a: V, b: real) -> V {{ return a; }}
+         operator +(a: real, b: V) -> V {{ return b; }}
+         operator -(a: V, b: V) -> V {{ return a; }}
+         operator -(a: V) -> V {{ return a; }}"
+    ));
+}
+
+#[test]
+fn operator_errors_are_reported_at_the_symbol() {
+    let src = "struct V { x: real } operator +(a: int, b: int) -> int { return a; } fn main() { }";
+    let tokens = kmpl_lexer::lex(src).unwrap();
+    let mut program = kmpl_parse::parse(tokens).unwrap();
+    let errors = crate::check(&mut program).unwrap_err();
+    let at = src.find("+(").unwrap();
+    assert_eq!(errors.len(), 1);
+    assert_eq!((errors[0].span.start, errors[0].span.end), (at, at + 1));
+}
+
+#[test]
+fn a_constant_cannot_use_an_operator_that_reads_a_late_constant() {
+    let v = "struct V { x: real } ";
+    assert_error(
+        &format!(
+            "{v}operator -(a: V) -> V {{ return V {{ x: LATE.x }}; }}
+             const C: V = -V {{ x: 1.0 }};
+             const LATE: V = V {{ x: 2.0 }};"
+        ),
+        "a constant cannot use this `-`: it reads `LATE`, which has no value yet",
+    );
+    assert_error(
+        &format!(
+            "{v}operator +(a: V, b: V) -> V {{ return V {{ x: a.x + LATE.x }}; }}
+             const C: V = V {{ x: 1.0 }} + V {{ x: 1.0 }};
+             const LATE: V = V {{ x: 2.0 }};"
+        ),
+        "a constant cannot use this `+`: it reads `LATE`, which has no value yet",
+    );
+    // Through a function the constant calls.
+    assert_error(
+        &format!(
+            "{v}operator +(a: V, b: V) -> V {{ return V {{ x: a.x + LATE.x }}; }}
+             fn f(a: V) -> V {{ return a + a; }}
+             const C: V = f(V {{ x: 1.0 }});
+             const LATE: V = V {{ x: 2.0 }};"
+        ),
+        "a constant cannot call `f`: it reads `LATE`, which has no value yet",
+    );
+    assert_ok(&format!(
+        "{v}operator +(a: V, b: V) -> V {{ return V {{ x: a.x + EARLY.x }}; }}
+         const EARLY: V = V {{ x: 2.0 }};
+         const C: V = EARLY + EARLY;"
+    ));
+}
+
+#[test]
+fn a_constant_cannot_use_an_operator_that_depends_on_the_run() {
+    let v = "struct V { x: real } ";
+    assert_error(
+        &format!(
+            "{v}operator +(a: V, b: V) -> V {{ return V {{ x: a.x + real(length(_io_args())) }}; }}
+             const C: V = V {{ x: 1.0 }} + V {{ x: 1.0 }};"
+        ),
+        "a constant cannot use this `+`: its value depends on how the program is run",
+    );
+}
+
+#[test]
+fn a_compound_assignment_operator_in_a_constant_function_is_followed() {
+    let v = "struct V { x: real } ";
+    assert_error(
+        &format!(
+            "{v}operator +(a: V, b: V) -> V {{ return V {{ x: a.x + LATE.x }}; }}
+             fn f() -> V {{ let a = V {{ x: 1.0 }}; a += a; return a; }}
+             const C: V = f();
+             const LATE: V = V {{ x: 2.0 }};"
+        ),
+        "a constant cannot call `f`: it reads `LATE`, which has no value yet",
+    );
+}

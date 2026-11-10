@@ -382,3 +382,19 @@ fn no_struct_literal_directly_in_headers() {
         "expected identifier, found number `1`"
     );
 }
+
+#[test]
+fn matrix_cell_assignment() {
+    assert_eq!(body("m[i, j] = 1;"), "[(index= m [i,j] 1)]");
+    assert_eq!(body("m[i, j] += 1;"), "[(index+= m [i,j] 1)]");
+    assert_eq!(body("m[i + 1, 2] = 1;"), "[(index= m [(+ i 1),2] 1)]");
+    assert_eq!(body("a.m[i, j] = 1;"), "[(index= a [.m i,j] 1)]");
+    assert_eq!(body("a[k][i, j] = 1;"), "[(index= a [k i,j] 1)]");
+    assert_eq!(body("a[k].m[i, j] -= 1;"), "[(index-= a [k .m i,j] 1)]");
+}
+
+#[test]
+fn matrix_cell_errors() {
+    assert!(body_error("m[i, j, k] = 1;").contains("expected `]`"));
+    assert!(body_error("m[i,] = 1;").contains("expected"));
+}

@@ -467,7 +467,7 @@ impl Linker<'_> {
             } => {
                 self.expr(value);
                 for step in path.iter_mut() {
-                    if let PathStep::Index(index) = step {
+                    for index in step.indices_mut() {
                         self.expr(index);
                     }
                 }
@@ -633,6 +633,11 @@ impl Linker<'_> {
             ExprKind::Index { base, index } => {
                 self.expr(base);
                 self.expr(index);
+            }
+            ExprKind::Cell { base, row, col } => {
+                self.expr(base);
+                self.expr(row);
+                self.expr(col);
             }
             ExprKind::Slice {
                 base, start, end, ..

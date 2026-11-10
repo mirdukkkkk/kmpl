@@ -379,7 +379,12 @@ fn assign_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
 
     let span = name.span.to(end);
     Ok(Stmt {
-        kind: StmtKind::Assign { name, op, value },
+        kind: StmtKind::Assign {
+            name,
+            op,
+            via: None,
+            value,
+        },
         span,
     })
 }
@@ -404,7 +409,9 @@ fn expr_stmt(ts: &mut TokenStream) -> PResult<Stmt> {
 /// `a[i]`, `a.x`, `a[i].x`, but not `f()[i]`: there is no variable to change.
 fn is_path_target(e: &Expr) -> bool {
     match &e.kind {
-        ExprKind::Index { base, .. } | ExprKind::Field { base, .. } => {
+        ExprKind::Index { base, .. }
+        | ExprKind::Cell { base, .. }
+        | ExprKind::Field { base, .. } => {
             matches!(base.kind, ExprKind::Var(_)) || is_path_target(base)
         }
         _ => false,
@@ -427,6 +434,7 @@ fn path_assign(ts: &mut TokenStream, target: Expr) -> PResult<Stmt> {
             name,
             path,
             op,
+            via: None,
             value,
         },
         span: start.to(end),
@@ -439,6 +447,11 @@ fn split_target(e: Expr, path: &mut Vec<PathStep>) -> Ident {
         ExprKind::Index { base, index } => {
             let name = split_target(*base, path);
             path.push(PathStep::Index(*index));
+            name
+        }
+        ExprKind::Cell { base, row, col } => {
+            let name = split_target(*base, path);
+            path.push(PathStep::Cell(*row, *col));
             name
         }
         ExprKind::Field { base, name: field } => {

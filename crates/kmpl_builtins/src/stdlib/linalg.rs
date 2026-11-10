@@ -1,75 +1,27 @@
-//! `std:linalg`. A `[[real]]` is copied into one flat array on the way in:
-//! that costs O(n^2), and the work done on it O(n^3).
+//! `std:linalg`, on the built-in `matrix`.
 
 use std::sync::Arc;
 
 use kmpl_ast::Type;
 
-use crate::{Builtin, ParamType, RetType, Value, ok, optional};
+use crate::ops::checked_line;
+use crate::{Builtin, Matrix, ParamType, RetType, Value, ok, optional};
 
-#[derive(Debug, Clone, PartialEq)]
-struct Dense {
-    rows: usize,
-    cols: usize,
-    /// Row after row.
-    data: Vec<f64>,
+const MATRIX: ParamType = ParamType::Exact(Type::Matrix);
+
+fn square<'a>(value: &'a Value, function: &str) -> Result<&'a Matrix, String> {
+    let matrix = value.as_matrix();
+    if matrix.rows != matrix.cols {
+        return Err(format!(
+            "`linalg.{function}` needs a square matrix, this one is {} by {}",
+            matrix.rows, matrix.cols
+        ));
+    }
+    Ok(matrix)
 }
 
-impl Dense {
-    fn read(value: &Value) -> Result<Dense, String> {
-        let rows = value.as_array();
-        let cols = rows.first().map_or(0, |row| row.as_reals().len());
-        let mut data = Vec::with_capacity(rows.len() * cols);
-        for row in rows {
-            let row = row.as_reals();
-            if row.len() != cols {
-                return Err("the rows of this matrix have different lengths".to_owned());
-            }
-            data.extend_from_slice(row);
-        }
-        Ok(Dense {
-            rows: rows.len(),
-            cols,
-            data,
-        })
-    }
-
-    fn read_square(value: &Value, function: &str) -> Result<Dense, String> {
-        let matrix = Dense::read(value)?;
-        if matrix.rows != matrix.cols {
-            return Err(format!(
-                "`linalg.{function}` needs a square matrix, this one is {} by {}",
-                matrix.rows, matrix.cols
-            ));
-        }
-        Ok(matrix)
-    }
-
-    fn into_value(self) -> Value {
-        let rows: Vec<Value> = match self.cols {
-            0 => vec![Value::Reals(Arc::new(Vec::new())); self.rows],
-            cols => self
-                .data
-                .chunks(cols)
-                .map(|row| Value::Reals(Arc::new(row.to_vec())))
-                .collect(),
-        };
-        Value::Array(Arc::new(rows))
-    }
-
-    fn transposed(&self) -> Dense {
-        let mut data = Vec::with_capacity(self.data.len());
-        for j in 0..self.cols {
-            for i in 0..self.rows {
-                data.push(self.data[i * self.cols + j]);
-            }
-        }
-        Dense {
-            rows: self.cols,
-            cols: self.rows,
-            data,
-        }
-    }
+fn wrap(matrix: Matrix) -> Value {
+    Value::Matrix(Arc::new(matrix))
 }
 
 /// `PA = LU`, with partial pivoting. `L` has ones on its diagonal, which are
@@ -85,10 +37,10 @@ struct Lu {
 }
 
 impl Lu {
-    fn new(matrix: Dense) -> Lu {
+    fn new(matrix: &Matrix) -> Lu {
         let n = matrix.rows;
         let scale = matrix.data.iter().fold(0.0f64, |m, x| m.max(x.abs()));
-        let mut data = matrix.data;
+        let mut data = matrix.data.clone();
         let mut order: Vec<usize> = (0..n).collect();
         let mut odd_swaps = false;
 
@@ -160,9 +112,9 @@ impl Lu {
         x
     }
 
-    fn inverse(&self) -> Dense {
+    fn inverse(&self) -> Matrix {
         let n = self.size;
-        let mut columns = Dense {
+        let mut columns = Matrix {
             rows: n,
             cols: n,
             data: Vec::with_capacity(n * n),
@@ -178,7 +130,7 @@ impl Lu {
     }
 }
 
-fn identity(n: i64) -> Result<Dense, String> {
+fn identity(n: i64) -> Result<Matrix, String> {
     let too_large = || format!("an identity matrix of size {n} is too large");
     let size = usize::try_from(n).map_err(|_| format!("a matrix cannot have size {n}"))?;
     let total = size.checked_mul(size).ok_or_else(too_large)?;
@@ -188,7 +140,7 @@ fn identity(n: i64) -> Result<Dense, String> {
     for i in 0..size {
         data[i * size + i] = 1.0;
     }
-    Ok(Dense {
+    Ok(Matrix {
         rows: size,
         cols: size,
         data,
@@ -199,10 +151,10 @@ pub(super) static BUILTINS: &[Builtin] = &[
     Builtin {
         name: "_linalg_solve",
         generic: &[],
-        params: &[ParamType::Matrix, ParamType::Reals],
+        params: &[MATRIX, ParamType::Reals],
         ret: RetType::OptionalReals,
         func: |a, _| {
-            let matrix = Dense::read_square(&a[0], "solve")?;
+            let matrix = square(&a[0], "solve")?;
             let b = a[1].as_reals();
             if b.len() != matrix.rows {
                 return Err(format!(
@@ -220,46 +172,44 @@ pub(super) static BUILTINS: &[Builtin] = &[
     Builtin {
         name: "_linalg_det",
         generic: &[],
-        params: &[ParamType::Matrix],
+        params: &[MATRIX],
         ret: RetType::Exact(Type::Real),
         func: |a, _| {
-            let matrix = Dense::read_square(&a[0], "det")?;
+            let matrix = square(&a[0], "det")?;
             ok(Value::Real(Lu::new(matrix).determinant()))
         },
     },
     Builtin {
         name: "_linalg_inverse",
         generic: &[],
-        params: &[ParamType::Matrix],
-        ret: RetType::OptionalMatrix,
+        params: &[MATRIX],
+        ret: RetType::Optional(Type::Matrix),
         func: |a, _| {
-            let lu = Lu::new(Dense::read_square(&a[0], "inverse")?);
-            ok(optional(
-                (!lu.is_singular()).then(|| lu.inverse().into_value()),
-            ))
+            let lu = Lu::new(square(&a[0], "inverse")?);
+            ok(optional((!lu.is_singular()).then(|| wrap(lu.inverse()))))
         },
     },
     Builtin {
         name: "_linalg_transpose",
         generic: &[],
-        params: &[ParamType::Matrix],
-        ret: RetType::Matrix,
-        func: |a, _| ok(Dense::read(&a[0])?.transposed().into_value()),
+        params: &[MATRIX],
+        ret: RetType::Exact(Type::Matrix),
+        func: |a, _| ok(wrap(a[0].as_matrix().transposed())),
     },
     Builtin {
         name: "_linalg_identity",
         generic: &[],
         params: &[ParamType::Exact(Type::Int)],
-        ret: RetType::Matrix,
-        func: |a, _| ok(identity(a[0].as_int())?.into_value()),
+        ret: RetType::Exact(Type::Matrix),
+        func: |a, _| ok(wrap(identity(a[0].as_int())?)),
     },
     Builtin {
         name: "_linalg_trace",
         generic: &[],
-        params: &[ParamType::Matrix],
+        params: &[MATRIX],
         ret: RetType::Exact(Type::Real),
         func: |a, _| {
-            let matrix = Dense::read_square(&a[0], "trace")?;
+            let matrix = square(&a[0], "trace")?;
             let sum = (0..matrix.rows).map(|i| matrix.data[i * matrix.rows + i]);
             ok(Value::Real(sum.sum()))
         },
@@ -267,12 +217,36 @@ pub(super) static BUILTINS: &[Builtin] = &[
     Builtin {
         name: "_linalg_norm",
         generic: &[],
-        params: &[ParamType::Matrix],
+        params: &[MATRIX],
         ret: RetType::Exact(Type::Real),
         func: |a, _| {
-            let matrix = Dense::read(&a[0])?;
+            let matrix = a[0].as_matrix();
             let squares: f64 = matrix.data.iter().map(|x| x * x).sum();
             ok(Value::Real(squares.sqrt()))
+        },
+    },
+    Builtin {
+        name: "_linalg_row",
+        generic: &[],
+        params: &[MATRIX, ParamType::Exact(Type::Int)],
+        ret: RetType::ArrayOf(Type::Real),
+        func: |a, _| {
+            let matrix = a[0].as_matrix();
+            let i = checked_line(a[1].as_int(), matrix.rows, "row")?;
+            let row = &matrix.data[i * matrix.cols..(i + 1) * matrix.cols];
+            ok(Value::Reals(Arc::new(row.to_vec())))
+        },
+    },
+    Builtin {
+        name: "_linalg_col",
+        generic: &[],
+        params: &[MATRIX, ParamType::Exact(Type::Int)],
+        ret: RetType::ArrayOf(Type::Real),
+        func: |a, _| {
+            let matrix = a[0].as_matrix();
+            let j = checked_line(a[1].as_int(), matrix.cols, "column")?;
+            let column = matrix.row_slices().map(|row| row[j]).collect();
+            ok(Value::Reals(Arc::new(column)))
         },
     },
 ];
@@ -281,8 +255,8 @@ pub(super) static BUILTINS: &[Builtin] = &[
 mod tests {
     use super::*;
 
-    fn dense(rows: usize, cols: usize, data: &[f64]) -> Dense {
-        Dense {
+    fn dense(rows: usize, cols: usize, data: &[f64]) -> Matrix {
+        Matrix {
             rows,
             cols,
             data: data.to_vec(),
@@ -295,7 +269,7 @@ mod tests {
 
     #[test]
     fn determinants() {
-        let det = |m| Lu::new(m).determinant();
+        let det = |m: Matrix| Lu::new(&m).determinant();
         assert!((det(dense(2, 2, &[1.0, 2.0, 3.0, 4.0])) + 2.0).abs() < 1e-12);
         // Needs a row swap, which flips the sign.
         assert_eq!(det(dense(2, 2, &[0.0, 1.0, 1.0, 0.0])), -1.0);
@@ -305,7 +279,7 @@ mod tests {
 
     #[test]
     fn solving_needs_pivoting_when_the_first_number_is_zero() {
-        let lu = Lu::new(dense(2, 2, &[0.0, 1.0, 2.0, 0.0]));
+        let lu = Lu::new(&dense(2, 2, &[0.0, 1.0, 2.0, 0.0]));
         assert!(!lu.is_singular());
         assert!(close(&lu.solve(&[3.0, 4.0]), &[2.0, 3.0]));
     }
@@ -314,7 +288,7 @@ mod tests {
     fn a_solution_satisfies_the_system() {
         let a = [4.0, -2.0, 1.0, -2.0, 4.0, -2.0, 1.0, -2.0, 4.0];
         let b = [11.0, -16.0, 17.0];
-        let x = Lu::new(dense(3, 3, &a)).solve(&b);
+        let x = Lu::new(&dense(3, 3, &a)).solve(&b);
         let back: Vec<f64> = (0..3)
             .map(|i| (0..3).map(|j| a[i * 3 + j] * x[j]).sum())
             .collect();
@@ -323,7 +297,7 @@ mod tests {
 
     #[test]
     fn singular_matrices_are_noticed() {
-        let singular = |m| Lu::new(m).is_singular();
+        let singular = |m: Matrix| Lu::new(&m).is_singular();
         assert!(singular(dense(2, 2, &[1.0, 2.0, 2.0, 4.0])));
         // Exactly singular, but rounding leaves a tiny pivot.
         assert!(singular(dense(2, 2, &[0.1, 0.2, 0.2, 0.4])));
@@ -343,7 +317,7 @@ mod tests {
     #[test]
     fn an_inverse_gives_the_identity() {
         let a = [2.0, 1.0, 1.0, 1.0, 3.0, 2.0, 1.0, 0.0, 0.0];
-        let inverse = Lu::new(dense(3, 3, &a)).inverse();
+        let inverse = Lu::new(&dense(3, 3, &a)).inverse();
         let mut product = vec![0.0; 9];
         for i in 0..3 {
             for j in 0..3 {
@@ -372,19 +346,14 @@ mod tests {
 
     #[test]
     fn bad_shapes_are_errors() {
-        let ragged = Value::Array(Arc::new(vec![
-            Value::Reals(Arc::new(vec![1.0])),
-            Value::Reals(Arc::new(vec![])),
-        ]));
-        assert!(
-            Dense::read(&ragged)
-                .unwrap_err()
-                .contains("different lengths")
-        );
-        let wide = Value::Array(Arc::new(vec![Value::Reals(Arc::new(vec![1.0, 2.0]))]));
+        let wide = wrap(dense(1, 2, &[1.0, 2.0]));
         assert_eq!(
-            Dense::read_square(&wide, "det").unwrap_err(),
+            square(&wide, "det").unwrap_err(),
             "`linalg.det` needs a square matrix, this one is 1 by 2"
+        );
+        assert_eq!(
+            checked_line(2, 2, "row").unwrap_err(),
+            "row 2 is out of bounds for a matrix with 2 rows"
         );
     }
 }

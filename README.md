@@ -4,7 +4,8 @@
 
 kmpl (Kepler Math Programming Language) is a small statically typed language
 for math, with Rust-like syntax and type inference. Complex numbers, vectors
-and matrices are part of the language.
+and matrices (a built-in `matrix` type of `real`) are part of the language, and
+programs can define `+ - * /` and comparisons for their own structs and enums.
 
 ```kmpl
 struct Body {
@@ -79,7 +80,7 @@ compiler stage and `--llvm-ir` prints the LLVM IR. `kmpl --help` lists the optio
 
 [`docs/language.md`](docs/language.md) is a short tour of the whole language.
 [`examples/`](examples) has working programs. Good ones to start with are
-[`structs`](examples/structs.kmpl), [`matrices`](examples/matrices.kmpl),
+[`structs`](examples/structs.kmpl), [`operators`](examples/operators.kmpl), [`matrix`](examples/matrix.kmpl), [`matrices`](examples/matrices.kmpl),
 [`generics`](examples/generics.kmpl), [`enums`](examples/enums.kmpl),
 [`linalg`](examples/linalg.kmpl), [`modules`](examples/modules.kmpl) and
 [`sum`](examples/sum.kmpl), which reads arguments and standard input.

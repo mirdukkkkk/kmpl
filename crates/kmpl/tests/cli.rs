@@ -696,16 +696,19 @@ fn linalg_reports_bad_shapes_as_errors() {
         stderr(&out)
     };
     assert!(
-        message("la_square", "print(linalg.det([[1.0, 2.0]]));")
+        message("la_square", "print(linalg.det([[1.0, 2.0]].to_matrix()));")
             .contains("`linalg.det` needs a square matrix, this one is 1 by 2")
     );
     assert!(
-        message("la_ragged", "print(linalg.norm([[1.0], []]));")
+        message("la_ragged", "print(linalg.norm([[1.0], []].to_matrix()));")
             .contains("the rows of this matrix have different lengths")
     );
     assert!(
-        message("la_vector", "print(linalg.solve([[1.0]], [1.0, 2.0]));")
-            .contains("a matrix with 1 rows and a vector of 2 numbers")
+        message(
+            "la_vector",
+            "print(linalg.solve([[1.0]].to_matrix(), [1.0, 2.0]));"
+        )
+        .contains("a matrix with 1 rows and a vector of 2 numbers")
     );
 }
 
@@ -761,10 +764,66 @@ fn linalg_works_in_a_constant_and_with_int_literals() {
     let out = run(
         "la_const",
         "import linalg from \"std:linalg\";
-         const D: real = linalg.det([[2, 0], [0, 3]]);
+         const D: real = linalg.det([[2, 0], [0, 3]].to_matrix());
          fn main() { print(D); print(linalg.identity(1) * [5.0]); }",
     );
     assert_eq!(stdout(&out), "6.0\n[5.0]\n", "{}", stderr(&out));
+}
+
+#[test]
+fn linalg_takes_rows_and_columns_of_a_matrix() {
+    let out = run(
+        "la_row_col",
+        "import linalg from \"std:linalg\";
+         fn main() {
+             let m = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]].to_matrix();
+             print(linalg.row(m, 1));
+             print(linalg.col(m, 2));
+             print(linalg.col(linalg.transpose(m), 1));
+         }",
+    );
+    assert_eq!(
+        stdout(&out),
+        "[4.0, 5.0, 6.0]\n[3.0, 6.0]\n[4.0, 5.0, 6.0]\n",
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn matrix_built_ins_read_well_with_a_dot() {
+    let out = run(
+        "matrix_dot",
+        "fn main() {
+             let m = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]].to_matrix();
+             print(m.rows()); print(m.cols());
+             print(m.to_rows()[1][2]);
+             print(m[1, 2]);
+         }",
+    );
+    assert_eq!(stdout(&out), "2\n3\n6.0\n6.0\n", "{}", stderr(&out));
+}
+
+#[test]
+fn linalg_row_and_col_report_bad_indices() {
+    let message = |name: &str, body: &str| {
+        let source = format!("import linalg from \"std:linalg\"; fn main() {{ {body} }}");
+        let out = run(name, &source);
+        assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+        stderr(&out)
+    };
+    assert!(
+        message("la_row_bad", "print(linalg.row(linalg.identity(2), 2));")
+            .contains("row 2 is out of bounds for a matrix with 2 rows")
+    );
+    assert!(
+        message("la_row_neg", "print(linalg.row(linalg.identity(2), -1));")
+            .contains("row -1 is out of bounds for a matrix with 2 rows")
+    );
+    assert!(
+        message("la_col_bad", "print(linalg.col(linalg.identity(2), 5));")
+            .contains("column 5 is out of bounds for a matrix with 2 columns")
+    );
 }
 
 #[test]
@@ -1052,6 +1111,209 @@ fn a_constant_cannot_use_input() {
     assert_eq!(out.status.code(), Some(1));
     assert!(
         stderr(&out).contains("its value depends on how the program is run"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+const VEC_MODULE: &str = "pub struct V { pub_x: real }
+operator +(a: V, b: V) -> V { return V { pub_x: a.pub_x + b.pub_x }; }
+operator -(a: V) -> V { return V { pub_x: -a.pub_x }; }
+operator *(k: real, a: V) -> V { return V { pub_x: k * a.pub_x }; }
+operator <(a: V, b: V) -> bool { return a.pub_x < b.pub_x; }
+pub fn make(x: real) -> V { return V { pub_x: x }; }
+pub fn show(a: V) -> real { return a.pub_x; }
+";
+
+#[test]
+fn operators_of_an_imported_module_work_without_importing_them() {
+    let out = run_project(
+        "operators_imported",
+        &[
+            (
+                "main.kmpl",
+                "import vec from \"./vec\";
+                 fn main() {
+                     let a = vec.make(1.5);
+                     let b = vec.make(2.0);
+                     print(vec.show(a + b));
+                     print(vec.show(-a));
+                     print(vec.show(2.0 * b));
+                     print(a < b);
+                     a += b;
+                     print(vec.show(a));
+                     const_use();
+                 }
+                 const K: real = 1.0;
+                 fn const_use() { print(vec.show(vec.make(K) + vec.make(K))); }",
+            ),
+            ("vec.kmpl", VEC_MODULE),
+        ],
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "3.5\n-1.5\n4.0\ntrue\n3.5\n2.0\n");
+}
+
+#[test]
+fn operators_work_with_names_imported_one_by_one() {
+    let out = run_project(
+        "operators_imported_names",
+        &[
+            (
+                "main.kmpl",
+                "import (V as Vector, make, show) from \"./vec\";
+                 fn main() {
+                     let a: Vector = make(1.0);
+                     print(show(a + 2.0 * a));
+                 }",
+            ),
+            ("vec.kmpl", VEC_MODULE),
+        ],
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "3.0\n");
+}
+
+#[test]
+fn a_missing_operator_for_imported_types_is_an_error() {
+    let out = run_project(
+        "operators_missing_imported",
+        &[
+            (
+                "main.kmpl",
+                "import vec from \"./vec\"; fn main() { let a = vec.make(1.0); print(vec.show(a * a)); }",
+            ),
+            ("vec.kmpl", VEC_MODULE),
+        ],
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).contains("cannot apply `*` to"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn a_private_type_with_operators_works_inside_its_module() {
+    let out = run_project(
+        "operators_private_type",
+        &[
+            (
+                "main.kmpl",
+                "import m from \"./m\"; fn main() { print(m.total(4)); }",
+            ),
+            (
+                "m.kmpl",
+                "struct Acc { n: int }
+                 operator +(a: Acc, b: Acc) -> Acc { return Acc { n: a.n + b.n }; }
+                 operator <(a: Acc, b: Acc) -> bool { return a.n < b.n; }
+                 pub fn total(k: int) -> int {
+                     let acc = Acc { n: 0 };
+                     for i in 1..=k { acc += Acc { n: i }; }
+                     if acc < (Acc { n: 100 }) { return acc.n; }
+                     return -1;
+                 }",
+            ),
+        ],
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "10\n");
+}
+
+#[test]
+fn a_main_file_can_define_operators_for_an_imported_type() {
+    let out = run_project(
+        "operators_for_imported_type",
+        &[
+            (
+                "main.kmpl",
+                "import vec from \"./vec\";
+                 operator /(a: vec.V, k: real) -> vec.V { return vec.make(vec.show(a) / k); }
+                 fn main() { print(vec.show(vec.make(9.0) / 3.0)); }",
+            ),
+            ("vec.kmpl", VEC_MODULE),
+        ],
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "3.0\n");
+}
+
+#[test]
+fn two_modules_may_define_the_same_operator_for_their_own_types() {
+    let def = |name: &str| {
+        format!(
+            "pub struct T {{ n: int }}
+             operator +(a: T, b: T) -> T {{ return T {{ n: a.n + b.n + {name} }}; }}
+             pub fn make(n: int) -> T {{ return T {{ n: n }}; }}
+             pub fn add(a: T, b: T) -> int {{ return (a + b).n; }}"
+        )
+    };
+    let (a, b) = (def("100"), def("200"));
+    let out = run_project(
+        "operators_two_modules",
+        &[
+            (
+                "main.kmpl",
+                "import a from \"./a\"; import b from \"./b\";
+                 fn main() { print(a.add(a.make(1), a.make(2))); print(b.add(b.make(1), b.make(2))); }",
+            ),
+            ("a.kmpl", &a),
+            ("b.kmpl", &b),
+        ],
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "103\n203\n");
+}
+
+#[test]
+fn runtime_errors_in_an_imported_operator_name_its_file() {
+    let out = run_project(
+        "operators_runtime_error_file",
+        &[
+            (
+                "main.kmpl",
+                "import vec from \"./vec\";\nfn main() { let a = vec.make(1); print(vec.show(a / a)); }\n",
+            ),
+            (
+                "vec.kmpl",
+                "pub struct V { n: int }\noperator /(a: V, b: V) -> V {\n    return V { n: a.n / b.n };\n}\npub fn make(n: int) -> V { return V { n: n - 1 }; }\npub fn show(a: V) -> int { return a.n; }\n",
+            ),
+        ],
+    );
+    assert_eq!(out.status.code(), Some(1));
+    let err = stderr(&out);
+    assert!(err.contains("division by zero"), "{err}");
+    assert!(err.contains("vec.kmpl:3:19"), "{err}");
+}
+
+#[test]
+fn an_operator_error_in_an_imported_module_names_its_file() {
+    let out = run_project(
+        "operators_check_error_file",
+        &[
+            ("main.kmpl", "import a from \"./a\";\nfn main() { }\n"),
+            (
+                "a.kmpl",
+                "\noperator +(a: int, b: int) -> int { return a; }\n",
+            ),
+        ],
+    );
+    assert_eq!(out.status.code(), Some(1));
+    let err = stderr(&out);
+    assert!(err.contains("needs a struct or an enum"), "{err}");
+    assert!(err.contains("a.kmpl:2:10"), "{err}");
+}
+
+#[test]
+fn pub_before_an_operator_is_an_error() {
+    let out = run(
+        "pub_operator",
+        "struct V { x: real }\npub operator -(a: V) -> V { return a; }\nfn main() { }\n",
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).contains("an operator needs no `pub`: it works wherever its types do"),
         "{}",
         stderr(&out)
     );

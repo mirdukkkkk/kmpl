@@ -18,9 +18,7 @@
 
 use std::collections::HashMap;
 
-use kmpl_ast::{
-    Block, Expr, ExprKind, Function, Ident, Item, MatchArm, PathStep, Program, Stmt, StmtKind,
-};
+use kmpl_ast::{Block, Expr, ExprKind, Function, Ident, Item, MatchArm, Program, Stmt, StmtKind};
 
 use crate::error::CheckError;
 
@@ -115,7 +113,9 @@ impl<'a> InitChecker<'a> {
                 }
                 false
             }
-            StmtKind::Assign { name, op, value } => {
+            StmtKind::Assign {
+                name, op, value, ..
+            } => {
                 self.expr(value);
                 if op.is_some() {
                     self.read(name);
@@ -130,7 +130,7 @@ impl<'a> InitChecker<'a> {
             } => {
                 self.expr(value);
                 for step in path {
-                    if let PathStep::Index(index) = step {
+                    for index in step.indices() {
                         self.expr(index);
                     }
                 }
@@ -314,6 +314,11 @@ impl<'a> InitChecker<'a> {
             ExprKind::Index { base, index } => {
                 self.expr(base);
                 self.expr(index);
+            }
+            ExprKind::Cell { base, row, col } => {
+                self.expr(base);
+                self.expr(row);
+                self.expr(col);
             }
             ExprKind::Slice {
                 base, start, end, ..

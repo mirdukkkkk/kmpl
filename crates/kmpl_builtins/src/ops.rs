@@ -8,6 +8,8 @@
 //! `&&` and `||` are not here: they skip the right side, so they are
 //! lowered to branches.
 //!
+//! A `matrix` has its own file, `matrix.rs`.
+//!
 //! Arrays: `+`, `-` and unary `-` work element by element, an array with a
 //! non-array applies the operator to every element, and `*` on two arrays
 //! is the matrix product. Lengths are only known here, so a size mismatch
@@ -15,7 +17,7 @@
 
 use std::sync::Arc;
 
-use crate::Value;
+use crate::{Value, matrix};
 use kmpl_ast::{BinOp, UnOp};
 
 pub fn unary(op: UnOp, v: Value) -> Result<Value, String> {
@@ -31,6 +33,7 @@ pub fn unary(op: UnOp, v: Value) -> Result<Value, String> {
             re: 0.0 - re,
             im: 0.0 - im,
         },
+        (UnOp::Neg, Value::Matrix(m)) => matrix::negated(m),
         (UnOp::Neg, Value::Array(items)) => map_array(items, |x| unary(op, x.clone()))?,
         (UnOp::Neg, Value::Reals(items)) => {
             Value::Reals(Arc::new(items.iter().map(|x| -x).collect()))
@@ -48,12 +51,16 @@ pub fn unary(op: UnOp, v: Value) -> Result<Value, String> {
 }
 
 pub fn binary(op: BinOp, l: Value, r: Value) -> Result<Value, String> {
-    use Value::{Array, Bool, Complex, Int, Ints, Real, Reals, Str};
+    use Value::{Array, Bool, Complex, Int, Ints, Matrix, Real, Reals, Str};
 
     let result = match (op, &l, &r) {
         (BinOp::Eq, ..) => Bool(l == r),
         (BinOp::Ne, ..) => Bool(l != r),
 
+        // Before the arrays: `matrix * [real]` is not element by element.
+        (_, Matrix(_), Reals(_) | Real(_) | Matrix(_)) | (_, Real(_), Matrix(_)) => {
+            matrix::binary(op, &l, &r)?.unwrap_or_else(|| bug(op, &l, &r))
+        }
         (_, Reals(_) | Ints(_), _) | (_, _, Reals(_) | Ints(_)) => flat_op(op, &l, &r)?,
         (_, Array(a), Array(b)) => array_op(op, a, &r, b)?,
         (_, Array(a), _) => map_array(a, |x| binary(op, x.clone(), r.clone()))?,
@@ -408,6 +415,17 @@ pub fn checked_index(i: i64, len: usize) -> Result<usize, String> {
         Ok(position) if position < len => Ok(position),
         _ => Err(format!(
             "index {i} is out of bounds for an array of length {len}"
+        )),
+    }
+}
+
+/// `i` as the number of a row or a column of a matrix that has `count` of
+/// them. `what` is `"row"` or `"column"`.
+pub fn checked_line(i: i64, count: usize, what: &str) -> Result<usize, String> {
+    match usize::try_from(i) {
+        Ok(position) if position < count => Ok(position),
+        _ => Err(format!(
+            "{what} {i} is out of bounds for a matrix with {count} {what}s"
         )),
     }
 }

@@ -28,7 +28,7 @@ fn split_edges_passing_values(f: &mut Function) {
     let shared = |reg: &Reg| {
         !matches!(
             &types[reg.0 as usize],
-            Ty::Prim(ty) if !matches!(ty, Type::Str | Type::Bytes)
+            Ty::Prim(ty) if !matches!(ty, Type::Str | Type::Bytes | Type::Matrix)
         )
     };
 

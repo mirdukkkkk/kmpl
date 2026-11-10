@@ -30,7 +30,7 @@ fn list_text(types: &[TypeExpr]) -> String {
     names.join(", ")
 }
 
-fn type_text(ty: &TypeExpr) -> String {
+pub(crate) fn type_text(ty: &TypeExpr) -> String {
     match ty {
         TypeExpr::Known(ty) => type_name(*ty).to_owned(),
         TypeExpr::Param(name) => name.name.clone(),

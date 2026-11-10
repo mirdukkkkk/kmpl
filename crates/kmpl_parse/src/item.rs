@@ -1,9 +1,9 @@
-//! Top-level items: `const` and `fn`.
+//! Top-level items: `const`, `fn`, `operator`, `struct` and `enum`.
 
 use kmpl_ast::{
-    Block, Const, EnumDef, EnumVariant, Expr, ExprKind, Function, Generic, Ident, Import,
-    ImportNames, ImportedItem, Item, Lambda, Param, Program, Span, StructDef, StructField, Type,
-    TypeExpr,
+    BinOp, Block, Const, EnumDef, EnumVariant, Expr, ExprKind, Function, Generic, Ident, Import,
+    ImportNames, ImportedItem, Item, Lambda, Operator, Param, Program, Span, StructDef,
+    StructField, Type, TypeExpr,
 };
 use kmpl_lexer::Token;
 
@@ -22,8 +22,17 @@ pub fn program(ts: &mut TokenStream) -> PResult<Program> {
     let mut items = Vec::new();
     let mut public = Vec::new();
     while !ts.at_end() {
-        let is_public = ts.eat(&Token::Pub).is_some();
-        let parsed = item(ts)?;
+        let public_span = ts.eat(&Token::Pub);
+        let is_public = public_span.is_some();
+        let parsed = item(ts, items.len())?;
+        if let (Some(span), Item::Function(f)) = (public_span, &parsed)
+            && f.operator.is_some()
+        {
+            return Err(ParseError::new(
+                "an operator needs no `pub`: it works wherever its types do",
+                span,
+            ));
+        }
         if is_public {
             public.push(item_name(&parsed).name.clone());
         }
@@ -100,13 +109,17 @@ fn imported_items(ts: &mut TokenStream) -> PResult<Vec<ImportedItem>> {
     Ok(items)
 }
 
-fn item(ts: &mut TokenStream) -> PResult<Item> {
+/// `index` is the position of the item in its file.
+fn item(ts: &mut TokenStream, index: usize) -> PResult<Item> {
+    if at_word(ts, "operator") {
+        return Ok(Item::Function(operator(ts, index)?));
+    }
     match ts.peek() {
         Some(Token::Const) => Ok(Item::Const(const_item(ts)?)),
         Some(Token::Fn) => Ok(Item::Function(function(ts)?)),
         Some(Token::Struct) => Ok(Item::Struct(struct_def(ts)?)),
         Some(Token::Enum) => Ok(Item::Enum(enum_def(ts)?)),
-        _ => Err(ts.error_expected("`const`, `fn`, `struct` or `enum`")),
+        _ => Err(ts.error_expected("`const`, `fn`, `operator`, `struct` or `enum`")),
     }
 }
 
@@ -266,7 +279,80 @@ fn function(ts: &mut TokenStream) -> PResult<Function> {
 
     Ok(Function {
         name,
+        operator: None,
         generics,
+        params,
+        ret,
+        body,
+        span: start.to(end),
+    })
+}
+
+/// `'operator' op '(' params ')' '->' type block`. `operator` is a word with
+/// a meaning only where an item starts, so it stays an ordinary name.
+///
+/// The function gets a name no program can write, which keeps several
+/// definitions of one operator apart: `operator#add#3` for item 3.
+fn operator(ts: &mut TokenStream, index: usize) -> PResult<Function> {
+    let start = ts.peek_span();
+    ts.next();
+
+    let symbol_span = ts.peek_span();
+    let (binary, word) = match ts.peek() {
+        Some(Token::Plus) => (BinOp::Add, "add"),
+        Some(Token::Minus) => (BinOp::Sub, "sub"),
+        Some(Token::Star) => (BinOp::Mul, "mul"),
+        Some(Token::Slash) => (BinOp::Div, "div"),
+        Some(Token::Percent) => (BinOp::Rem, "rem"),
+        Some(Token::Lt) => (BinOp::Lt, "lt"),
+        Some(Token::Le) => (BinOp::Le, "le"),
+        Some(Token::Gt) => (BinOp::Gt, "gt"),
+        Some(Token::Ge) => (BinOp::Ge, "ge"),
+        _ => {
+            return Err(ts.error_expected("one of the operators `+ - * / % < <= > >=`"));
+        }
+    };
+    ts.next();
+
+    let (params, ret, body, end) = signature_and_body(ts)?;
+    let operator = match (binary, params.len()) {
+        (BinOp::Sub, 1) => Operator::Neg,
+        (_, 2) => Operator::Binary(binary),
+        (BinOp::Sub, _) => {
+            return Err(ParseError::new(
+                "operator `-` takes one or two parameters",
+                symbol_span,
+            ));
+        }
+        _ => {
+            return Err(ParseError::new(
+                format!(
+                    "operator `{}` takes two parameters",
+                    Operator::Binary(binary).symbol()
+                ),
+                symbol_span,
+            ));
+        }
+    };
+    if ret.is_none() {
+        return Err(ParseError::new(
+            "an operator gives a value: write `-> type` after its parameters",
+            symbol_span,
+        ));
+    }
+
+    let word = if operator == Operator::Neg {
+        "neg"
+    } else {
+        word
+    };
+    Ok(Function {
+        name: Ident {
+            name: format!("operator#{word}#{index}"),
+            span: symbol_span,
+        },
+        operator: Some(operator),
+        generics: Vec::new(),
         params,
         ret,
         body,

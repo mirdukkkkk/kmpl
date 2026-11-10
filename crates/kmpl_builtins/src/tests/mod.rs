@@ -22,6 +22,11 @@ fn sample(ty: Type) -> Value {
         Type::Vec4 => Value::Vec4([1.0, 2.0, 3.0, 4.0]),
         Type::Str => Value::Str("text".into()),
         Type::Bytes => Value::Bytes(std::sync::Arc::new(vec![1, 2])),
+        Type::Matrix => Value::Matrix(std::sync::Arc::new(crate::Matrix {
+            rows: 1,
+            cols: 1,
+            data: vec![2.0],
+        })),
     }
 }
 
@@ -107,6 +112,9 @@ fn signatures_match_implementations() {
                 "_text_join",
                 "_time_sleep",
                 "_random_int",
+                // The sample index is outside the 1x1 sample matrix.
+                "_linalg_row",
+                "_linalg_col",
             ]
             .contains(&b.name)
             {
@@ -129,7 +137,7 @@ fn signatures_match_implementations() {
                         Value::Optional(Some(std::sync::Arc::new(sample(t))))
                     }
                     ParamType::Reals => Value::Reals(std::sync::Arc::new(vec![2.0])),
-                    ParamType::Matrix => Value::Array(std::sync::Arc::new(vec![Value::Reals(
+                    ParamType::Rows => Value::Array(std::sync::Arc::new(vec![Value::Reals(
                         std::sync::Arc::new(vec![2.0]),
                     )])),
                     ParamType::Collection | ParamType::ArrayOfElem => {
@@ -144,11 +152,11 @@ fn signatures_match_implementations() {
                 assert!(matches!(result, Some(Value::Array(_))), "`{}`", b.name);
                 continue;
             }
-            if matches!(b.ret, RetType::Matrix) {
+            if matches!(b.ret, RetType::Rows) {
                 assert!(matches!(result, Some(Value::Array(_))), "`{}`", b.name);
                 continue;
             }
-            if matches!(b.ret, RetType::OptionalMatrix | RetType::OptionalReals) {
+            if matches!(b.ret, RetType::OptionalReals) {
                 assert!(matches!(result, Some(Value::Optional(_))), "`{}`", b.name);
                 continue;
             }
@@ -182,8 +190,7 @@ fn signatures_match_implementations() {
                 | RetType::ArrayOf(_)
                 | RetType::Pair(..)
                 | RetType::Optional(_)
-                | RetType::Matrix
-                | RetType::OptionalMatrix
+                | RetType::Rows
                 | RetType::OptionalReals => {
                     unreachable!("handled above")
                 }
